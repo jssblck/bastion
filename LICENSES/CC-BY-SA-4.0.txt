@@ -1,0 +1,11 @@
+Creative Commons Attribution-ShareAlike 4.0 International
+
+SPDX-License-Identifier: CC-BY-SA-4.0
+
+Bastion documentation, images, visual assets, and other written or creative
+content are licensed under the Creative Commons Attribution-ShareAlike 4.0
+International Public License unless a file or directory says otherwise.
+
+Canonical license text:
+
+https://creativecommons.org/licenses/by-sa/4.0/legalcode.en

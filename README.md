@@ -1,0 +1,92 @@
+# Bastion
+
+> Agentic code review for a world where agents write all of the code.
+
+Bastion runs code review as a set of **single-concern reviewers** — focused agent
+prompts, each responsible for exactly one property — over a changeset. The same
+reviewers run locally (fast, pre-PR) and in CI (authoritative), and their
+verdicts aggregate into one merge gate. The human moves from reviewing diffs to
+authoring, curating, and governing the reviewers.
+
+The `bastion` CLI is the local surface: an authoring agent loops `bastion review`
+until green, then opens a PR that CI largely just confirms.
+
+## Status
+
+- **Experimental, and a walking skeleton.** The data and routing layers are real
+  and tested — the reviewer registry, trigger routing, the verdict and event
+  schemas, the on-disk run store, and human/JSONL rendering all work. The agent
+  **backends that actually execute a reviewer** (Claude Code, Codex, Pi) and the
+  parallel, timeout-bounded runner are not yet implemented; `bastion review`
+  routes and then fails closed where execution would happen.
+- Rust 2024 project using `cargo`. Single binary, `bastion`.
+- The design is specified in detail under [`docs/`](docs/); the code implements
+  the local surface from [`docs/LOCAL.md`](docs/LOCAL.md).
+
+## How it works
+
+A reviewer is declared in `bastion/reviewers.yaml` — a prompt, the file globs that
+trigger it, whether it gates or advises, and an optional execution environment:
+
+```yaml
+reviewers:
+  - name: single-responsibility
+    trigger: [src/**/*.rs]
+    mode: gate
+    prompt: |
+      Block the PR if any one file in the changeset concentrates too many
+      responsibilities; otherwise approve it.
+```
+
+`bastion review` computes the files changed against the base branch, selects the
+reviewers whose triggers match, runs them, and renders progress and verdicts. An
+agent passes `--format jsonl` to read a machine stream instead of human output.
+
+## Quick start
+
+```sh
+# Build and check the version (derived from the git tag, else short SHA).
+cargo build --release
+./target/release/bastion --version
+
+# Run the reviewers triggered by your working-tree changes against a base branch.
+bastion review --base main
+
+# Read it as a machine stream instead.
+bastion review --base main --format jsonl
+
+# Inspect saved runs after the fact.
+bastion runs
+bastion show
+bastion transcript <reviewer>
+
+# Generate a CODEOWNERS block that protects the reviewer policy (GitHub adapter).
+bastion github codeowners --owner @your-org/platform
+```
+
+See [`docs/LOCAL.md`](docs/LOCAL.md) for the full local surface and the on-disk
+data directory layout.
+
+## Versioning
+
+`bastion --version` is derived at build time from `git describe --tags`: a release
+tag when one is reachable, otherwise the short commit SHA, with a `-dirty` suffix
+when the working tree has uncommitted changes. Release builds may pin it via the
+`BASTION_VERSION` environment variable.
+
+## License
+
+Bastion follows the repository license split described in `NOTICE`: runtime
+software is AGPL-3.0-or-later, while documentation and creative content are
+CC-BY-SA-4.0 unless a file says otherwise.
+
+## Documentation
+
+- [Design](docs/DESIGN.md) — the core system: reviewers, verdicts, the merge gate.
+- [Bastion on GitHub](docs/GITHUB.md) — the CI adapter: Actions, checks, governance.
+- [Bastion locally](docs/LOCAL.md) — the local CLI surface this crate implements.
+- [Security policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Agent guidance](AGENTS.md)
+- [Repo-local Rust skills](.agents/skills/readme.md)

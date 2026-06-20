@@ -1,0 +1,24 @@
+Bastion
+
+Copyright (c) 2026 Jessica Black
+
+This repository contains Bastion, an agentic code-review system in which
+single-concern reviewers run as fitness functions over a changeset, locally and
+in CI.
+
+Unless a file or directory says otherwise:
+
+- Software, runtime configuration, scripts, package metadata, and other runtime
+  material are licensed under the GNU Affero General Public License version 3 or
+  later (AGPL-3.0-or-later). See LICENSE.
+- Documentation, images, visual assets, and other written or creative content
+  are licensed under the Creative Commons Attribution-ShareAlike 4.0
+  International Public License (CC-BY-SA-4.0). See LICENSES/CC-BY-SA-4.0.txt.
+
+Third-party dependencies and externally sourced material remain under their own
+licenses. Vendored or generated content with a different license should
+identify that license in or near the affected file or directory.
+
+Repo-local agent guidance under `.agents/skills/` keeps source and attribution
+notes in `.agents/skills/readme.md`; externally sourced guidance remains subject
+to its own upstream license terms where identified.

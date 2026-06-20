@@ -1,0 +1,22 @@
+# Rust build output
+/target/
+
+# Rust backup files
+**/*.rs.bk
+
+# Coverage and profiling output
+tarpaulin-report.html
+*.profraw
+*.profdata
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Bastion local state (the data directory is platform-resolved; this covers a
+# repo-local override via BASTION_DATA_DIR=.bastion)
+/.bastion/

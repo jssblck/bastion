@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: bastion-linux-x86_64
+          - os: macos-latest
+            artifact: bastion-macos-arm64
+          - os: windows-latest
+            artifact: bastion-windows-x86_64
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # full history so git describe can find the tag
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --locked
+      - name: Package binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "dist/${{ matrix.artifact }}"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp target/release/bastion.exe README.md LICENSE NOTICE "dist/${{ matrix.artifact }}/"
+            7z a -tzip "dist/${{ matrix.artifact }}.zip" "./dist/${{ matrix.artifact }}"
+          else
+            cp target/release/bastion README.md LICENSE NOTICE "dist/${{ matrix.artifact }}/"
+            tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C dist "${{ matrix.artifact }}"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+
+  publish:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/* --generate-notes
