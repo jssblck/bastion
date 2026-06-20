@@ -17,10 +17,9 @@ Agents now write most of the code on a growing number of teams. Output volume is
 
 ### Why existing agentic reviewers don't fit
 
-There's a lot of existing code review agents, like GitHub Copilot or CodeRabbit.
-They do a decent job!
+There's a lot of existing code review agents, like GitHub Copilot or CodeRabbit. They do a decent job.
 
-But... they're built for the _old_ world. Agentic review, yes, but _for humans writing code_.
+But they're built for the _old_ world: agentic review, yes, but _for humans writing code_.
 They obviously market themselves as for agents too, but they fundamentally are designed
 in such a way that they are not well-suited for the _new_ world of agentic code review.
 
@@ -47,10 +46,13 @@ What does that look like in practice? The core principles are:
 1. **One concern per reviewer.** Single-responsibility reviewers stay at high recall and confidence. The unit of the system is _the reviewer_, not _the review_. Cross-cutting properties are not special: a concern like tenant isolation or migration safety is just another reviewer whose single concern is that property. You cover more ground by adding narrow reviewers, never by broadening one.
 2. **Reviewers run in the author's own loop**, not just in CI. The same reviewer runs locally (fast, pre-PR) and in CI (authoritative). CI becomes a confirmation that's almost always green, instead of a slow surprise.
 3. **Human at the policy layer.** The goal is not human-out-of-the-loop. It's to _relocate the human from reviewing diffs to authoring, curating, and governing reviewers_, plus triaging escapes. The human's interface becomes the reviewer registry and the escape feed. Bastion is best thought of as a product of _governance_ or _consensus_. The reviewers are the agents you already trust.
-4. **Even aligned agents acting in earnest can inadvertently game the system.** The system must tolerate this, and the human governance layer must be able to detect and correct it. The goal is not to categorically prevent gaming; this is likely impossible without giving up the very benefits of agentic development in the first place. The goalk is to make gaming visible when it happens and to make it easy to fix by adjusting the reviewers.
+4. **Even aligned agents acting in earnest can inadvertently game the system.** The system must tolerate this, and the human governance layer must be able to detect and correct it. The goal is not to categorically prevent gaming; this is likely impossible without giving up the very benefits of agentic development in the first place. The goal is to make gaming visible when it happens and to make it easy to fix by adjusting the reviewers.
 5. **Convergence over time is better than strict perfection up front.** The escape → improvement loop is the heart of the system. It's better to have a reviewer that's "good enough" and then improve it based on real escapes, than to try to design a perfect reviewer from the start. The system is designed to be iteratively improved based on real-world feedback. This is again a governance story: the human team is responsible for the reviewers, and they can adjust them as needed based on the escapes that happen in production; the reviewers will never get everything perfectly correct but over time humans can steer them in the right direction based on real feedback from the codebase and agents merging code.
-6. **No guarantee of correctness.** Bastion does not guarantee that the code is free of bugs or security vulnerabilities; it's like human code review without the human. The agent code reviewers can only be as good as the underlying model they are using, and from there only as good as the prompt directing their review.
-7. **No guarantee that the right thing is being built.** One aspect of human review before agentic development was that a reviewer could catch something that was fundamentally wrong being built before it got merged. This was always a tricky part of the review process; in the vast majority of orgs this was rarely if ever exercised because by the time the code made it to PR review the ship had sailed; the correct time to resolve this was at design time. Bastion does not attempt to solve this problem; it is still important that humans are involved in the design process and directing the agents to build the right thing for the needs of the project.
+
+Bastion also makes two non-guarantees explicit:
+
+- **No guarantee of correctness.** Bastion does not guarantee that the code is free of bugs or security vulnerabilities; it's like human code review without the human. The agent code reviewers can only be as good as the underlying model they are using, and from there only as good as the prompt directing their review.
+- **No guarantee that the right thing is being built.** Catching "this is the wrong thing to build" was never review's job, human _or_ agent. By PR time the ship has sailed; that's a design-time question. Bastion doesn't change that: keep humans in the design loop, and point your agents at what the project needs; Bastion operates under the implicit assumption that all PRs are at the very least directionally aligned with the goals of the project.
 
 ---
 
@@ -83,7 +85,7 @@ Formalized, Bastion is built around the following threat model:
 
 A reviewer is a bundle: **prompt + trigger + mode + backend + capabilities + (optional) environment**. We call it the reviewer's _execution profile_.
 
-**Least privilege is the default.** This isn't intended as anti-exfil hardening but as plain hygiene and to keep the common case fast: a reviewer gets no network, no secrets, and no tools unless it asks. Most reviewers are hermetic and need nothing but the checkout and a model.
+**Least privilege is the default.** This isn't intended as anti-exfil hardening but as plain hygiene and to keep the common case fast: a reviewer gets no network, no secrets, and no tools unless it asks. Most reviewers are hermetic and need nothing but the checkout and a model. Access to the model provider is always permitted, since every reviewer needs it; `network: true` is the opt-in for _general_ outbound network beyond that.
 
 Reviewers are **composable**. They run independently and asynchronously, and their verdicts are aggregated at the end. This means you can add a new reviewer for a concern without affecting the existing ones, and you can have some reviewers that run fast and others that run slow without blocking the whole process.
 
@@ -188,6 +190,8 @@ findings:               # Allow the reviewer to point to specific files and line
   detail: "..."
 ```
 
+The top-level `verdict` is the authoritative gate decision; `findings` explain it. A `block` should carry at least one `blocking` finding (the reason it blocked), while a `pass` may still include `optional` findings as non-blocking suggestions. A finding's `kind` affects how a comment is surfaced, not the gate outcome; only `verdict` decides that.
+
 Bastion requests the structured output, then parses the final agent turn against the schema requested. If the reviewer agent doesn't provide complying output, Bastion re-runs the same session with a new turn explaining the schema again and asking for just the structured output of the work already performed.
 
 Reviewer agents that continually fail (either unable to produce structured output, timeouts, or simple execution failures) are failed closed if they are a gate, and skipped if they are an advisor.
@@ -203,7 +207,9 @@ Given this, aggregation is async with per-reviewer timeouts and error handling; 
 - **Fail-closed gates.** A _gate_ that crashes, times out, or can't produce a valid verdict resolves to **block / needs-attention**, never silent pass. "All gates pass" means every gate returned `pass`; errored or timed-out ≠ pass.
 - **Fail-open advisors.** An _advisor_ that crashes, times out, or can't produce a valid verdict is ignored in the aggregate verdict. Advisors are best-effort and do not block, so they don't need to fail closed.
 
-### Escape -> Improvement loop
+---
+
+## Escape → improvement loop
 
 An "escape" is a PR that gets merged erroneously, i.e. it should have been blocked by a reviewer but wasn't. Escapes are inevitable, especially early on when reviewers are still being tuned, but they are also the most valuable source of information for improving the system.
 
