@@ -30,6 +30,8 @@ A verdict (the core schema: `verdict`, `summary`, `findings`) maps onto two GitH
 
 The summary and the full finding list also go into each check run's output, so everything is visible from the Checks tab even before you scroll the diff.
 
+The PR comments are the surface the implementing agent is meant to read. A reviewer's actionable feedback is its findings, and findings are inline comments; an agent fixing the PR gets everything it needs to act from the comments alone, without opening a single check. The check runs carry status and the gate, for humans watching and for the merge logic; the detail page, transcript included, is there for the occasional surprising decision worth investigating. None of it is required reading to act on a review. An agent should never have to open a check and read a transcript just to learn what to change; the comment already says it.
+
 ### The aggregate check
 
 There's a wrinkle GitHub forces on us. Branch protection requires you to name the checks that must pass, but Bastion's set of reviewers varies per PR; a docs-only PR and a server PR trigger different reviewers, so there is no fixed list of check names to require.
@@ -48,7 +50,7 @@ One mechanical note shapes the layout: check run _annotations_ are appended on e
 
 ### Reviewer detail
 
-Each reviewer's check run is also where its detail lives; a reader clicks "Details" on that reviewer in the checks list and lands on a page Bastion owns the markdown for. We present three things there, in order.
+Each reviewer's check run is also where its detail lives; a reader clicks "Details" on that reviewer in the checks list and lands on a page Bastion owns the markdown for. This is for humans and for the occasional surprising decision, not part of the implementing agent's normal loop; the agent already has the feedback in the comments. We present three things there, in order.
 
 - **Metadata and decision.** A short header: the reviewer name, its mode (`gate` or `advisor`), the backend it ran on, the trigger globs that matched, whether it ran native or in a container, and how long it took; then the verdict and summary. The check run _title_ carries the one-line decision ("Blocked: `src/foo.ts` concentrates three responsibilities") so it is legible without opening anything.
 - **Session transcript, collapsed.** The full agent session is included inside a `<details>` block, so it is collapsed by default and one click to expand; most readers never need it, but when a decision is surprising the transcript is right there to explain it. Transcripts can be long and the check `output` is capped at 64KB, so an oversized transcript is truncated with a note pointing to the full job logs.
@@ -59,9 +61,14 @@ The aggregate `bastion` check links each row of its table to the matching review
 A sketch of a reviewer's check output:
 
 ```markdown
-**tenant-isolation** · gate · claude-code · matched `src/server/**` · native · 38s
+> - Check: tenant-isolation
+> - Kind: gate
+> - Agent: claude-code
+> - Matched: `src/server/**`
+> - Runner: `native`
+> - Duration: 38s
 
-**Blocked.** A new query path reads rows without scoping by tenant id.
+**Blocked:** A new query path reads rows without scoping by tenant id.
 
 <details>
 <summary>Session transcript</summary>
@@ -79,19 +86,19 @@ A sketch of a reviewer's check output:
 
 ## The merge gate
 
-Merge is GitHub-native. Configure branch protection on the default branch to require the `bastion` check and to require review of the reviewer policy (next section).
+Merge is GitHub-native. Repository admins should configure branch protection on the default branch to require the `bastion` check and to require review of the reviewer policy (next section).
 
 An author, human or agent, enables GitHub auto-merge on the PR. Once `bastion` goes green and any required policy review is satisfied, GitHub merges; nothing in Bastion presses the button. This is deliberate: the merge mechanics, the queue, the "all required checks pass" logic are GitHub's, and Bastion just supplies one of the required checks.
 
-A push to the PR re-triggers the workflow; the `bastion` check returns to `pending` and resolves again. An agent looping toward green sees the same check transition locally through the CLI and in CI.
+A push to the PR re-triggers the workflow; the `bastion` check returns to `pending` and resolves again. An agent looping toward green sees the same check transition locally through the CLI and in CI. Cancellation of the old job is also managed by GitHub if configured.
 
 ---
 
 ## Governance
 
-The core design puts humans at the policy layer; on GitHub that is enforced with two native mechanisms, sized as speed bumps and not as tamper-proofing (see the core design's _Threat model & trust boundary_).
+The core design puts humans at the policy layer; on GitHub that is enforced with two native mechanisms (see the core design's _Threat model & trust boundary_).
 
-**CODEOWNERS, generated from the registry.** Bastion generates a CODEOWNERS block covering the reviewer config: the reviewer definitions, the registry, and the generated block itself. It assigns them to a human owners group. Any PR that adds, removes, or edits a reviewer; loosens a trigger; or changes a prompt now touches an owned path, so GitHub requires a human review before merge. Generating the block from the registry keeps the protected set in sync with what actually governs merges; you can't add a reviewer and forget to protect it.
+**CODEOWNERS.** The Bastion CLI supports generating a CODEOWNERS block covering the reviewer config: the `bastion` review job in GitHub, reviewer definitions, the registry, and the CODEOWNERS file itself. Any PR that adds, removes, or edits a reviewer; loosens a trigger; or changes a prompt now touches an owned path, so GitHub requires a human review before merge. Repository maintainers can also obviously provide their own CODEOWNERS instead of using the generated suggestion. The main reason we can't have Bastion automatically manage this is because CODEOWNERS changes only take effect after a PR is merged; as such the CODEOWNERS needs to be written in such a way that it statically protects all paths Bastion will write into in the future.
 
 **Branch protection requires the check.** Requiring `bastion` means a PR can't merge with the gate switched off, and because the workflow file and the Bastion config are themselves owned paths, switching it off is itself a policy change that a human sees.
 
@@ -101,13 +108,13 @@ That is the whole enforcement story, and it is intentionally modest. The contrib
 
 ## Authentication & billing
 
-Backends bill per individual, and many subscriptions tie usage to one person rather than a team. The core design leaves the choice to the user; on GitHub it lands like this.
+Backends bill per individual, and coding agent subscriptions tie usage to one person rather than a team. The core design leaves the choice to the user; on GitHub it lands like this.
 
 The PR author is the requester. Bastion runs the reviewers for a PR under credentials mapped to its author, so reviewing Alice's PR is billed to Alice's subscription; that is the ToS-compliant reading, where each contributor's plan powers the review of their own changes. The adapter resolves the author's GitHub login to a secret name and reads that secret from GitHub Actions secrets at run time.
 
 Bastion does not store any credentials; the team stores them as Actions secrets and tells Bastion the mapping. If no subscription is configured for an author, Bastion can fall back to a shared metered API key, so a new contributor is never blocked from review; whether to allow that fallback is the team's call.
 
-One operational note carried over from the core design: under heavy volume a subscription's rate limits can throttle reviewers, and because gates fail closed a throttled reviewer reads as a blocked merge. A busy repo may prefer the metered key in CI and keep subscriptions for the local loop. That is a tradeoff to make per repo, not a rule.
+One operational note carried over from the core design: under heavy volume a subscription's rate limits can throttle reviewers, and because gates fail closed a throttled reviewer reads as a blocked merge. Bastion can optionally support API key fallback for this sort of situation as well, or teams may decide to simply use API billing and keep subscriptions for the local loop. That is a tradeoff to make per org and repo.
 
 ---
 
@@ -115,7 +122,7 @@ One operational note carried over from the core design: under heavy volume a sub
 
 Bastion consumes environments, it does not provision them. A reviewer that needs a preview URL, a database, or any other running dependency expects the workflow to have stood it up and exposed it; the reviewer just reads it.
 
-On GitHub that means the workflow owns whatever a reviewer's `env` and `inputs` reference. A typical setup deploys a preview environment for the PR in an earlier job, or a separate workflow, and passes its URL into the Bastion job as an environment variable; Bastion injects it into the reviewer per the `env` block and interpolates it into the prompt per `inputs`. A secret a reviewer needs comes from Actions secrets the same way author credentials do.
+On GitHub that means the workflow owns whatever a reviewer's `env` and `inputs` reference. A typical setup deploys a preview environment for the PR in an earlier job, or a separate workflow, and passes its URL into the Bastion job as an environment variable; Bastion injects it into the reviewer per the `env` block and may interpolate it into the prompt per `inputs`. A secret a reviewer needs comes from Actions secrets the same way author credentials do.
 
 This keeps the boundary clean: standing up a preview environment is a deploy concern, and the deploy system already knows how. Bastion's job starts once the environment exists.
 
@@ -161,6 +168,5 @@ Branch protection on the default branch requires the `bastion` check and review 
 
 GitHub-specific deferrals, separate from the core design's list.
 
-- **Merge queue integration.** The current design relies on GitHub auto-merge plus a required check; binding verdicts to the exact merge-queue candidate (the core design's merge-train note) would need explicit merge queue support.
-- **A GitHub App instead of a workflow action**, for repos that want Bastion to report checks under its own identity and skip per-repo workflow wiring.
-- **Per-reviewer required checks** for orgs that want them rather than the single aggregate; today the aggregate is the only stable option, because the triggered reviewer set varies per PR.
+- Merge queue integration. The current design relies on GitHub auto-merge plus a required check. Merge queue support is undefined today.
+- A GitHub App instead of a workflow action, for repos that want Bastion to report checks under its own identity and skip per-repo workflow wiring.
