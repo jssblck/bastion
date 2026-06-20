@@ -1,0 +1,166 @@
+# Bastion on GitHub
+
+> The GitHub adapter: how Bastion runs in Actions, reports to PRs, and gates merges.
+
+The core design (`DESIGN.md`) is deliberately CI-agnostic; it describes reviewers, verdicts, and the merge gate without saying how any of it touches a real forge. This doc is the GitHub adapter: the concrete answer to "where does the workflow live, how does a verdict become a check, and how is the policy layer enforced" when the forge is GitHub. Everything here is one implementation of the plugin-style CI interface the core design refers to; another forge would get its own doc and reuse the same core.
+
+The guiding rule is the same as the core: Bastion does not own CI, it plugs into yours. The workflow, the secrets, the preview environments, and the branch protection rules are GitHub's; Bastion reads and writes them through a thin adapter and otherwise stays out of the way.
+
+---
+
+## How it runs
+
+Bastion runs as a GitHub Actions workflow triggered on pull request events: `opened`, `synchronize` (a new push to the PR), and `reopened`. On each event the adapter:
+
+1. Computes the changed file set for the PR.
+2. Routes: selects the reviewers whose `trigger` globs match the changed files.
+3. Runs each selected reviewer through its backend, in parallel, with per-reviewer timeouts (see the core design's _Aggregation & the merge gate_).
+4. Reports each verdict back to the PR.
+
+Native reviewers run directly on the Actions runner; reviewers with a `runner` block run in their container on the same runner. None of routing or aggregation is GitHub-specific; only the steps that read the PR and write results go through the adapter.
+
+---
+
+## Reporting verdicts
+
+A verdict (the core schema: `verdict`, `summary`, `findings`) maps onto two GitHub surfaces.
+
+- **Findings become PR review comments.** Each finding is posted as an inline comment on its `path` and line range. `kind: blocking` and `kind: optional` are rendered differently so a reader can tell at a glance which comments hold up the merge and which are suggestions; this mirrors how a human reviewer marks some comments blocking and some optional.
+- **The verdict becomes a check run.** Each reviewer reports a check run named after itself (`bastion / file-responsibility`), so the PR's checks list shows exactly which reviewers ran and how each landed. A gate that blocks reports a `failure` conclusion; a gate that passes reports `success`; an advisor always reports `success` with its findings attached, because advisors comment but never gate.
+
+The summary and the full finding list also go into each check run's output, so everything is visible from the Checks tab even before you scroll the diff.
+
+### The aggregate check
+
+There's a wrinkle GitHub forces on us. Branch protection requires you to name the checks that must pass, but Bastion's set of reviewers varies per PR; a docs-only PR and a server PR trigger different reviewers, so there is no fixed list of check names to require.
+
+The fix is a single always-present check, `bastion`, and it is the only one branch protection requires. It always runs, even when zero reviewers match (a trivial pass in that case), so it is a stable required check. Internally it reflects the aggregate: `success` only when every triggered gate passed, and `failure` if any gate blocked, errored, or timed out (fail-closed, per the core design). The per-reviewer check runs stay informational; `bastion` is the gate.
+
+### Live progress
+
+Reviewers can take anywhere from seconds to many minutes, so a PR must never look like it hung. GitHub gives us live status for free through check runs, and we lean on that rather than building anything external.
+
+- **Per-reviewer spinners.** Each reviewer's check run is created with `status: in_progress` the moment it is dispatched, so GitHub renders a live spinner next to it in the PR's checks list; an `e2e-checkout-flow` reviewer shows as in progress with a spinner for its full 15 minutes instead of reading as a stall. When the reviewer resolves its check run flips to `completed` with the right conclusion.
+- **A live aggregate table.** The `bastion` check stays `in_progress` until every reviewer resolves, and Bastion PATCHes its `output` as each one finishes; the output holds a table of every triggered reviewer with its mode, current status, and elapsed time, rewritten on each update. This is the at-a-glance view: one place to see what is running, what passed, and what blocked, updating as it goes.
+- **A permanent run summary.** Step summaries (`$GITHUB_STEP_SUMMARY`) do not update while a step runs; GitHub only captures them when the step finishes. So we don't use them for progress; we write one at the very end of the job as a permanent rendered report on the run summary page, which is the one thing step summaries are good at.
+
+One mechanical note shapes the layout: check run _annotations_ are appended on each update and cannot be replaced, while the `output` summary and text _are_ replaced on each update. So the live, rewritten table lives in the check `output`; annotations are reserved for the final per-line findings, which only need to be written once.
+
+### Reviewer detail
+
+Each reviewer's check run is also where its detail lives; a reader clicks "Details" on that reviewer in the checks list and lands on a page Bastion owns the markdown for. We present three things there, in order.
+
+- **Metadata and decision.** A short header: the reviewer name, its mode (`gate` or `advisor`), the backend it ran on, the trigger globs that matched, whether it ran native or in a container, and how long it took; then the verdict and summary. The check run _title_ carries the one-line decision ("Blocked: `src/foo.ts` concentrates three responsibilities") so it is legible without opening anything.
+- **Session transcript, collapsed.** The full agent session is included inside a `<details>` block, so it is collapsed by default and one click to expand; most readers never need it, but when a decision is surprising the transcript is right there to explain it. Transcripts can be long and the check `output` is capped at 64KB, so an oversized transcript is truncated with a note pointing to the full job logs.
+- **Tokens and cost, when available.** When the backend reports usage, a small table shows input and output token counts and the session cost; when it doesn't, the block is omitted rather than shown empty. This is per reviewer, so an expensive e2e reviewer and a cheap hermetic one are each individually accountable.
+
+The aggregate `bastion` check links each row of its table to the matching reviewer's check run, so the live table doubles as the index into all of this detail.
+
+A sketch of a reviewer's check output:
+
+```markdown
+**tenant-isolation** · gate · claude-code · matched `src/server/**` · native · 38s
+
+**Blocked.** A new query path reads rows without scoping by tenant id.
+
+<details>
+<summary>Session transcript</summary>
+
+...full agent session...
+
+</details>
+
+| tokens in | tokens out | cost  |
+| --------- | ---------- | ----- |
+| 18,204    | 1,560      | $0.21 |
+```
+
+---
+
+## The merge gate
+
+Merge is GitHub-native. Configure branch protection on the default branch to require the `bastion` check and to require review of the reviewer policy (next section).
+
+An author, human or agent, enables GitHub auto-merge on the PR. Once `bastion` goes green and any required policy review is satisfied, GitHub merges; nothing in Bastion presses the button. This is deliberate: the merge mechanics, the queue, the "all required checks pass" logic are GitHub's, and Bastion just supplies one of the required checks.
+
+A push to the PR re-triggers the workflow; the `bastion` check returns to `pending` and resolves again. An agent looping toward green sees the same check transition locally through the CLI and in CI.
+
+---
+
+## Governance
+
+The core design puts humans at the policy layer; on GitHub that is enforced with two native mechanisms, sized as speed bumps and not as tamper-proofing (see the core design's _Threat model & trust boundary_).
+
+**CODEOWNERS, generated from the registry.** Bastion generates a CODEOWNERS block covering the reviewer config: the reviewer definitions, the registry, and the generated block itself. It assigns them to a human owners group. Any PR that adds, removes, or edits a reviewer; loosens a trigger; or changes a prompt now touches an owned path, so GitHub requires a human review before merge. Generating the block from the registry keeps the protected set in sync with what actually governs merges; you can't add a reviewer and forget to protect it.
+
+**Branch protection requires the check.** Requiring `bastion` means a PR can't merge with the gate switched off, and because the workflow file and the Bastion config are themselves owned paths, switching it off is itself a policy change that a human sees.
+
+That is the whole enforcement story, and it is intentionally modest. The contributor we are designing for is an aligned agent that would never quietly disable CI; the CODEOWNERS trip wire and the required check exist so that if policy does change a human is in the loop, not so that a determined adversary is stopped. Anything stronger, like signing, external rule storage, or an enumerated trusted-computing-base, is out of scope for the same reason it is in the core design.
+
+---
+
+## Authentication & billing
+
+Backends bill per individual, and many subscriptions tie usage to one person rather than a team. The core design leaves the choice to the user; on GitHub it lands like this.
+
+The PR author is the requester. Bastion runs the reviewers for a PR under credentials mapped to its author, so reviewing Alice's PR is billed to Alice's subscription; that is the ToS-compliant reading, where each contributor's plan powers the review of their own changes. The adapter resolves the author's GitHub login to a secret name and reads that secret from GitHub Actions secrets at run time.
+
+Bastion does not store any credentials; the team stores them as Actions secrets and tells Bastion the mapping. If no subscription is configured for an author, Bastion can fall back to a shared metered API key, so a new contributor is never blocked from review; whether to allow that fallback is the team's call.
+
+One operational note carried over from the core design: under heavy volume a subscription's rate limits can throttle reviewers, and because gates fail closed a throttled reviewer reads as a blocked merge. A busy repo may prefer the metered key in CI and keep subscriptions for the local loop. That is a tradeoff to make per repo, not a rule.
+
+---
+
+## Environments & inputs
+
+Bastion consumes environments, it does not provision them. A reviewer that needs a preview URL, a database, or any other running dependency expects the workflow to have stood it up and exposed it; the reviewer just reads it.
+
+On GitHub that means the workflow owns whatever a reviewer's `env` and `inputs` reference. A typical setup deploys a preview environment for the PR in an earlier job, or a separate workflow, and passes its URL into the Bastion job as an environment variable; Bastion injects it into the reviewer per the `env` block and interpolates it into the prompt per `inputs`. A secret a reviewer needs comes from Actions secrets the same way author credentials do.
+
+This keeps the boundary clean: standing up a preview environment is a deploy concern, and the deploy system already knows how. Bastion's job starts once the environment exists.
+
+---
+
+## Example workflow
+
+A minimal workflow wiring Bastion into PR review:
+
+```yaml
+name: bastion
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# The aggregate `bastion` check this job reports is what branch protection requires.
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history; reviewers compare base vs head
+
+      # Stand up whatever your reviewers consume; Bastion does not do this.
+      - id: preview
+        run: ./scripts/deploy-preview.sh   # exports the preview URL
+
+      - uses: bastion/review-action@v1
+        with:
+          author: ${{ github.event.pull_request.user.login }}
+        env:
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
+          # Author-mapped credentials live in Actions secrets; the action
+          # resolves the author login to the right secret at run time.
+```
+
+Branch protection on the default branch requires the `bastion` check and review of the owned reviewer-config paths; everything else is standard GitHub.
+
+---
+
+## Known limitations & future
+
+GitHub-specific deferrals, separate from the core design's list.
+
+- **Merge queue integration.** The current design relies on GitHub auto-merge plus a required check; binding verdicts to the exact merge-queue candidate (the core design's merge-train note) would need explicit merge queue support.
+- **A GitHub App instead of a workflow action**, for repos that want Bastion to report checks under its own identity and skip per-repo workflow wiring.
+- **Per-reviewer required checks** for orgs that want them rather than the single aggregate; today the aggregate is the only stable option, because the triggered reviewer set varies per PR.

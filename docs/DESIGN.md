@@ -165,7 +165,7 @@ To comply with subscription terms of service (which tie a subscription to an ind
 Bastion supports local execution and GitHub Actions as first-class CI backends.
 
 Bastion is designed to be portable so that it can run locally as well as in CI; for this reason Bastion config does not specify CI details.
-Where Bastion interacts with CI systems, it does so using a plugin-style interface that allows it to integrate without being tightly coupled.
+Where Bastion interacts with CI systems, it does so using a plugin-style interface that allows it to integrate without being tightly coupled; the GitHub implementation of that interface is specified in [Bastion on GitHub](./GITHUB.md).
 
 Since Bastion supports local execution, technically any CI that allows arbitrary code execution can be made to work with Bastion, and more may be supported over time.
 
