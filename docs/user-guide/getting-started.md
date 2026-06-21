@@ -16,11 +16,33 @@ chapter, [Concepts](./concepts.md), defines each precisely.
 
 ## 1. Install the CLI
 
-Prebuilt binaries are attached to every
-[GitHub release](https://github.com/jssblck/bastion/releases) for Linux (x86_64
-and aarch64, glibc and musl), macOS (Intel and Apple silicon), and Windows
-(x86_64). Download the archive for your platform, extract it, and put `bastion` on
-your `PATH`:
+The quickest path is the install script. It detects your platform, downloads the
+matching archive from the latest
+[GitHub release](https://github.com/jssblck/bastion/releases), verifies its
+SHA-256 checksum, and puts `bastion` on your `PATH`.
+
+On Linux and macOS:
+
+```sh
+curl -sSfL https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.sh | bash
+bastion --version
+```
+
+On Windows, from PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.ps1 | iex
+bastion --version
+```
+
+The shell installer takes `-v/--version`, `-b/--bin-dir`, and `-t/--tmp-dir` (pass
+them after `bash -s --`); the PowerShell installer reads the `Version` and `BinDir`
+environment variables. Pass `--help` (or set `$env:Help="true"`) to see them all.
+
+Prefer to grab the archive yourself? Prebuilt binaries are attached to every
+release for Linux (x86_64 and aarch64, glibc and musl), macOS (Intel and Apple
+silicon), and Windows (x86_64). Download the one for your platform, extract it, and
+put `bastion` on your `PATH`:
 
 ```sh
 # Example: Linux x86_64
