@@ -33,8 +33,8 @@ gates fail closed, and any change to the reviewer policy is visible to a human
 through CODEOWNERS and a required status check. The bar is reasonable reduction
 proportionate to effort — a speed bump and good defaults that keep aligned actors
 on the rails — not a proof that gaming or exfiltration is impossible. See
-[`docs/DESIGN.md`](docs/DESIGN.md) (_Threat model & trust boundary_) and
-[`docs/GITHUB.md`](docs/GITHUB.md) (_Governance_) for the full model.
+[`docs/developer-guide/design.md`](docs/developer-guide/design.md) (_Threat model & trust boundary_) and
+[`docs/developer-guide/github-adapter.md`](docs/developer-guide/github-adapter.md) (_Governance_) for the full model.
 
 This is experimental software and has not had a professional security audit. All
 usage is at your own risk.

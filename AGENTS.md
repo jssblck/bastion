@@ -20,12 +20,17 @@ anything, and keep gates failing closed.
 
 ## Source of truth
 
-- `README.md` — user-facing overview and project status.
-- `docs/DESIGN.md` — the core system: reviewers, the verdict contract, the merge
-  gate, the threat model. The authoritative design reference.
-- `docs/GITHUB.md` — the GitHub CI adapter and the governance model.
-- `docs/LOCAL.md` — the local CLI surface this crate implements. The local and
-  GitHub surfaces are deliberate mirror images; keep them in sync.
+- `README.md` — sparse user-facing intro, install, and links into the guides.
+- `docs/user-guide/` — task-oriented guide for people *using* Bastion (concepts,
+  authoring reviewers, the local loop, CI, governance). Progressive disclosure.
+- `docs/developer-guide/` — guide for people working on Bastion itself
+  (architecture, the backend boundary, conventions), plus the design references:
+  - `docs/developer-guide/design.md` — the core system: reviewers, the verdict
+    contract, the merge gate, the threat model. The authoritative design reference.
+  - `docs/developer-guide/github-adapter.md` — the GitHub CI adapter and governance.
+  - `docs/developer-guide/local-surface.md` — the local CLI surface this crate
+    implements. The local and GitHub surfaces are deliberate mirror images; keep
+    them in sync.
 - `bastion/reviewers.yaml` — the example reviewer registry; update it when the
   schema changes.
 - `.agents/skills/readme.md` — repo-local Rust coding skills and their provenance.
@@ -55,6 +60,12 @@ bastion github codeowners --owner @your-org/platform
 
 ## Architecture map
 
+For the full module map and the life of a `bastion review`, see
+[`docs/developer-guide/architecture.md`](docs/developer-guide/architecture.md); the
+backend boundary is covered in
+[`docs/developer-guide/backends.md`](docs/developer-guide/backends.md). The terse
+version:
+
 - `build.rs` — derives `BASTION_VERSION` from `git describe --always --tags
   --dirty=-dirty`, with a `BASTION_VERSION` env override and a `Cargo.toml`
   fallback.
@@ -80,6 +91,14 @@ bastion github codeowners --owner @your-org/platform
   injectable `CommandRunner` subprocess seam; `claude_code.rs` and `codex.rs` are
   the real backends driven against a fake executable in tests. The `Pi` arm of
   `dispatch` is still unwired and bails.
+- `tests/integration.rs` — the end-to-end suite. It drives the *real compiled
+  `bastion` binary* (`CARGO_BIN_EXE_bastion`), each scenario in its own throwaway
+  `git` repo and private `BASTION_DATA_DIR`, against a `rustc`-compiled fake agent
+  wired in via `BASTION_CLAUDE_BIN`/`BASTION_CODEX_BIN`. The fake reads per-reviewer
+  `env` (which Bastion propagates into the child) to stage passes, blocks, malformed
+  output, crashes, and hangs, so the suite exercises the full subprocess path,
+  fail-closed/fail-open aggregation, concurrency, persistence, and the read-back
+  commands at scale. It detect-and-skips when `rustc`/`git` are absent.
 
 ## Development rules
 

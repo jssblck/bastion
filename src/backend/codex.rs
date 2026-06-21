@@ -2,7 +2,7 @@
 //!
 //! Translates a reviewer's execution profile into a headless `codex exec`-style
 //! invocation, runs it through the injectable [`CommandRunner`] seam, and parses
-//! the agent's final structured output into a [`Verdict`] (`docs/DESIGN.md`,
+//! the agent's final structured output into a [`Verdict`] (`docs/developer-guide/design.md`,
 //! "Agent backends").
 //!
 //! # The Codex invocation contract
@@ -26,7 +26,7 @@
 //!
 //! If the final message does not carry a schema-conforming verdict, the backend
 //! re-prompts the same session once for *just* the structured output (per
-//! `docs/DESIGN.md`), then gives up with an error. The runner turns that error
+//! `docs/developer-guide/design.md`), then gives up with an error. The runner turns that error
 //! into a fail-closed `block` for gates; this backend never invents a verdict.
 
 use std::ffi::{OsStr, OsString};
@@ -200,7 +200,7 @@ impl<R: CommandRunner> Backend for CodexBackend<R> {
         }
 
         // The agent's final message was not a schema-conforming verdict. Per
-        // DESIGN.md, re-run the *same session* asking for just the structured
+        // design.md, re-run the *same session* asking for just the structured
         // output, then fail closed. Resume by thread id when Codex reported one;
         // when resuming, the new turn is only the reprompt suffix (the session
         // already holds the review). Without a thread id we fall back to a fresh

@@ -1,7 +1,7 @@
 //! The on-disk layout of Bastion's per-user data directory.
 //!
 //! Every run is persisted under a platform data directory so it can be inspected
-//! or replayed after the fact (`docs/LOCAL.md`):
+//! or replayed after the fact (`docs/developer-guide/local-surface.md`):
 //!
 //! ```text
 //! <data-dir>/

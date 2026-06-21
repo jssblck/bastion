@@ -2,7 +2,7 @@
 //!
 //! Every reviewer emits a [`Verdict`] via its backend's structured-output mode.
 //! The top-level [`Decision`] is the authoritative gate outcome; [`Finding`]s
-//! explain it. See the verdict schema in `docs/DESIGN.md`.
+//! explain it. See the verdict schema in `docs/developer-guide/design.md`.
 
 use std::fmt;
 

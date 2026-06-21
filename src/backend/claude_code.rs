@@ -6,7 +6,7 @@
 //! structured output into a [`Verdict`]. Usage (tokens/cost) is captured when the
 //! CLI reports it, and the raw session JSON is kept as the transcript.
 //!
-//! Per `docs/DESIGN.md`, when the agent fails to produce output matching the
+//! Per `docs/developer-guide/design.md`, when the agent fails to produce output matching the
 //! verdict schema, Bastion re-runs the same session once — explaining the schema
 //! again and asking only for the structured output — before giving up. A backend
 //! error is the runner's signal to fail a gate closed.
@@ -100,7 +100,7 @@ impl<R: CommandRunner> ClaudeCodeBackend<R> {
             .arg("--json-schema")
             .arg(VERDICT_SCHEMA)
             // Reviewers run unattended over a trusted checkout (see the threat
-            // model in docs/DESIGN.md); skip interactive permission prompts so the
+            // model in docs/developer-guide/design.md); skip interactive permission prompts so the
             // headless run does not wedge.
             .arg("--permission-mode")
             .arg("bypassPermissions");
@@ -112,7 +112,7 @@ impl<R: CommandRunner> ClaudeCodeBackend<R> {
         // the container boundary, which a sibling change provisions.
         let _ = reviewer.capabilities.network;
 
-        // MCP capability is, per docs/DESIGN.md, a property of heavy/privileged
+        // MCP capability is, per docs/developer-guide/design.md, a property of heavy/privileged
         // reviewers that run inside a container `runner` -- the container is what
         // installs the MCP servers and mounts their config. The native path here
         // has no MCP servers to point at, and the `claude` CLI configures them via
@@ -158,7 +158,7 @@ impl<R: CommandRunner> Backend for ClaudeCodeBackend<R> {
                 transcript: Some(transcript),
             }),
             None => {
-                // Malformed/missing structured output. Per DESIGN.md, re-run the
+                // Malformed/missing structured output. Per design.md, re-run the
                 // same session once asking only for the structured output, then
                 // fail if it is still wrong.
                 let session = first.session_id.clone().ok_or_else(|| {

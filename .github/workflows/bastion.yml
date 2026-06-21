@@ -14,7 +14,7 @@ name: bastion
 # (bastion/reviewers.yaml) is still read from the checkout so prompt and trigger
 # changes take effect in the same PR -- those paths are CODEOWNERS-protected too.
 #
-# This is the concrete, self-hosted MVP of the adapter described in docs/GITHUB.md.
+# This is the concrete, self-hosted MVP of the adapter described in docs/developer-guide/github-adapter.md.
 # It does not yet post per-reviewer check runs or inline PR comments (that is the
 # packaged `review-action`/GitHub App, still future); here the job's pass/fail is
 # the gate and the full run is uploaded as an artifact.
@@ -87,7 +87,7 @@ jobs:
       - name: Authenticate Codex as the PR author
         env:
           # Bastion bills each PR's reviews to its author's own Codex subscription
-          # (docs/GITHUB.md, "Authentication & billing"). The author's GitHub login
+          # (docs/developer-guide/github-adapter.md, "Authentication & billing"). The author's GitHub login
           # maps to a `CODEX_AUTH_<LOGIN>` secret holding the contents of that
           # person's `~/.codex/auth.json`; Codex refreshes the access token from the
           # stored refresh token at run time. To onboard a contributor, add their
