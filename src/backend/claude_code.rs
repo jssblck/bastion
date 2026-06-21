@@ -11,8 +11,6 @@
 //! again and asking only for the structured output — before giving up. A backend
 //! error is the runner's signal to fail a gate closed.
 
-use std::collections::BTreeMap;
-
 use color_eyre::eyre::{Context, Result, bail, eyre};
 use serde::Deserialize;
 
@@ -213,7 +211,7 @@ const REPROMPT: &str = "Your previous response did not include a valid structure
 /// Interpolate a reviewer's `inputs` into its prompt and append the schema
 /// instruction. `${name}` placeholders are replaced with the matching input.
 fn build_prompt(reviewer: &Reviewer) -> String {
-    let mut prompt = interpolate(&reviewer.prompt, &reviewer.inputs);
+    let mut prompt = super::interpolate(&reviewer.prompt, &reviewer.inputs);
     prompt.push_str(
         "\n\nWhen you have finished reviewing, return your judgment as structured output \
          conforming to the requested JSON schema: a top-level `verdict` of \"pass\" or \"block\", \
@@ -222,45 +220,6 @@ fn build_prompt(reviewer: &Reviewer) -> String {
          suggestion. If you block, include at least one blocking finding explaining why.",
     );
     prompt
-}
-
-/// Replace `${key}` occurrences in `template` with values from `inputs`.
-///
-/// Unknown placeholders are left untouched rather than erroring: the reviewer
-/// author is trusted, and a literal `${...}` in a prompt is harmless.
-fn interpolate(template: &str, inputs: &BTreeMap<String, String>) -> String {
-    if inputs.is_empty() || !template.contains("${") {
-        return template.to_string();
-    }
-    let mut out = String::with_capacity(template.len());
-    let mut rest = template;
-    while let Some(start) = rest.find("${") {
-        out.push_str(&rest[..start]);
-        let after = &rest[start + 2..];
-        match after.find('}') {
-            Some(end) => {
-                let key = &after[..end];
-                match inputs.get(key) {
-                    Some(value) => out.push_str(value),
-                    None => {
-                        // Unknown key: keep the literal placeholder.
-                        out.push_str("${");
-                        out.push_str(key);
-                        out.push('}');
-                    }
-                }
-                rest = &after[end + 1..];
-            }
-            None => {
-                // Unterminated placeholder: emit the rest verbatim and stop.
-                out.push_str("${");
-                out.push_str(after);
-                rest = "";
-            }
-        }
-    }
-    out.push_str(rest);
-    out
 }
 
 /// The parsed `claude --output-format json` result envelope plus the raw text.
@@ -306,7 +265,7 @@ impl Envelope {
         let cost = self
             .result
             .total_cost_usd
-            .map(money_from_dollars)
+            .map(super::money_from_dollars)
             .unwrap_or_default();
         // Report usage only if at least one signal is present; an all-zero block
         // with no cost is indistinguishable from "not reported".
@@ -429,21 +388,6 @@ fn parse_verdict_from_text(text: &str) -> Option<Verdict> {
         return None;
     }
     serde_json::from_str::<Verdict>(&trimmed[start..=end]).ok()
-}
-
-/// Convert a dollar amount to [`Money`] (exact cents), rounding to the nearest
-/// cent. Negative or non-finite values clamp to zero.
-fn money_from_dollars(dollars: f64) -> Money {
-    if !dollars.is_finite() || dollars <= 0.0 {
-        return Money::from_cents(0);
-    }
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "rounded, non-negative cents within u64 range for any realistic cost"
-    )]
-    let cents = (dollars * 100.0).round() as u64;
-    Money::from_cents(cents)
 }
 
 /// Combine the usage reported by the first turn and the resumed reprompt turn.
@@ -803,17 +747,6 @@ mod tests {
     }
 
     #[test]
-    fn interpolates_inputs_into_the_prompt() {
-        let mut inputs = BTreeMap::new();
-        inputs.insert(
-            "preview_url".to_string(),
-            "http://localhost:3000".to_string(),
-        );
-        let out = interpolate("Hit ${preview_url} and ${missing}.", &inputs);
-        assert_eq!(out, "Hit http://localhost:3000 and ${missing}.");
-    }
-
-    #[test]
     fn build_prompt_appends_schema_instruction() {
         let r = reviewer();
         let prompt = build_prompt(&r);
@@ -862,13 +795,6 @@ mod tests {
             "native path must not emit an MCP flag (got {args:?})"
         );
         assert!(!args.iter().any(|a| a == "playwright"));
-    }
-
-    #[test]
-    fn money_rounds_and_clamps() {
-        assert_eq!(money_from_dollars(0.215).cents(), 22);
-        assert_eq!(money_from_dollars(-1.0).cents(), 0);
-        assert_eq!(money_from_dollars(f64::NAN).cents(), 0);
     }
 
     #[test]

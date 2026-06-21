@@ -141,18 +141,23 @@ pub struct Verdict {
 }
 
 impl Verdict {
-    /// Whether the verdict is internally consistent: a `block` must carry at
-    /// least one [`FindingKind::Blocking`] finding (the reason it blocked).
+    /// Whether the verdict is internally consistent.
     ///
-    /// A `pass` is always consistent; it may carry optional findings.
+    /// A `block` must carry at least one [`FindingKind::Blocking`] finding (the
+    /// reason it blocked). A `pass` must carry *no* blocking findings: a passing
+    /// gate that nonetheless lists blocking reasons is self-contradictory, and
+    /// since the top-level decision is authoritative, trusting it would fail open
+    /// (pass a merge while flagging blockers). A `pass` may carry optional
+    /// findings as non-blocking suggestions.
     #[must_use]
     pub fn is_consistent(&self) -> bool {
+        let has_blocking = self
+            .findings
+            .iter()
+            .any(|f| f.kind == FindingKind::Blocking);
         match self.decision {
-            Decision::Pass => true,
-            Decision::Block => self
-                .findings
-                .iter()
-                .any(|f| f.kind == FindingKind::Blocking),
+            Decision::Pass => !has_blocking,
+            Decision::Block => has_blocking,
         }
     }
 }
@@ -195,6 +200,39 @@ findings:
             findings: vec![],
         };
         assert!(!bad_block.is_consistent());
+    }
+
+    #[test]
+    fn a_pass_carrying_blocking_findings_is_inconsistent() {
+        // A passing gate that also lists a blocking reason is self-contradictory;
+        // trusting its top-level `pass` would fail open. Reject it so the caller
+        // fails closed.
+        let contradictory = Verdict {
+            decision: Decision::Pass,
+            summary: "passes but blocks?".into(),
+            findings: vec![Finding {
+                kind: FindingKind::Blocking,
+                path: "src/x.rs".into(),
+                line_start: 1,
+                line_end: 1,
+                detail: "this blocks".into(),
+            }],
+        };
+        assert!(!contradictory.is_consistent());
+
+        // A pass with only optional findings is fine.
+        let pass_with_optional = Verdict {
+            decision: Decision::Pass,
+            summary: "ok with a nit".into(),
+            findings: vec![Finding {
+                kind: FindingKind::Optional,
+                path: "src/x.rs".into(),
+                line_start: 1,
+                line_end: 1,
+                detail: "nit".into(),
+            }],
+        };
+        assert!(pass_with_optional.is_consistent());
     }
 
     #[test]

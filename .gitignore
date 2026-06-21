@@ -20,3 +20,6 @@ Thumbs.db
 # Bastion local state (the data directory is platform-resolved; this covers a
 # repo-local override via BASTION_DATA_DIR=.bastion)
 /.bastion/
+
+# Claude Code agent worktrees (transient; created by background agents)
+/.claude/worktrees/

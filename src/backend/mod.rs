@@ -10,17 +10,20 @@
 //! be driven against a fake executable in tests, with no real agent or network.
 
 pub mod claude_code;
+pub mod codex;
 pub mod command;
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use color_eyre::eyre::Result;
 
 use crate::event::RunId;
 use crate::reviewer::{self, Reviewer};
-use crate::verdict::{Decision, Usage, Verdict};
+use crate::verdict::{Decision, Money, Usage, Verdict};
 
 use self::claude_code::ClaudeCodeBackend;
+use self::codex::CodexBackend;
 use self::command::SystemCommandRunner;
 
 /// Everything a backend is handed to run one reviewer.
@@ -115,13 +118,8 @@ pub async fn dispatch(request: &ReviewRequest<'_>) -> Result<ReviewOutcome> {
                 .review(request)
                 .await
         }
+        reviewer::Backend::Codex => CodexBackend::new(SystemCommandRunner).review(request).await,
         // Sibling backends implement the same trait; wire them here as they land.
-        reviewer::Backend::Codex => {
-            color_eyre::eyre::bail!(
-                "the codex backend is not yet wired in this build (reviewer '{}')",
-                request.reviewer.name
-            )
-        }
         reviewer::Backend::Pi => {
             color_eyre::eyre::bail!(
                 "the pi backend is not yet wired in this build (reviewer '{}')",
@@ -131,11 +129,89 @@ pub async fn dispatch(request: &ReviewRequest<'_>) -> Result<ReviewOutcome> {
     }
 }
 
+/// Replace `${key}` occurrences in `template` with values from `inputs`.
+///
+/// Shared by the backends so prompt interpolation is identical regardless of
+/// which agent runs the reviewer. Unknown placeholders are left untouched rather
+/// than erroring: the reviewer author is trusted, and a literal `${...}` in a
+/// prompt is harmless.
+fn interpolate(template: &str, inputs: &BTreeMap<String, String>) -> String {
+    if inputs.is_empty() || !template.contains("${") {
+        return template.to_string();
+    }
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find("${") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        match after.find('}') {
+            Some(end) => {
+                let key = &after[..end];
+                match inputs.get(key) {
+                    Some(value) => out.push_str(value),
+                    None => {
+                        // Unknown key: keep the literal placeholder.
+                        out.push_str("${");
+                        out.push_str(key);
+                        out.push('}');
+                    }
+                }
+                rest = &after[end + 1..];
+            }
+            None => {
+                // Unterminated placeholder: emit the rest verbatim and stop.
+                out.push_str("${");
+                out.push_str(after);
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Convert a dollar amount to [`Money`] (exact cents), rounding to the nearest
+/// cent. Negative or non-finite values clamp to zero, so a malformed cost from a
+/// backend can never produce a nonsensical charge. Shared by the backends so cost
+/// accounting is consistent.
+fn money_from_dollars(dollars: f64) -> Money {
+    if !dollars.is_finite() || dollars <= 0.0 {
+        return Money::from_cents(0);
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "rounded, non-negative cents within u64 range for any realistic cost"
+    )]
+    let cents = (dollars * 100.0).round() as u64;
+    Money::from_cents(cents)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::reviewer::Mode;
     use std::path::PathBuf;
+
+    #[test]
+    fn interpolate_substitutes_known_keys_and_keeps_unknown() {
+        let mut inputs = BTreeMap::new();
+        inputs.insert("a".to_string(), "X".to_string());
+        assert_eq!(interpolate("${a} ${b}", &inputs), "X ${b}");
+        assert_eq!(interpolate("no placeholders", &inputs), "no placeholders");
+        assert_eq!(interpolate("${unterminated", &inputs), "${unterminated");
+        // No inputs short-circuits to the original.
+        assert_eq!(interpolate("${a}", &BTreeMap::new()), "${a}");
+    }
+
+    #[test]
+    fn money_from_dollars_rounds_and_clamps() {
+        assert_eq!(money_from_dollars(0.21).cents(), 21);
+        assert_eq!(money_from_dollars(0.215).cents(), 22);
+        assert_eq!(money_from_dollars(-1.0).cents(), 0);
+        assert_eq!(money_from_dollars(f64::NAN).cents(), 0);
+        assert_eq!(money_from_dollars(f64::INFINITY).cents(), 0);
+    }
 
     fn reviewer(backend: reviewer::Backend) -> Reviewer {
         Reviewer {
@@ -172,7 +248,8 @@ mod tests {
 
     #[tokio::test]
     async fn dispatch_rejects_unwired_backends() {
-        let reviewer = reviewer(reviewer::Backend::Codex);
+        // Pi is the remaining unwired backend; Claude Code and Codex are wired.
+        let reviewer = reviewer(reviewer::Backend::Pi);
         let run = RunId("r".into());
         let root = PathBuf::from(".");
         let request = ReviewRequest {
@@ -182,6 +259,6 @@ mod tests {
             base: "main",
         };
         let err = dispatch(&request).await.unwrap_err();
-        assert!(err.to_string().contains("codex backend is not yet wired"));
+        assert!(err.to_string().contains("pi backend is not yet wired"));
     }
 }
