@@ -1,6 +1,6 @@
 [package]
 name = "bastion"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2024"
 description = "Agentic code review: single-concern reviewers as fitness functions, run locally and in CI."
 readme = "README.md"

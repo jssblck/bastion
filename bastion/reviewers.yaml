@@ -98,3 +98,52 @@ reviewers:
       If this changeset alters a user-visible command, the verdict or event schema,
       or the reviewer schema without updating the relevant docs, report it as an
       optional finding.
+
+  - name: release-surface-robustness
+    trigger:
+      [
+        scripts/**,
+        ".github/workflows/release.yml",
+        ".github/workflows/installers.yml",
+      ]
+    mode: gate
+    backend: codex
+    prompt: |
+      Review changes to the public install and release path -- the install
+      scripts and the release/installer workflows -- for robustness. Block the PR
+      if any of the following hold; otherwise approve it.
+
+      - An installer downloads a release artifact without verifying its SHA-256
+        checksum, or treats a missing, unparseable, or mismatched checksum as
+        anything other than a hard failure. Checksum problems must fail closed,
+        never warn and continue.
+      - Resolving the latest release (or any release metadata) depends on a
+        rate-limited, unauthenticated endpoint that fails from shared IPs and CI
+        runners -- notably api.github.com, which 403s at 60 requests/hour/IP --
+        when a non-rate-limited path exists (the github.com /releases/latest
+        redirect resolves the tag without the API).
+      - The bash installer (scripts/install.sh) and the PowerShell installer
+        (scripts/install.ps1) have drifted out of sync in their options, archive
+        names, default install locations, or fail-closed behavior; or either
+        installer's archive names and platform targets disagree with what the
+        release workflow's build matrix actually produces.
+
+  - name: shell-script-footguns
+    trigger: [scripts/**, ".github/workflows/**"]
+    mode: advisor
+    backend: codex
+    prompt: |
+      As an advisor, review shell and PowerShell code -- standalone scripts under
+      scripts/ and inline `run:` steps in workflows -- for portability footguns
+      that tend to fail silently or only in CI. Report these as optional findings;
+      do not block.
+
+      - bash that does not run under `set -euo pipefail`, or unquoted variable
+        expansions that break on spaces or globbing.
+      - PowerShell that captures a command's output by assignment or `| Out-String`
+        while the producing code emits via `Write-Host`. `Write-Host` writes to the
+        information stream, which success-stream capture misses, so the variable
+        ends up empty; the fix is `Write-Output`/`return` or an explicit `6>&1`
+        redirect when capturing.
+      - Reliance on interactive-only behavior (prompts, paging, a TTY) in a
+        non-interactive CI shell.
