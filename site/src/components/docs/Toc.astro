@@ -1,0 +1,30 @@
+---
+interface Heading {
+  depth: number;
+  slug: string;
+  text: string;
+}
+interface Props {
+  headings: Heading[];
+}
+const { headings } = Astro.props;
+// Only h2/h3 make a useful in-page outline; h1 is the page title and h4+ is noise.
+const items = headings.filter((h) => h.depth >= 2 && h.depth <= 3);
+---
+
+{
+  items.length > 1 && (
+    <aside class="docs-toc" aria-label="On this page">
+      <p class="docs-toc__label">On this page</p>
+      <ul class="docs-toc__list">
+        {items.map((h) => (
+          <li class:list={["docs-toc__item", `is-h${h.depth}`]}>
+            <a class="docs-toc__link" href={`#${h.slug}`} data-toc-link={h.slug}>
+              {h.text}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </aside>
+  )
+}

@@ -1,0 +1,273 @@
+---
+import "../styles/global.css";
+import "../styles/docs.css";
+import DocsHeader from "../components/docs/DocsHeader.astro";
+import Sidebar from "../components/docs/Sidebar.astro";
+import Toc from "../components/docs/Toc.astro";
+import PageActions from "../components/docs/PageActions.astro";
+import PrevNext from "../components/docs/PrevNext.astro";
+import { loadGuide, neighbors } from "../lib/guide";
+
+interface Heading {
+  depth: number;
+  slug: string;
+  text: string;
+}
+interface Props {
+  title: string;
+  summary: string;
+  currentId: string;
+  headings: Heading[];
+  rawPath: string;
+  githubUrl: string;
+  rawMarkdown: string;
+}
+const { title, summary, currentId, headings, rawPath, githubUrl, rawMarkdown } =
+  Astro.props;
+
+const entries = await loadGuide();
+const current = entries.find((e) => e.id === currentId);
+const { prev, next } = current
+  ? neighbors(entries, current)
+  : { prev: null, next: null };
+
+const year = new Date().getFullYear();
+const pageTitle =
+  title === "Bastion user guide" ? title : `${title} · Bastion docs`;
+const canonical = new URL(Astro.url.pathname, Astro.site).href.replace(
+  /\/$/,
+  ""
+);
+const ogImage = new URL("/og.png", Astro.site).href;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="theme-color" content="#f6f7f9" />
+
+    <title>{pageTitle}</title>
+    <meta name="description" content={summary} />
+    <link rel="canonical" href={canonical} />
+
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Bastion" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={summary} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={summary} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <!-- Point agents and crawlers at the machine-readable mirror of this page
+         and the site-wide guide index. -->
+    <link rel="alternate" type="text/markdown" href={rawPath} />
+    <link rel="alternate" type="text/plain" title="llms.txt" href="/llms.txt" />
+  </head>
+  <body class="docs-body">
+    <a href="#docs-main" class="skip-link">Skip to content</a>
+    <DocsHeader />
+
+    <div class="docs-shell">
+      <div class="docs-layout">
+        <Sidebar entries={entries} currentId={currentId} />
+        <main id="docs-main" class="docs-main">
+          <PageActions rawPath={rawPath} githubUrl={githubUrl} />
+          <article class="docs-prose" data-pagefind-body>
+            <slot />
+          </article>
+          <PrevNext prev={prev} next={next} />
+        </main>
+        <Toc headings={headings} />
+      </div>
+    </div>
+
+    <footer class="docs-footer">
+      <div class="docs-footer__inner">
+        <span>&copy; {year} Jessica Black</span>
+        <span class="docs-footer__note">
+          Docs under <a
+            href="https://creativecommons.org/licenses/by-sa/4.0/"
+            rel="noopener license">CC-BY-SA-4.0</a
+          >
+        </span>
+      </div>
+    </footer>
+
+    <!-- Search overlay. Pagefind UI is mounted lazily on first open; the index
+         only exists after a production build, so dev degrades gracefully. -->
+    <div class="docs-search" data-search-modal hidden>
+      <button
+        type="button"
+        class="docs-search__scrim"
+        data-search-close
+        aria-label="Close search"></button>
+      <div class="docs-search__panel" role="dialog" aria-modal="true" aria-label="Search the docs">
+        <div id="docs-search-ui"></div>
+      </div>
+    </div>
+
+    <!-- The exact Markdown source of this page, copied verbatim by "Copy page"
+         and served at the `.md` route. -->
+    <script type="application/markdown" id="page-markdown" is:inline set:html={rawMarkdown}
+    ></script>
+
+    <script is:inline>
+      (function () {
+        var body = document.body;
+
+        // ---- Copy page as Markdown -------------------------------------
+        document.addEventListener("click", function (ev) {
+          var btn = ev.target.closest && ev.target.closest("[data-copy-page]");
+          if (!btn) return;
+          var src = document.getElementById("page-markdown");
+          var label = btn.querySelector("[data-copy-label]");
+          if (!src || !navigator.clipboard) return;
+          navigator.clipboard
+            .writeText((src.textContent || "").trim() + "\n")
+            .then(function () {
+              btn.setAttribute("data-copied", "");
+              if (label) label.textContent = "Copied";
+              setTimeout(function () {
+                btn.removeAttribute("data-copied");
+                if (label) label.textContent = "Copy page";
+              }, 1600);
+            });
+        });
+
+        // ---- Sidebar drawer (narrow viewports) -------------------------
+        var menuBtn = document.querySelector("[data-sidebar-toggle]");
+        function setSidebar(open) {
+          body.classList.toggle("is-sidebar-open", open);
+          if (menuBtn) menuBtn.setAttribute("aria-expanded", String(open));
+        }
+        document.addEventListener("click", function (ev) {
+          if (ev.target.closest && ev.target.closest("[data-sidebar-toggle]"))
+            setSidebar(!body.classList.contains("is-sidebar-open"));
+          else if (ev.target.closest && ev.target.closest("[data-sidebar-close]"))
+            setSidebar(false);
+          else if (ev.target.closest && ev.target.closest("#docs-sidebar a"))
+            setSidebar(false);
+        });
+
+        // ---- Table-of-contents scrollspy -------------------------------
+        var tocLinks = Array.prototype.slice.call(
+          document.querySelectorAll("[data-toc-link]")
+        );
+        if (tocLinks.length && "IntersectionObserver" in window) {
+          var ids = tocLinks.map(function (l) {
+            return l.getAttribute("data-toc-link");
+          });
+          var targets = ids
+            .map(function (id) {
+              return document.getElementById(id);
+            })
+            .filter(Boolean);
+          var active = "";
+          function mark(id) {
+            if (id === active) return;
+            active = id;
+            tocLinks.forEach(function (l) {
+              l.classList.toggle(
+                "is-active",
+                l.getAttribute("data-toc-link") === id
+              );
+            });
+          }
+          var spy = new IntersectionObserver(
+            function (entries) {
+              var visible = entries
+                .filter(function (e) {
+                  return e.isIntersecting;
+                })
+                .sort(function (a, b) {
+                  return a.boundingClientRect.top - b.boundingClientRect.top;
+                });
+              if (visible.length) mark(visible[0].target.id);
+            },
+            { rootMargin: "-72px 0px -70% 0px", threshold: 0 }
+          );
+          targets.forEach(function (t) {
+            spy.observe(t);
+          });
+        }
+
+        // ---- Search overlay + lazy Pagefind ----------------------------
+        var modal = document.querySelector("[data-search-modal]");
+        var pfStarted = false;
+        function initPagefind() {
+          if (pfStarted) return;
+          pfStarted = true;
+          var mount = document.getElementById("docs-search-ui");
+          var css = document.createElement("link");
+          css.rel = "stylesheet";
+          css.href = "/pagefind/pagefind-ui.css";
+          document.head.appendChild(css);
+          var s = document.createElement("script");
+          s.src = "/pagefind/pagefind-ui.js";
+          s.onload = function () {
+            try {
+              new window.PagefindUI({
+                element: "#docs-search-ui",
+                showSubResults: true,
+                showImages: false,
+                resetStyles: false,
+              });
+              var input = mount.querySelector("input");
+              if (input) input.focus();
+            } catch (e) {
+              mount.innerHTML =
+                '<p class="docs-search__empty">Search could not start.</p>';
+            }
+          };
+          s.onerror = function () {
+            mount.innerHTML =
+              '<p class="docs-search__empty">The search index is generated at build time. Run <code>npm run build</code> to try it locally.</p>';
+          };
+          document.head.appendChild(s);
+        }
+        function openSearch() {
+          if (!modal) return;
+          modal.hidden = false;
+          body.classList.add("is-search-open");
+          initPagefind();
+          var input = modal.querySelector("input");
+          if (input) input.focus();
+        }
+        function closeSearch() {
+          if (!modal) return;
+          modal.hidden = true;
+          body.classList.remove("is-search-open");
+        }
+        document.addEventListener("click", function (ev) {
+          if (ev.target.closest && ev.target.closest("[data-search-open]"))
+            openSearch();
+          else if (ev.target.closest && ev.target.closest("[data-search-close]"))
+            closeSearch();
+        });
+        document.addEventListener("keydown", function (ev) {
+          if (
+            ev.key === "/" &&
+            !/^(INPUT|TEXTAREA|SELECT)$/.test(
+              (document.activeElement || {}).tagName || ""
+            )
+          ) {
+            ev.preventDefault();
+            openSearch();
+          } else if (ev.key === "Escape") {
+            if (body.classList.contains("is-search-open")) closeSearch();
+            else setSidebar(false);
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

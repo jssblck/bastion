@@ -1,10 +1,12 @@
+---
+title: Authoring reviewers
+summary: "The registry schema in full, and how to write a reviewer that stays sharp."
+order: 4
+---
+
 # Authoring reviewers
 
 > The registry schema in full, and how to write a reviewer that stays sharp.
-
-[<- Concepts](./concepts.md) | [Guide index](./README.md) | Next: [The local workflow](./local-workflow.md) ->
-
----
 
 Reviewers are the whole policy. This chapter is the reference for writing them:
 the file, the required fields, the optional execution profile, and the craft of a

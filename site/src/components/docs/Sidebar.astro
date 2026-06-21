@@ -1,0 +1,37 @@
+---
+import { routeFor, isIndex, type GuideEntry } from "../../lib/guide";
+
+interface Props {
+  entries: GuideEntry[];
+  currentId: string;
+}
+const { entries, currentId } = Astro.props;
+---
+
+<aside class="docs-sidebar" id="docs-sidebar">
+  <nav class="docs-sidebar__nav" aria-label="User guide">
+    <p class="docs-sidebar__label">User guide</p>
+    <ol class="docs-sidebar__list">
+      {
+        entries.map((e) => {
+          const active = e.id === currentId;
+          const index = isIndex(e);
+          return (
+            <li>
+              <a
+                href={routeFor(e)}
+                class:list={["docs-sidebar__link", { "is-active": active }]}
+                aria-current={active ? "page" : undefined}
+              >
+                <span class="docs-sidebar__num">{index ? "00" : String(e.data.order).padStart(2, "0")}</span>
+                <span class="docs-sidebar__text">{index ? "Overview" : e.data.title}</span>
+              </a>
+            </li>
+          );
+        })
+      }
+    </ol>
+  </nav>
+</aside>
+
+<button type="button" class="docs-scrim" data-sidebar-close aria-label="Close navigation" tabindex="-1"></button>

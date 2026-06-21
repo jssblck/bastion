@@ -1,0 +1,33 @@
+---
+import { routeFor, isIndex, type GuideEntry } from "../../lib/guide";
+
+interface Props {
+  prev: GuideEntry | null;
+  next: GuideEntry | null;
+}
+const { prev, next } = Astro.props;
+const label = (e: GuideEntry) => (isIndex(e) ? "Guide index" : e.data.title);
+---
+
+<nav class="docs-prevnext" aria-label="Chapter navigation">
+  {
+    prev ? (
+      <a class="docs-prevnext__link is-prev" href={routeFor(prev)}>
+        <span class="docs-prevnext__dir">Previous</span>
+        <span class="docs-prevnext__title">{label(prev)}</span>
+      </a>
+    ) : (
+      <span class="docs-prevnext__spacer" />
+    )
+  }
+  {
+    next ? (
+      <a class="docs-prevnext__link is-next" href={routeFor(next)}>
+        <span class="docs-prevnext__dir">Next</span>
+        <span class="docs-prevnext__title">{label(next)}</span>
+      </a>
+    ) : (
+      <span class="docs-prevnext__spacer" />
+    )
+  }
+</nav>
