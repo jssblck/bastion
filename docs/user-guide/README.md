@@ -1,3 +1,9 @@
+---
+title: Bastion user guide
+summary: "Agentic code review for a world where agents write all of the code."
+order: 0
+---
+
 # Bastion user guide
 
 > Agentic code review for a world where agents write all of the code.

@@ -1,11 +1,13 @@
+---
+title: Continuous integration
+summary: "Promoting your reviewers into GitHub Actions: one required check, live progress, and per-author billing."
+order: 6
+---
+
 # Continuous integration
 
 > Promoting your reviewers into GitHub Actions: one required check, live progress,
 > and per-author billing.
-
-[<- The local workflow](./local-workflow.md) | [Guide index](./README.md) | Next: [Governance](./governance.md) ->
-
----
 
 The local loop gets you to green before you open a PR. CI is the authoritative
 confirmation: it runs the *same* reviewers from the *same* `bastion/reviewers.yaml`

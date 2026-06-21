@@ -1,10 +1,12 @@
+---
+title: Getting started
+summary: "Install Bastion, write one reviewer, and run your first review."
+order: 2
+---
+
 # Getting started
 
 > Install Bastion, write one reviewer, and run your first review.
-
-[<- Introduction](./introduction.md) | [Guide index](./README.md) | Next: [Concepts](./concepts.md) ->
-
----
 
 This chapter gets you from nothing to a working review loop. It assumes you have a
 git repository and one of the supported agent backends installed (the Claude Code

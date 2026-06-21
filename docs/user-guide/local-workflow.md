@@ -1,11 +1,13 @@
+---
+title: The local workflow
+summary: "Running bastion review for real: the loop, the two output formats, exit codes, and inspecting what was saved."
+order: 5
+---
+
 # The local workflow
 
 > Running `bastion review` for real: the loop, the two output formats, exit codes,
 > and inspecting what was saved.
-
-[<- Authoring reviewers](./authoring-reviewers.md) | [Guide index](./README.md) | Next: [Continuous integration](./continuous-integration.md) ->
-
----
 
 The local CLI is the surface an authoring agent optimizes against before opening a
 PR. It runs the *same* reviewers CI will run, so a green local loop means a PR that

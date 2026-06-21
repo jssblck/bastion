@@ -1,10 +1,12 @@
+---
+title: Introduction
+summary: "Why Bastion exists, and the one idea you need to hold in your head."
+order: 1
+---
+
 # Introduction
 
 > Why Bastion exists, and the one idea you need to hold in your head.
-
-[<- Back to the guide index](./README.md) | Next: [Getting started](./getting-started.md) ->
-
----
 
 ## The problem
 

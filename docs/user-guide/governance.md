@@ -1,11 +1,13 @@
+---
+title: Governance
+summary: "Keeping humans at the policy layer: protecting the registry, the escape-to-improvement loop, and what Bastion deliberately does not guarantee."
+order: 7
+---
+
 # Governance
 
 > Keeping humans at the policy layer: protecting the registry, the
 > escape-to-improvement loop, and what Bastion deliberately does not guarantee.
-
-[<- Continuous integration](./continuous-integration.md) | [Guide index](./README.md)
-
----
 
 Bastion relocates the human from reviewing diffs to *governing the reviewers*. That
 only works if the reviewer policy itself is protected and continuously improved.

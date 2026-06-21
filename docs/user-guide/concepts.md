@@ -1,11 +1,13 @@
+---
+title: Concepts
+summary: "The vocabulary Bastion runs on: reviewers, triggers, modes, verdicts, and the merge gate."
+order: 3
+---
+
 # Concepts
 
 > The vocabulary Bastion runs on: reviewers, triggers, modes, verdicts, and the
 > merge gate.
-
-[<- Getting started](./getting-started.md) | [Guide index](./README.md) | Next: [Authoring reviewers](./authoring-reviewers.md) ->
-
----
 
 This chapter defines the terms the rest of the guide uses. It is short on purpose;
 each idea has a deeper home later, linked as it comes up.
