@@ -1,20 +1,40 @@
 # Bastion
 
-> Agentic code review for a world where agents write all of the code.
+Agentic code review for a world where agents write all of the code.
 
-Bastion runs code review as a set of **single-concern reviewers** -- focused agent
-prompts, each responsible for exactly one property -- over a changeset. The same
-reviewers run locally (fast, pre-PR) and in CI (authoritative), and their verdicts
-aggregate into one merge gate. The human moves from reviewing diffs to authoring,
-curating, and governing the reviewers.
+## Why Bastion exists
+
+Agents now write most of the code on a growing number of teams, at a volume closer
+to _engineers x 100_ than _x 1_. Two things stop teams from fully unlocking that:
+
+- **Human diff review does not scale.** Asking a 5-person team to review their
+  agents' output is like asking 5 people in a 500-person org to review the other
+  495. You cannot fix that by trying harder.
+- **Without review, codebases rot.** Things go great until they don't, and then
+  you have a ball of mud nobody can work in.
+
+Existing agentic reviewers (Copilot, CodeRabbit, and the like) do a decent job, but
+they were built for the _old_ world: agentic review _for humans writing code_. They
+read the whole diff at once and leave comments for a person to act on, and a single
+generic reviewer's recall collapses as you pile on concerns. A 1-item checklist
+agent works great; at 10 items it slips; at 100 it is useless. Attention is scarce,
+for humans and still for agents, and smarter models do not seem to change that.
+
+## What Bastion does
+
+Bastion runs code review as a set of **single-concern reviewers**: focused agent
+prompts, each responsible for exactly one property, run over a changeset. Because
+each reviewer owns one concern, it stays at high recall; you cover more ground by
+adding narrow reviewers, never by broadening one. The same reviewers run locally
+(fast, pre-PR) and in CI (authoritative), and their verdicts aggregate into one
+merge gate. The human moves from reviewing diffs to authoring, curating, and
+governing the reviewers.
 
 The `bastion` CLI is the local surface: an authoring agent loops `bastion review`
 until green, then opens a PR that CI largely just confirms.
 
-> **Status: experimental, but no longer hollow.** Routing, the runner, verdict
-> aggregation, and the on-disk run store are real and tested; the Claude Code and
-> Codex backends execute reviewers for real. The `pi` backend is still stubbed and
-> fails closed. Rust 2024, single binary.
+For the full motivation, mental model, and threat model, see
+[the core design](docs/developer-guide/design.md#the-problem).
 
 ## Install
 
@@ -41,10 +61,10 @@ cargo build --release
 
 ## Documentation
 
-- **[User guide](docs/user-guide/README.md)** -- using Bastion on your project:
-  concepts, writing reviewers, the local loop, CI, and governance. **Start here.**
-- **[Developer guide](docs/developer-guide/README.md)** -- working on Bastion
-  itself: architecture, the backend boundary, conventions, and the design
+- **[User guide](docs/user-guide/README.md)**: using Bastion on your project.
+  Concepts, writing reviewers, the local loop, CI, and governance. **Start here.**
+- **[Developer guide](docs/developer-guide/README.md)**: working on Bastion
+  itself. Architecture, the backend boundary, conventions, and the design
   references.
 
 The [getting-started chapter](docs/user-guide/getting-started.md) takes you from
