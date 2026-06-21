@@ -22,3 +22,11 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test --locked
       - run: cargo clippy --all-targets --locked -- -D warnings
+      # The agent skills bundled in the binary (`bastion skills install`) are
+      # committed under `.claude/skills/` and `.agents/skills/`. This fails the
+      # build if a change edits a skill's source without re-running the install, so
+      # the checked-in copies never drift from `skills/<slug>/SKILL.md`. It builds
+      # from the PR's own sources (unlike the agentic `bastion review`, which uses a
+      # pinned release): this is a deterministic, content-only lint, not a review.
+      - name: Bundled skills are in sync
+        run: cargo run --locked --quiet -- skills check

@@ -20,6 +20,8 @@
 //! - [`render`] — turning events into human or JSONL output.
 //! - [`backend`] — the agent execution boundary (Claude Code and siblings).
 //! - [`runner`] — the parallel, timeout-bounded runner and aggregation.
+//! - [`skills`] — the agent skills bundled into the binary and installed into a
+//!   consuming repo so its agents learn how to use Bastion.
 //! - [`cli`] / [`commands`] — the argument surface and command handlers.
 
 #![warn(missing_docs)]
@@ -35,6 +37,7 @@ pub mod render;
 pub mod reviewer;
 pub mod routing;
 pub mod runner;
+pub mod skills;
 pub mod store;
 pub mod verdict;
 pub mod version;

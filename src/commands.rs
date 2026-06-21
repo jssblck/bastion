@@ -9,7 +9,7 @@
 //! `codeowners` is pure generation.
 
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use color_eyre::eyre::{Context, Result};
@@ -21,6 +21,7 @@ use crate::paths::Layout;
 use crate::render::{self, Format};
 use crate::routing::Router;
 use crate::runner::{self, ExecContext};
+use crate::skills;
 use crate::store;
 use crate::verdict::{Decision, Money};
 
@@ -207,6 +208,146 @@ pub fn clean(layout: &Layout, keep: Option<usize>, older_than: Option<Duration>)
 pub fn codeowners(owners: &[String]) -> Result<()> {
     print!("{}", codeowners_block(owners));
     Ok(())
+}
+
+/// `bastion skills install`: write the bundled agent skills into the repository.
+///
+/// Resolves the repository root from `cwd`, writes each bundled skill into every
+/// target directory (the defaults, or the `--dir` overrides), and prints what it
+/// did. Existing files that differ are left untouched unless `force` is set, so a
+/// local edit is never clobbered silently.
+///
+/// # Errors
+///
+/// Returns an error if a skill directory cannot be created or a file cannot be
+/// read or written, or if writing the summary to stdout fails.
+pub fn skills_install(cwd: &Path, dirs: &[PathBuf], force: bool) -> Result<()> {
+    let root = skills_root(cwd);
+    let targets = resolve_skill_dirs(dirs);
+    let outcomes = skills::install(&root, &targets, force)?;
+
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    let mut skipped = 0usize;
+    for outcome in &outcomes {
+        let label = match outcome.status {
+            skills::Installed::Created => "created",
+            skills::Installed::Updated => "updated",
+            skills::Installed::Unchanged => "unchanged",
+            skills::Installed::Skipped => {
+                skipped += 1;
+                "skipped (exists)"
+            }
+        };
+        writeln!(out, "  {label}: {}", relative_to(&root, &outcome.path))?;
+    }
+    if skipped > 0 {
+        writeln!(
+            out,
+            "\n{skipped} file(s) already existed and were left as-is; re-run with --force to overwrite."
+        )?;
+    } else {
+        writeln!(
+            out,
+            "\nCommit these files so your agents discover them on checkout."
+        )?;
+    }
+    Ok(())
+}
+
+/// `bastion skills check`: verify the installed skills match this binary's
+/// embedded source.
+///
+/// Prints one line per skill file and returns whether every one is up to date.
+/// Returns `Ok(false)` when any file is missing or has drifted (a hand edit, or a
+/// stale install left behind after the skill source changed), so the caller can
+/// exit non-zero: a CI step can run this to fail when the checked-in skills fall
+/// out of sync with the source.
+///
+/// # Errors
+///
+/// Returns an error if a skill file exists but cannot be read, or if writing the
+/// summary to stdout fails.
+pub fn skills_check(cwd: &Path, dirs: &[PathBuf]) -> Result<bool> {
+    let root = skills_root(cwd);
+    let targets = resolve_skill_dirs(dirs);
+    let outcomes = skills::check(&root, &targets)?;
+
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    let mut current = true;
+    for outcome in &outcomes {
+        let label = match outcome.status {
+            skills::Checked::UpToDate => "up to date",
+            skills::Checked::Drifted => {
+                current = false;
+                "drifted"
+            }
+            skills::Checked::Missing => {
+                current = false;
+                "missing"
+            }
+        };
+        writeln!(out, "  {label}: {}", relative_to(&root, &outcome.path))?;
+    }
+    if !current {
+        writeln!(
+            out,
+            "\nChecked-in skills are out of sync; run `bastion skills install` to refresh them."
+        )?;
+    }
+    Ok(current)
+}
+
+/// `bastion skills list`: show the skills bundled into this binary.
+///
+/// # Errors
+///
+/// Returns an error if writing to stdout fails.
+pub fn skills_list() -> Result<()> {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    writeln!(
+        out,
+        "Skills bundled in bastion {}:",
+        crate::version::VERSION
+    )?;
+    for skill in skills::BUNDLED {
+        writeln!(out, "  {} - {}", skill.slug, skill.summary)?;
+    }
+    writeln!(
+        out,
+        "\nInstall them with `bastion skills install` (default targets: {}).",
+        skills::DEFAULT_DIRS.join(", ")
+    )?;
+    Ok(())
+}
+
+/// The repository root to install skills into: the git toplevel containing `cwd`,
+/// or `cwd` itself when it is not inside a repo, so first-time setup still works.
+fn skills_root(cwd: &Path) -> PathBuf {
+    git::repo_root(cwd).unwrap_or_else(|_| cwd.to_path_buf())
+}
+
+/// The requested skill directories, falling back to the documented defaults when
+/// none were passed.
+fn resolve_skill_dirs(dirs: &[PathBuf]) -> Vec<PathBuf> {
+    if dirs.is_empty() {
+        skills::default_dirs()
+    } else {
+        dirs.to_vec()
+    }
+}
+
+/// Display `path` relative to `root` for tidy output, falling back to the full
+/// path when it lies outside `root`. Separators are normalized to `/` so the
+/// output is consistent across platforms and matches the docs, rather than mixing
+/// the `/` in a default like `.claude/skills` with Windows' `\`.
+fn relative_to(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 /// Render the CODEOWNERS block assigning `owners` to the reviewer-policy paths.
