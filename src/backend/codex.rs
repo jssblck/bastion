@@ -8,13 +8,17 @@
 //! # The Codex invocation contract
 //!
 //! Bastion drives Codex in its headless `exec` mode and asks for a machine
-//! readable event stream (`codex exec --json`). Each line of stdout is a JSON
-//! event; Bastion reconstructs the transcript from those events, takes the final
-//! agent message as the reviewer's structured output, and reads token/cost
-//! accounting from the usage event when Codex reports it. The reviewer's prompt
-//! (with [`inputs`](crate::reviewer::Reviewer::inputs) interpolated) is passed as
-//! the task, with a trailing instruction pinning the verdict schema. Reviewer
+//! readable event stream (`codex exec --json --skip-git-repo-check`). Each line of
+//! stdout is a JSON event; Bastion reconstructs the transcript from those events,
+//! takes the final agent message as the reviewer's structured output, and reads
+//! token/cost accounting from the usage event when Codex reports it. The reviewer's
+//! prompt (with [`inputs`](crate::reviewer::Reviewer::inputs) interpolated and a
+//! trailing instruction pinning the verdict schema) is piped to Codex over stdin --
+//! the final `-` argument tells Codex to read the task from there -- so a long,
+//! multi-line prompt is never an OS argument. Reviewer
 //! [`env`](crate::reviewer::Reviewer::env) is propagated into the child process.
+//! `--skip-git-repo-check` lets Codex run in a checkout it has not been
+//! interactively trusted in, such as a fresh CI clone.
 //!
 //! # Fail-closed parsing
 //!
@@ -74,11 +78,19 @@ impl<R: CommandRunner> CodexBackend<R> {
         Self {
             runner,
             program: program.into(),
-            base_args: vec!["exec".to_string(), "--json".to_string()],
+            // `--skip-git-repo-check` lets Codex run in a checkout it has not been
+            // interactively "trusted" in -- a fresh CI clone, or any repo on a new
+            // machine -- which it otherwise refuses to do in headless `exec` mode.
+            base_args: vec![
+                "exec".to_string(),
+                "--json".to_string(),
+                "--skip-git-repo-check".to_string(),
+            ],
             resume_args: vec![
                 "exec".to_string(),
                 "resume".to_string(),
                 "--json".to_string(),
+                "--skip-git-repo-check".to_string(),
             ],
         }
     }
@@ -123,8 +135,13 @@ impl<R: CommandRunner> CodexBackend<R> {
         }
     }
 
-    /// Assemble a [`CommandSpec`] from leading `args`, appending `prompt` as the
-    /// final positional argument and forwarding the reviewer's env and checkout.
+    /// Assemble a [`CommandSpec`] from leading `args`, passing `prompt` over the
+    /// child's stdin (with a trailing `-` telling Codex to read it from there) and
+    /// forwarding the reviewer's env and checkout.
+    ///
+    /// The prompt goes through stdin rather than argv so a long, multi-line prompt
+    /// is never an OS argument: it dodges argument-length limits and, on Windows,
+    /// the spawner's refusal to forward special characters to a `.cmd` shim.
     fn build_spec(
         &self,
         request: &ReviewRequest<'_>,
@@ -135,7 +152,8 @@ impl<R: CommandRunner> CodexBackend<R> {
         for arg in &leading {
             spec.arg(arg);
         }
-        spec.arg(prompt);
+        spec.arg("-");
+        spec.stdin(prompt);
         for (key, value) in &request.reviewer.env {
             spec.env.insert(key.clone(), value.clone());
         }
@@ -621,6 +639,12 @@ mod tests {
             .collect()
     }
 
+    /// The prompt a spec pipes over stdin (where the backend now puts it), for
+    /// assertions that used to read the final positional argument.
+    fn stdin_of(spec: &CommandSpec) -> &str {
+        spec.stdin.as_deref().expect("spec carries a stdin prompt")
+    }
+
     fn ok_output(stdout: impl Into<String>) -> CommandOutput {
         CommandOutput {
             code: Some(0),
@@ -793,18 +817,10 @@ findings:
         assert_eq!(verdict.decision, Decision::Pass);
         assert_eq!(verdict.summary, "recovered");
         assert_eq!(specs.len(), 2);
-        assert!(
-            !args_of(&specs[0])
-                .last()
-                .unwrap()
-                .contains("did not contain")
-        );
-        assert!(
-            args_of(&specs[1])
-                .last()
-                .unwrap()
-                .contains("ONLY the fenced YAML")
-        );
+        // The prompt rides stdin now; the final argument is the `-` placeholder.
+        assert_eq!(args_of(&specs[0]).last().unwrap(), "-");
+        assert!(!stdin_of(&specs[0]).contains("did not contain"));
+        assert!(stdin_of(&specs[1]).contains("ONLY the fenced YAML"));
     }
 
     #[tokio::test]
@@ -860,9 +876,12 @@ findings:
         let retry = args_of(&specs[1]);
         assert_eq!(retry[0], "exec");
         assert_eq!(retry[1], "resume");
+        assert!(retry.contains(&"--skip-git-repo-check".to_string()));
         assert!(retry.contains(&"th-abc".to_string()));
-        assert!(retry.last().unwrap().contains("ONLY the fenced YAML"));
-        assert!(!retry.last().unwrap().contains("Check the thing."));
+        assert_eq!(retry.last().unwrap(), "-");
+        // On resume the new turn is only the reprompt suffix, not the full review.
+        assert!(stdin_of(&specs[1]).contains("ONLY the fenced YAML"));
+        assert!(!stdin_of(&specs[1]).contains("Check the thing."));
     }
 
     #[tokio::test]
@@ -874,8 +893,10 @@ findings:
         let retry = args_of(&specs[1]);
         assert_eq!(retry[0], "exec");
         assert_eq!(retry[1], "--json");
-        assert!(retry.last().unwrap().contains("Check the thing."));
-        assert!(retry.last().unwrap().contains("ONLY the fenced YAML"));
+        assert_eq!(retry.last().unwrap(), "-");
+        // Without a thread id the fresh session must re-send the full prompt.
+        assert!(stdin_of(&specs[1]).contains("Check the thing."));
+        assert!(stdin_of(&specs[1]).contains("ONLY the fenced YAML"));
     }
 
     #[tokio::test]
@@ -926,7 +947,9 @@ findings:
             ))],
         )
         .await;
-        let prompt = args_of(&specs[0]).last().unwrap().clone();
+        // The prompt is piped over stdin; argv ends with the `-` placeholder.
+        assert_eq!(args_of(&specs[0]).last().unwrap(), "-");
+        let prompt = stdin_of(&specs[0]);
         assert!(prompt.contains("Test against http://localhost:3000 now."));
         assert!(prompt.contains("structured verdict"));
         assert!(!prompt.contains("${preview_url}"));
@@ -970,6 +993,10 @@ findings:
         let args = args_of(spec);
         assert_eq!(args[0], "exec");
         assert_eq!(args[1], "--json");
+        assert_eq!(args[2], "--skip-git-repo-check");
+        assert_eq!(args.last().unwrap(), "-");
+        // The prompt travels via stdin, not as an argument.
+        assert!(stdin_of(spec).contains("Check the thing."));
         assert_eq!(spec.cwd, root);
     }
 

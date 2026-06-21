@@ -8,11 +8,12 @@
 //! so everything above it is deterministic.
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use color_eyre::eyre::{Context, Result};
+use tokio::io::AsyncWriteExt;
 
 /// A fully-specified invocation of an agent CLI.
 ///
@@ -29,22 +30,34 @@ pub struct CommandSpec {
     pub cwd: PathBuf,
     /// Environment variables to set for the child, layered over the parent's.
     pub env: BTreeMap<String, String>,
+    /// Text to pipe to the child's standard input, if any. Backends use this to
+    /// pass a large or special-character-laden prompt without making it a command
+    /// argument -- which also sidesteps the Windows refusal to forward complex
+    /// arguments to a `.cmd`/`.bat` shim. `None` connects stdin to null.
+    pub stdin: Option<String>,
 }
 
 impl CommandSpec {
-    /// Start a spec for `program` running in `cwd`, with no args or env overlay.
+    /// Start a spec for `program` running in `cwd`, with no args, env, or stdin.
     pub fn new(program: impl Into<OsString>, cwd: impl Into<PathBuf>) -> Self {
         Self {
             program: program.into(),
             args: Vec::new(),
             cwd: cwd.into(),
             env: BTreeMap::new(),
+            stdin: None,
         }
     }
 
     /// Append one argument.
     pub fn arg(&mut self, arg: impl Into<OsString>) -> &mut Self {
         self.args.push(arg.into());
+        self
+    }
+
+    /// Set the text piped to the child's standard input.
+    pub fn stdin(&mut self, input: impl Into<String>) -> &mut Self {
+        self.stdin = Some(input.into());
         self
     }
 }
@@ -95,11 +108,16 @@ pub struct SystemCommandRunner;
 
 impl CommandRunner for SystemCommandRunner {
     async fn run(&self, spec: &CommandSpec) -> Result<CommandOutput> {
-        let mut command = tokio::process::Command::new(&spec.program);
+        let program = resolve_executable(&spec.program);
+        let mut command = tokio::process::Command::new(&program);
         command
             .args(&spec.args)
             .current_dir(&spec.cwd)
-            .stdin(Stdio::null())
+            .stdin(if spec.stdin.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             // The runner bounds each reviewer with `tokio::time::timeout`; on
@@ -112,12 +130,28 @@ impl CommandRunner for SystemCommandRunner {
             command.env(key, value);
         }
 
-        let output = command.output().await.wrap_err_with(|| {
+        let mut child = command.spawn().wrap_err_with(|| {
             format!(
                 "failed to spawn '{}'; is it installed and on PATH?",
                 spec.program.to_string_lossy()
             )
         })?;
+
+        // Feed stdin from a concurrent task so a child that writes to stdout while
+        // still reading its prompt cannot deadlock against a full stdin pipe.
+        if let Some(input) = spec.stdin.clone()
+            && let Some(mut sink) = child.stdin.take()
+        {
+            tokio::spawn(async move {
+                let _ = sink.write_all(input.as_bytes()).await;
+                let _ = sink.shutdown().await;
+            });
+        }
+
+        let output = child
+            .wait_with_output()
+            .await
+            .wrap_err_with(|| format!("failed to run '{}'", spec.program.to_string_lossy()))?;
 
         Ok(CommandOutput {
             code: output.status.code(),
@@ -125,6 +159,42 @@ impl CommandRunner for SystemCommandRunner {
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         })
     }
+}
+
+/// Resolve a program to a concrete executable when it is a bare command name on
+/// Windows.
+///
+/// The OS process spawner on Windows does not consult `PATHEXT`, so spawning a
+/// bare `codex` will not find an npm-installed `codex.cmd` shim (there is no
+/// `codex.exe`). Here we mirror the shell's lookup: for a bare name on Windows,
+/// search each `PATH` entry for the name plus each `PATHEXT` extension and return
+/// the first hit. Path-like programs, and every program on other platforms (where
+/// `execvp` already searches `PATH`), are returned unchanged.
+fn resolve_executable(program: &OsStr) -> OsString {
+    if !cfg!(windows) {
+        return program.to_os_string();
+    }
+    let path = Path::new(program);
+    // A name with a directory component or an extension is already concrete.
+    if path.is_absolute() || path.components().count() > 1 || path.extension().is_some() {
+        return program.to_os_string();
+    }
+    let Some(path_var) = std::env::var_os("PATH") else {
+        return program.to_os_string();
+    };
+    let exts = std::env::var_os("PATHEXT").unwrap_or_else(|| OsString::from(".COM;.EXE;.BAT;.CMD"));
+    let exts = exts.to_string_lossy();
+    for dir in std::env::split_paths(&path_var) {
+        for ext in exts.split(';').filter(|e| !e.is_empty()) {
+            let mut name = program.to_os_string();
+            name.push(ext);
+            let candidate = dir.join(&name);
+            if candidate.is_file() {
+                return candidate.into_os_string();
+            }
+        }
+    }
+    program.to_os_string()
 }
 
 /// Resolve the program path for a backend CLI, honoring an environment override.
@@ -186,5 +256,52 @@ mod tests {
     #[test]
     fn missing_path_program_is_unavailable() {
         assert!(!program_is_available(Path::new("/no/such/bin/claude")));
+    }
+
+    #[test]
+    fn resolve_executable_leaves_path_like_programs_unchanged() {
+        // A program with a directory component is already concrete on every
+        // platform; resolution must not rewrite it.
+        let p = OsString::from("some/dir/agent");
+        assert_eq!(resolve_executable(&p), p);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolve_executable_finds_a_cmd_shim_on_windows() {
+        // `cmd` has no `.exe` next to a bare name on PATH search done by the OS,
+        // but our resolver mirrors PATHEXT and finds `cmd.exe`.
+        let resolved = resolve_executable(OsStr::new("cmd"));
+        let path = Path::new(&resolved);
+        assert!(path.is_file(), "expected a concrete file, got {resolved:?}");
+        assert_eq!(
+            path.extension().map(|e| e.to_ascii_lowercase()),
+            Some(OsString::from("exe"))
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn resolve_executable_is_a_noop_off_windows() {
+        // `execvp` already searches PATH for a bare name, so we leave it alone.
+        let p = OsString::from("sh");
+        assert_eq!(resolve_executable(&p), p);
+    }
+
+    #[tokio::test]
+    async fn stdin_is_piped_to_the_child() {
+        // A program that echoes stdin verbatim, present on every platform: `cat`
+        // off Windows, `sort` (which reads stdin when given no file) on Windows.
+        let program = if cfg!(windows) { "sort" } else { "cat" };
+        let tmp = tempfile::tempdir().unwrap();
+        let mut spec = CommandSpec::new(program, tmp.path());
+        spec.stdin("hello-from-stdin");
+
+        let output = SystemCommandRunner.run(&spec).await.expect("runs");
+        assert!(
+            output.stdout.contains("hello-from-stdin"),
+            "stdout was {:?}",
+            output.stdout
+        );
     }
 }
