@@ -79,8 +79,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       # Pin the binary's reported `--version` to the release tag so it is correct
-      # regardless of clone depth. build.rs honors this override; Cross.toml
-      # forwards it into the cross-compilation containers.
+      # regardless of clone depth. build.rs honors this override. cargo-cross runs
+      # the build directly on the runner (no container), so this env is inherited
+      # by every target without extra plumbing.
       BASTION_VERSION: ${{ needs.prepare.outputs.tag }}
     strategy:
       fail-fast: false
@@ -110,7 +111,7 @@ jobs:
             runner: ubuntu-latest
             cross: true
 
-          # Windows via cross (simpler than a native MinGW setup).
+          # Windows via cargo-cross (simpler than a native MinGW setup).
           - target: x86_64-pc-windows-gnu
             runner: ubuntu-latest
             cross: true
@@ -122,11 +123,14 @@ jobs:
           rustup toolchain install stable
           rustup target add ${{ matrix.target }}
 
-      - name: Install cross
+      # cargo-cross cross-compiles by downloading the target toolchain and linker
+      # onto the runner -- no Docker, unlike cross-rs/cross. Bastion is pure Rust
+      # with no C/system dependencies, so a host-side toolchain is all it needs.
+      - name: Install cargo-cross
         if: matrix.cross
         uses: taiki-e/install-action@v2
         with:
-          tool: cross
+          tool: cargo-cross
           checksum: true
 
       - name: Setup Rust cache
@@ -134,9 +138,9 @@ jobs:
         with:
           shared-key: release-${{ matrix.target }}
 
-      - name: Build (cross)
+      - name: Build (cargo-cross)
         if: matrix.cross
-        run: cross build --target ${{ matrix.target }} --package bastion --release --locked
+        run: cargo cross build --target ${{ matrix.target }} --package bastion --release --locked
 
       - name: Build (native)
         if: ${{ !matrix.cross }}
