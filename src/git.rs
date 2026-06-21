@@ -77,6 +77,18 @@ pub fn changed_files(cwd: &Path, base: &str) -> Result<Vec<String>> {
     Ok(files.into_iter().collect())
 }
 
+/// The short commit hash of `HEAD`, or `None` when git cannot supply one (for
+/// example a repository with no commits yet).
+///
+/// Used to key a local run by the changeset head; callers fall back to a fixed
+/// marker when it is absent.
+#[must_use]
+pub fn short_head(cwd: &Path) -> Option<String> {
+    run_git(cwd, &["rev-parse", "--short", "HEAD"])
+        .ok()
+        .filter(|sha| !sha.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +138,24 @@ mod tests {
             repo_root(dir).unwrap().canonicalize().unwrap(),
             dir.canonicalize().unwrap()
         );
+    }
+
+    #[test]
+    fn short_head_reports_a_hash_after_a_commit_and_none_before() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        git(dir, &["init"]);
+
+        // No commits yet: HEAD does not resolve.
+        assert!(short_head(dir).is_none());
+
+        std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+        git(dir, &["add", "a.txt"]);
+        git(dir, &["commit", "-m", "base"]);
+
+        let sha = short_head(dir).expect("a commit exists");
+        assert!(!sha.is_empty());
+        // A short hash is a handful of hex characters with no whitespace.
+        assert!(sha.chars().all(|c| c.is_ascii_hexdigit()), "got {sha:?}");
     }
 }
