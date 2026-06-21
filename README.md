@@ -44,6 +44,23 @@ reviewers:
 reviewers whose triggers match, runs them, and renders progress and verdicts. An
 agent passes `--format jsonl` to read a machine stream instead of human output.
 
+## Install
+
+Prebuilt binaries for Linux (x86_64 and aarch64, glibc and musl), macOS (Intel
+and Apple silicon), and Windows (x86_64) are attached to every
+[GitHub release](https://github.com/jssblck/bastion/releases). Download the
+archive for your platform, extract it, and put `bastion` on your `PATH`:
+
+```sh
+# Example: Linux x86_64
+curl -sSL https://github.com/jssblck/bastion/releases/latest/download/bastion-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+sudo install bastion-x86_64-unknown-linux-gnu/bastion /usr/local/bin/
+bastion --version
+```
+
+Each archive bundles the binary with `README.md`, `LICENSE`, and `NOTICE`, and the
+release lists SHA-256 `checksums.txt`. Prefer to build it yourself? See below.
+
 ## Quick start
 
 ```sh

@@ -1,62 +1,324 @@
 name: Release
 
+# Build and publish Bastion releases to GitHub Releases.
+#
+# Triggered on version tags (v*). Builds binaries for the supported platform
+# matrix in parallel -- native where the runner matches the target, cross-compiled
+# otherwise -- then creates a DRAFT GitHub Release whose notes are generated from
+# the pull requests merged since the previous tag (`--generate-notes`, the
+# "releases as changelog" pattern). The draft is reviewed and published by hand.
+
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (build and package, but do not create a release)"
+        type: boolean
+        default: false
 
-permissions:
-  contents: write
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      macos_signing: ${{ steps.signing.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG="${{ github.ref_name }}"
+            VERSION="${TAG#v}"
+          elif [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            # Allow dry runs on any branch using git describe.
+            TAG="$(git describe --always --tags)"
+            VERSION="${TAG#v}"
+            echo "::notice::Dry run on a non-tag ref; using git describe version: $TAG"
+          else
+            echo "::error::Release must be triggered by a version tag (v*)"
+            exit 1
+          fi
+
+          # Anything that is not a bare X.Y.Z (pre-release suffix, or a non-semver
+          # describe string) is treated as a prerelease.
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            PRERELEASE=false
+          else
+            PRERELEASE=true
+          fi
+
+          {
+            echo "tag=${TAG}"
+            echo "version=${VERSION}"
+            echo "prerelease=${PRERELEASE}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing ${TAG} (version ${VERSION}, prerelease ${PRERELEASE})"
+
+      - name: Detect macOS signing availability
+        id: signing
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+        run: |
+          # Signing and notarization are opt-in: they light up only once the Apple
+          # Developer secrets exist. Until then macOS binaries ship unsigned rather
+          # than failing the release.
+          if [[ -n "$APPLE_CERTIFICATE_BASE64" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Apple signing secrets are not configured; macOS binaries will be unsigned."
+          fi
+
   build:
-    name: Build ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.target }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    env:
+      # Pin the binary's reported `--version` to the release tag so it is correct
+      # regardless of clone depth. build.rs honors this override; Cross.toml
+      # forwards it into the cross-compilation containers.
+      BASTION_VERSION: ${{ needs.prepare.outputs.tag }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            artifact: bastion-linux-x86_64
-          - os: macos-latest
-            artifact: bastion-macos-arm64
-          - os: windows-latest
-            artifact: bastion-windows-x86_64
+          # macOS (both architectures cross-compile natively on an Apple runner).
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+            cross: false
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            cross: false
+
+          # Linux glibc.
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: true
+
+          # Linux musl (static).
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            cross: true
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-latest
+            cross: true
+
+          # Windows via cross (simpler than a native MinGW setup).
+          - target: x86_64-pc-windows-gnu
+            runner: ubuntu-latest
+            cross: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable
+          rustup target add ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross
+        uses: taiki-e/install-action@v2
         with:
-          fetch-depth: 0 # full history so git describe can find the tag
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release --locked
+          tool: cross
+          checksum: true
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --target ${{ matrix.target }} --package bastion --release --locked
+
+      - name: Build (native)
+        if: ${{ !matrix.cross }}
+        run: cargo build --target ${{ matrix.target }} --package bastion --release --locked
+
+      # --- macOS signing & notarization -------------------------------------
+      # Inert unless the Apple Developer secrets are configured (see the prepare
+      # job). When they are, the binary is Developer ID-signed and notarized.
+      - name: Import signing certificate
+        if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing == 'true'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo -n "$APPLE_CERTIFICATE_BASE64" | base64 --decode -o "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$APPLE_CERTIFICATE_PASSWORD" "$RUNNER_TEMP/build.keychain"
+          security default-keychain -s "$RUNNER_TEMP/build.keychain"
+          security unlock-keychain -p "$APPLE_CERTIFICATE_PASSWORD" "$RUNNER_TEMP/build.keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$RUNNER_TEMP/build.keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$APPLE_CERTIFICATE_PASSWORD" "$RUNNER_TEMP/build.keychain"
+          rm "$RUNNER_TEMP/certificate.p12"
+
+      - name: Sign macOS binary
+        if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing == 'true'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          codesign --sign "$APPLE_TEAM_ID" \
+                   --timestamp \
+                   --options=runtime \
+                   --force \
+                   "target/${{ matrix.target }}/release/bastion"
+
+      - name: Store notarization credentials
+        if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          xcrun notarytool store-credentials "notarytool-password" \
+                  --apple-id "$APPLE_ID" \
+                  --team-id "$APPLE_TEAM_ID" \
+                  --password "$APPLE_APP_SPECIFIC_PASSWORD"
+
+      - name: Submit for notarization
+        if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing == 'true'
+        run: |
+          zip "$RUNNER_TEMP/bastion-macos.zip" "target/${{ matrix.target }}/release/bastion"
+          xcrun notarytool submit "$RUNNER_TEMP/bastion-macos.zip" \
+                  --keychain-profile "notarytool-password" \
+                  --wait
+
+      - name: Cleanup keychain
+        if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing == 'true' && always()
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain" || true
+
+      # --- Package ----------------------------------------------------------
       - name: Package binary
+        id: package
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "dist/${{ matrix.artifact }}"
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cp target/release/bastion.exe README.md LICENSE NOTICE "dist/${{ matrix.artifact }}/"
-            7z a -tzip "dist/${{ matrix.artifact }}.zip" "./dist/${{ matrix.artifact }}"
-          else
-            cp target/release/bastion README.md LICENSE NOTICE "dist/${{ matrix.artifact }}/"
-            tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C dist "${{ matrix.artifact }}"
-          fi
-      - uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.artifact }}
-          path: |
-            dist/*.tar.gz
-            dist/*.zip
+          TARGET="${{ matrix.target }}"
+          ARCHIVE_NAME="bastion-${TARGET}"
+          ARCHIVE_DIR="artifacts/${ARCHIVE_NAME}"
+          mkdir -p "${ARCHIVE_DIR}"
 
-  publish:
-    name: Publish GitHub release
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/download-artifact@v8
+          if [[ "$TARGET" == *"windows"* ]]; then
+            cp "target/${TARGET}/release/bastion.exe" "${ARCHIVE_DIR}/"
+          else
+            cp "target/${TARGET}/release/bastion" "${ARCHIVE_DIR}/"
+          fi
+
+          # Ship the license and notices alongside the binary (AGPL).
+          cp README.md LICENSE NOTICE "${ARCHIVE_DIR}/"
+
+          (cd artifacts && tar -czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}")
+          rm -rf "${ARCHIVE_DIR}"
+          echo "archive=artifacts/${ARCHIVE_NAME}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          path: dist
+          name: bastion-${{ matrix.target }}
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: bastion-*
           merge-multiple: true
-      - env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" dist/* --generate-notes
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Generate checksums
+        working-directory: artifacts
+        run: |
+          sha256sum *.tar.gz > checksums.txt
+          echo "Generated checksums:"
+          cat checksums.txt
+
+      - name: Create draft GitHub release
+        if: ${{ !inputs.dry_run }}
+        run: |
+          gh release create "${{ needs.prepare.outputs.tag }}" \
+            --draft \
+            --generate-notes \
+            ${{ needs.prepare.outputs.prerelease == 'true' && '--prerelease' || '--latest' }} \
+            --title "${{ needs.prepare.outputs.tag }}" \
+            artifacts/*.tar.gz \
+            artifacts/checksums.txt
+
+      - name: Write release summary
+        if: ${{ !inputs.dry_run }}
+        run: |
+          TAG="${{ needs.prepare.outputs.tag }}"
+          {
+            echo "## Draft release created: $TAG"
+            echo ""
+            echo "A draft release was created with auto-generated notes (the merged PRs since the previous tag)."
+            echo ""
+            echo "### Next steps"
+            echo ""
+            echo "1. [Review the draft release](https://github.com/${{ github.repository }}/releases)"
+            echo "2. Edit the generated notes if needed"
+            echo "3. **Publish when ready**"
+            echo ""
+            echo "### Checksums"
+            echo ""
+            echo '```'
+            cat artifacts/checksums.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Write dry run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          TAG="${{ needs.prepare.outputs.tag }}"
+          {
+            echo "## Dry run - $TAG"
+            echo ""
+            echo "> [!NOTE]"
+            echo "> No release was created. This was a dry run."
+            echo ""
+            echo "### Artifacts"
+            echo ""
+            echo '```'
+            ls -la artifacts/
+            echo '```'
+            echo ""
+            echo "### Checksums"
+            echo ""
+            echo '```'
+            cat artifacts/checksums.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
