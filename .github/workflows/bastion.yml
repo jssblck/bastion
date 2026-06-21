@@ -52,7 +52,7 @@ jobs:
     # branch in this repo.
     if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Full history so the base branch resolves for the changeset diff and so
           # the Codex reviewer can run `git diff <base>` over the working tree.
@@ -77,7 +77,7 @@ jobs:
       - name: Verify bastion
         run: bastion --version
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
 
@@ -140,7 +140,7 @@ jobs:
 
       - name: Upload the run
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bastion-run
           path: ${{ github.workspace }}/.bastion/runs/**
