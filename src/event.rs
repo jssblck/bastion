@@ -1,8 +1,8 @@
 //! The run event stream.
 //!
 //! A run is a sequence of typed events emitted as each thing happens. The same
-//! events are streamed to stdout as JSONL (`docs/LOCAL.md`) and persisted to the
-//! run's `run.jsonl`; the GitHub surfaces (`docs/GITHUB.md`) mirror them one to
+//! events are streamed to stdout as JSONL (`docs/developer-guide/local-surface.md`) and persisted to the
+//! run's `run.jsonl`; the GitHub surfaces (`docs/developer-guide/github-adapter.md`) mirror them one to
 //! one. Verbose detail (transcripts) is deliberately kept *off* the stream and
 //! saved to disk instead — hence [`ReviewerResolved::has_transcript`] rather than
 //! the transcript itself.

@@ -5,7 +5,7 @@
 //! with a trigger; matched reviewers run, return a structured [`verdict`], and
 //! Bastion aggregates them into a single merge gate.
 //!
-//! This crate is the local surface described in `docs/LOCAL.md`. The data and
+//! This crate is the local surface described in `docs/developer-guide/local-surface.md`. The data and
 //! routing layers, the Claude Code [`backend`], and the parallel [`runner`] are
 //! real and tested; sibling backends (Codex, Pi) are stubbed behind the stable
 //! [`backend::Backend`] trait awaiting implementation.

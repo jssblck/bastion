@@ -1,7 +1,7 @@
 //! The parallel, timeout-bounded runner.
 //!
 //! [`execute`] runs every matched reviewer concurrently, bounds each by its
-//! `timeout`, aggregates the results per the merge gate in `docs/DESIGN.md`, and
+//! `timeout`, aggregates the results per the merge gate in `docs/developer-guide/design.md`, and
 //! emits the full [`RunEvent`] stream. It owns event emission and persistence so
 //! [`crate::commands::review`] only has to render the stream and map the aggregate
 //! verdict to an exit status.

@@ -2,7 +2,17 @@
 
 > The GitHub adapter: how Bastion runs in Actions, reports to PRs, and gates merges.
 
-The core design (`DESIGN.md`) is deliberately CI-agnostic; it describes reviewers, verdicts, and the merge gate without saying how any of it touches a real forge. This doc is the GitHub adapter: the concrete answer to "where does the workflow live, how does a verdict become a check, and how is the policy layer enforced" when the forge is GitHub. Everything here is one implementation of the plugin-style CI interface the core design refers to; another forge would get its own doc and reuse the same core.
+The core design ([`design.md`](./design.md)) is deliberately CI-agnostic; it describes reviewers, verdicts, and the merge gate without saying how any of it touches a real forge. This doc is the GitHub adapter: the concrete answer to "where does the workflow live, how does a verdict become a check, and how is the policy layer enforced" when the forge is GitHub. Everything here is one implementation of the plugin-style CI interface the core design refers to; another forge would get its own doc and reuse the same core.
+
+> **Implementation status.** This document describes the *target* adapter. What
+> ships today is the self-hosted MVP in
+> [`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml): it runs
+> `bastion review` and gates on the job's exit code, uploading the full run as an
+> artifact. It does **not** yet post per-reviewer check runs or inline PR comments,
+> and the aggregate `bastion` check and packaged `review-action`/GitHub App below
+> are not yet published. The CLI's only GitHub helper today is `bastion github
+> codeowners`. Treat the check-run, comment, and action surfaces here as the design
+> they are converging toward.
 
 The guiding rule is the same as the core: Bastion does not own CI, it plugs into yours. The workflow, the secrets, the preview environments, and the branch protection rules are GitHub's; Bastion reads and writes them through a thin adapter and otherwise stays out of the way.
 
@@ -118,7 +128,7 @@ One operational note carried over from the core design: under heavy volume a sub
 
 ### Self-hosted example: Bastion reviewing Bastion
 
-This repository dogfoods the adapter through [`.github/workflows/bastion.yml`](../.github/workflows/bastion.yml). The job runs a pinned, published `bastion` release rather than a binary built from the PR's own sources, so a change can never edit the engine that judges it; reviewer policy in [`bastion/reviewers.yaml`](../bastion/reviewers.yaml) is still read from the checkout, and both that file and the workflow are CODEOWNERS-protected paths. Every reviewer in `reviewers.yaml` pins `backend: codex`, so each review runs on the Codex CLI billed to the PR author's own subscription. The workflow wires that up by mapping the author's GitHub login to a per-author credential:
+This repository dogfoods the adapter through [`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml). The job runs a pinned, published `bastion` release rather than a binary built from the PR's own sources, so a change can never edit the engine that judges it; reviewer policy in [`bastion/reviewers.yaml`](../../bastion/reviewers.yaml) is still read from the checkout, and both that file and the workflow are CODEOWNERS-protected paths. Every reviewer in `reviewers.yaml` pins `backend: codex`, so each review runs on the Codex CLI billed to the PR author's own subscription. The workflow wires that up by mapping the author's GitHub login to a per-author credential:
 
 1. **Capture the credential once, locally.** Each contributor runs `codex login` on a machine signed in to their billed ChatGPT/Codex subscription. Codex writes an OAuth credential (an access token plus a refresh token) to `~/.codex/auth.json`.
 2. **Store it as a per-author secret.** Copy the contents of that `auth.json` into a repository secret named `CODEX_AUTH_<LOGIN>` — the login uppercased, e.g. `CODEX_AUTH_JSSBLCK` for `jssblck`. Bastion never stores credentials; the secret lives in GitHub Actions.

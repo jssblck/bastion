@@ -1,0 +1,196 @@
+# The local workflow
+
+> Running `bastion review` for real: the loop, the two output formats, exit codes,
+> and inspecting what was saved.
+
+[<- Authoring reviewers](./authoring-reviewers.md) | [Guide index](./README.md) | Next: [Continuous integration](./continuous-integration.md) ->
+
+---
+
+The local CLI is the surface an authoring agent optimizes against before opening a
+PR. It runs the *same* reviewers CI will run, so a green local loop means a PR that
+CI largely just confirms. This chapter covers the loop in depth.
+
+## The loop
+
+The intended use is a tight loop: run the review, read what blocks, fix it, run
+again, until green.
+
+```sh
+bastion review --base main
+```
+
+`bastion review` computes the changeset (working tree vs. `--base`, including
+uncommitted and untracked files), selects the reviewers whose triggers match, runs
+them in parallel with per-reviewer timeouts, and renders progress and verdicts.
+
+- `--base <branch>` -- the branch to diff against. Defaults to `main`.
+- `--format <human|jsonl>` -- output format. Defaults to `human`.
+
+### Exit codes
+
+The exit code *is* the gate, so a loop can branch on it:
+
+| Aggregate verdict | Exit code |
+| --- | --- |
+| `pass` (all gates passed) | `0` |
+| `block` (a gate blocked, errored, or timed out) | non-zero |
+
+```sh
+# Keep working until every gate is green.
+until bastion review --base main; do
+  echo "still blocked; fixing..."
+  # ... make changes ...
+done
+```
+
+A blocked review is an *expected* outcome, not a crash -- Bastion still exits
+cleanly with structured output; only the code signals the gate.
+
+## Two audiences, two formats
+
+By default `bastion review` renders human-readable progress for a person watching.
+An agent passes `--format jsonl` and gets a machine stream instead. Both describe
+the same run; only the presentation differs.
+
+### The JSONL stream
+
+With `--format jsonl`, Bastion emits one JSON object per line, as each thing
+happens. A run is a typed sequence of events:
+
+```jsonl
+{"type":"run.started","run":"r-0f3a","branch":"feat/cart","base":"main","changed":12,"reviewers":[{"name":"file-responsibility","mode":"gate"},{"name":"tenant-isolation","mode":"gate"}]}
+{"type":"reviewer.started","run":"r-0f3a","reviewer":"tenant-isolation","mode":"gate","backend":"claude-code"}
+{"type":"reviewer.resolved","run":"r-0f3a","reviewer":"tenant-isolation","verdict":"block","summary":"A new query path reads rows without scoping by tenant id.","findings":[{"kind":"blocking","path":"src/server/db.rs","line_start":88,"line_end":91,"detail":"scope this query by tenant_id"}],"usage":{"tokens_in":18204,"tokens_out":1560,"cost_usd":0.21},"duration_ms":38120,"has_transcript":true}
+{"type":"run.completed","run":"r-0f3a","verdict":"block","gates":{"total":2,"passed":1,"blocked":1},"duration_ms":41030,"cost_usd":0.37}
+```
+
+The event types:
+
+| Event | Meaning |
+| --- | --- |
+| `run.started` | The run began; lists the reviewers that matched and will run. |
+| `reviewer.started` | One reviewer was dispatched (the "spinner"). |
+| `reviewer.resolved` | One reviewer finished; carries its `verdict`, `summary`, `findings`, `usage`, and a `has_transcript` flag. |
+| `run.completed` | The aggregate decision and the gate tally. |
+
+How an agent should consume it:
+
+- **Only need the outcome?** Ignore everything until `run.completed` and read its
+  `verdict`.
+- **Want to react as you go?** Read each `reviewer.resolved` as it lands and act on
+  its `findings` -- a `path`, a `line_start`/`line_end`, and a `detail` telling you
+  what to change. The findings are everything you need to fix the code.
+
+### For agents: the consumption contract
+
+If you are an agent driving the loop, this is the whole contract:
+
+1. Run `bastion review --base <branch> --format jsonl`.
+2. Parse stdout one line at a time as JSON; each line has a `type`.
+3. Act on every `reviewer.resolved` with `verdict: "block"` using its `findings`
+   (`path` + `line_start`/`line_end` + `detail`). Do not open transcripts -- the
+   findings already say what to change.
+4. The aggregate decision is `run.completed.verdict`. The process also exits
+   non-zero on `block`, so you can branch on the exit code alone if you only need
+   pass/fail.
+5. Fix what blocked and re-run. Loop until `run.completed.verdict` is `pass` (exit
+   zero), then open your PR.
+
+### Money is dollars
+
+Cost fields (`cost_usd`) serialize as dollars (`0.21`) even though Bastion tracks
+exact cents internally, so you never see floating-point cent drift in the stream.
+
+## What is streamed vs. what is saved
+
+The stream deliberately leaves out the verbose detail. A transcript is mostly noise
+to an agent that just wants to know what to fix; streaming thousands of lines on
+every run would bury the findings and burn the agent's own context.
+
+- **Streamed:** the decisions and the things you act on immediately -- the reviewer
+  set, start and resolve events, verdicts, summaries, findings, per-reviewer usage.
+- **Saved, not streamed:** the verbose detail -- full session transcripts, raw
+  verdict payloads, per-reviewer metadata. Written to disk, read on demand.
+
+That is why `reviewer.resolved` carries `has_transcript: true` rather than the
+transcript itself: when a decision surprises you, the transcript is one command
+away (next section).
+
+## Inspecting saved runs
+
+Every run is persisted, so you can inspect history without re-running anything.
+These commands are the local equivalent of clicking "Details" on a CI check. The
+run-targeted ones (`show`, `transcript`) default to the latest run when you omit a
+run id; `runs` and `clean` operate over all saved runs.
+
+```sh
+bastion runs                         # list recent runs: id, verdict, branch, reviewer count
+bastion show [<run>]                 # re-print a run's summaries, verdicts, findings
+bastion transcript [<run>] <reviewer>   # the full agent session for one reviewer
+bastion clean [--keep N | --older-than <dur>]   # prune saved runs
+```
+
+- **`runs`** is the index: what ran recently and how each landed.
+- **`show`** re-emits a past run's verdicts and findings -- the same content as the
+  stream's resolve and complete events, on demand. Accepts `--format human|jsonl`.
+- **`transcript`** prints the saved session for one reviewer. This is the explicit,
+  opt-in way to see what was kept off the stream; reach for it when a verdict is
+  surprising and you want to know why. It is raw text (a transcript is already a
+  document). Pass either `<reviewer>` (latest run) or `<run> <reviewer>`.
+- **`clean`** prunes old runs. `--keep N` retains the N most recent;
+  `--older-than <dur>` (e.g. `7d`, `12h`) removes runs older than a duration. The
+  two are mutually exclusive.
+
+## Where runs live
+
+Bastion persists every run under a per-user data directory, by platform
+convention:
+
+- Linux: `$XDG_DATA_HOME/bastion`, default `~/.local/share/bastion`
+- macOS: `~/Library/Application Support/bastion`
+- Windows: `%APPDATA%\bastion`
+
+Override it with `--data-dir <path>` or the `BASTION_DATA_DIR` environment
+variable -- handy for scratch runs you do not want in your real history. The layout:
+
+```text
+<data-dir>/
+  runs/
+    r-0f3a/
+      run.jsonl                  # the full event stream (always JSONL, regardless of display format)
+      reviewers/
+        tenant-isolation/
+          transcript.jsonl       # the full agent session
+          verdict.json           # the raw structured verdict
+          meta.json              # backend, timing, usage, matched trigger
+    latest                       # a plain file holding the most recent run id
+```
+
+`run.jsonl` is the same event stream whether a human or an agent triggered the
+run, so any run can be replayed or inspected after the fact. Runs accumulate:
+`bastion review` does not prune, so history grows until you run `bastion clean`,
+which keeps the most recent 20 when given no arguments (or use `--keep N` /
+`--older-than <dur>`).
+
+## Providing environments locally
+
+Bastion does not own your environment; it plugs into it. The reviewer process
+inherits Bastion's own environment, so anything your shell or a `precommit` script
+has exported -- a service on `http://localhost:3000`, say -- is visible to the
+agent; a reviewer's `env` and `inputs` values are literal text set in the YAML, not
+shell-expanded. The reviewer neither knows nor cares that the value is local rather
+than a formal preview deploy. This is the same boundary CI honors, which keeps the
+local and CI surfaces in agreement.
+
+## Reference: the full local surface
+
+This chapter is the task-oriented view. The design rationale behind the
+stream/save split, the event-to-GitHub parity table, and the deferred features
+(watch mode, a shared verdict cache) live in the
+[local surface reference](../developer-guide/local-surface.md).
+
+---
+
+Next: [Continuous integration](./continuous-integration.md) -- promoting these same
+reviewers into GitHub Actions as a required merge check.

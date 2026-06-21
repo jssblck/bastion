@@ -1,10 +1,10 @@
 //! The command-line surface.
 //!
 //! This module defines the clap argument tree and dispatches to the handlers in
-//! [`crate::commands`]. The command set mirrors `docs/LOCAL.md`: `review` runs the
+//! [`crate::commands`]. The command set mirrors `docs/developer-guide/local-surface.md`: `review` runs the
 //! triggered reviewers, and the read-back commands (`transcript`, `show`, `runs`,
 //! `clean`) inspect saved runs. `codeowners` generates the governance block from
-//! `docs/GITHUB.md`.
+//! `docs/developer-guide/github-adapter.md`.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -85,7 +85,7 @@ pub enum Command {
 }
 
 /// GitHub adapter subcommands. These are specific to the GitHub surface
-/// (`docs/GITHUB.md`); the core review surface stays forge-agnostic.
+/// (`docs/developer-guide/github-adapter.md`); the core review surface stays forge-agnostic.
 #[derive(Debug, Subcommand)]
 pub enum GithubCommand {
     /// Print a CODEOWNERS block protecting Bastion's reviewer-policy paths.

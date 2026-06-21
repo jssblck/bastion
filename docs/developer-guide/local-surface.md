@@ -2,7 +2,7 @@
 
 > The local surface: the same review data as GitHub, streamed out of the CLI for an agent, with the noisy parts kept on disk for on demand.
 
-The core design (`DESIGN.md`) describes `bastion review` in a single section; this doc is the detail of the local surface, the way the GitHub adapter (`GITHUB.md`) is the detail of the CI surface. The two are mirror images: the same reviewers, verdicts, and findings, presented through whatever the surface makes natural. On GitHub that is check runs and PR comments; locally it is a stream on stdout and a few files on disk.
+The core design ([`design.md`](./design.md)) describes `bastion review` in a single section; this doc is the detail of the local surface, the way the GitHub adapter ([`github-adapter.md`](./github-adapter.md)) is the detail of the CI surface. The two are mirror images: the same reviewers, verdicts, and findings, presented through whatever the surface makes natural. On GitHub that is check runs and PR comments; locally it is a stream on stdout and a few files on disk.
 
 The guiding rule carries over: Bastion does not own your environment, it plugs into it. Locally that means the agent's loop drives Bastion, the local shell provides whatever the reviewers consume, and Bastion streams results back in a shape an agent can read without help.
 
@@ -68,20 +68,20 @@ Each run gets a directory keyed by its run id, holding the full event stream and
           transcript.jsonl       # the full agent session
           verdict.json           # the raw structured verdict
           meta.json              # backend, timing, usage, matched trigger
-    latest -> r-0f3a             # pointer to the most recent run
+    latest                       # a plain file holding the most recent run id
 ```
 
-The run is always persisted as JSONL regardless of the `--format` used on screen, so `run.jsonl` holds the same events whether a human or an agent triggered it; a run can be replayed or inspected after the fact without re-running it, and the per-reviewer files hold what was deliberately kept off the stream. Runs accumulate, so Bastion keeps the most recent N by default and prunes older ones; `bastion clean` forces it.
+The run is always persisted as JSONL regardless of the `--format` used on screen, so `run.jsonl` holds the same events whether a human or an agent triggered it; a run can be replayed or inspected after the fact without re-running it, and the per-reviewer files hold what was deliberately kept off the stream. Runs accumulate; `bastion review` does not prune, so history grows until you run `bastion clean` (which keeps the most recent 20 when given no arguments).
 
 ---
 
 ## On-demand detail
 
-The commands that read saved data back are the local equivalent of clicking "Details" on a check in GitHub. All of them default to the latest run when a run id is omitted, since that is almost always what an agent wants.
+The commands that read saved data back are the local equivalent of clicking "Details" on a check in GitHub. The run-targeted ones (`transcript`, `show`) default to the latest run when a run id is omitted, since that is almost always what an agent wants.
 
 - `bastion transcript [<run>] <reviewer>` prints the saved session transcript for one reviewer. This is the explicit, opt-in way to see the thing we kept off the stream; an agent reaches for it when a verdict is surprising and it wants to know why.
 - `bastion show [<run>]` re-emits a past run's summary, verdicts, and findings without re-running it; the same content as the stream's resolve and complete events, on demand.
-- `bastion runs` lists recent runs with their branch, time, and aggregate verdict.
+- `bastion runs` lists recent runs with their id, aggregate verdict, branch, and reviewer count.
 - `bastion clean [--keep N | --older-than <dur>]` prunes saved runs.
 
 `show` and `runs` accept `--format human|jsonl`; `transcript` is raw text by default, since a transcript is already a document.

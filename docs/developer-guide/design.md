@@ -1,6 +1,12 @@
-# Bastion
+# Bastion: core design
 
 > Agentic code review for a world where agents write all of the code.
+
+This is the authoritative design reference: reviewers, the verdict contract, the
+merge gate, and the threat model. It is CI-agnostic; the [GitHub
+adapter](./github-adapter.md) and the [local surface](./local-surface.md) are the
+two concrete surfaces built on top of it. For a task-oriented introduction aimed
+at people *using* Bastion, see the [user guide](../user-guide/README.md).
 
 Bastion is a formalization of a pattern already in use privately: GitHub Actions that run focused agent prompts as reviewers, plus a CLI that can comment on a PR and mark its check blocked or approved. v1 is _that, made into a real system_. Complexity beyond the existing pattern is deferred to §10 and must justify itself before entering v1.
 
@@ -97,47 +103,59 @@ Finally, Bastion does not own CI. One of the examples below indicates a preview 
 
 The schema is format-agnostic in principle, but YAML is the on-disk format we start with because it's human-friendly and widely used for config. The important part is that it's **declarative and static**: no code, no dynamic logic, so it's reviewable and generates a stable trigger set.
 
+The registry is a single top-level `reviewers:` list; each entry is one reviewer
+keyed by `name`. (This is the on-disk shape the loader expects; see
+[`src/config.rs`](../../src/config.rs) and [`bastion/reviewers.yaml`](../../bastion/reviewers.yaml).)
+
 ```yaml
-# Runs native (no container), fast and cheap.
-reviewer: file-responsibility
-  trigger: ["src/**/*.ts"]          # path globs over the changed files
-  mode: gate                        # gate | advisor | ...
-  backend: any                      # any | claude-code | codex | ...
-  prompt: |
-    Review the changeset to determine whether any one file concentrates too many
-    responsibilities. If so, block the PR and point out which file(s) and why; otherwise, approve it.
+reviewers:
+  # Runs native (no container), fast and cheap.
+  - name: file-responsibility
+    trigger: ["src/**/*.ts"]          # path globs over the changed files
+    mode: gate                        # gate | advisor | ...
+    backend: any                      # any | claude-code | codex | ...
+    prompt: |
+      Review the changeset to determine whether any one file concentrates too many
+      responsibilities. If so, block the PR and point out which file(s) and why; otherwise, approve it.
 
-# A cross-cutting concern is just another single-concern reviewer.
-reviewer: api-compatibility
-  trigger: ["src/server/**", "src/client/**"]
-  mode: gate
-  backend: any
-  prompt: |
-    Review the changeset for API compatibility between the currently deployed production client and server.
-    Production OpenAPI spec is at `https://api.acme.com/v1/openapi.json`.
-    If you find any breaking changes, block the PR and explain; otherwise, approve it.
+  # A cross-cutting concern is just another single-concern reviewer.
+  - name: api-compatibility
+    trigger: ["src/server/**", "src/client/**"]
+    mode: gate
+    backend: any
+    prompt: |
+      Review the changeset for API compatibility between the currently deployed production client and server.
+      Production OpenAPI spec is at `https://api.acme.com/v1/openapi.json`.
+      If you find any breaking changes, block the PR and explain; otherwise, approve it.
 
-# Heavy and privileged: runs in a container with real tooling.
-reviewer: e2e-checkout-flow
-  trigger: ["src/**"]
-  mode: gate
-  backend: claude-code                     # pinned by user preference. optional; `any` by default.
-  timeout: 15m
-  runner:
-    dockerfile: ./bastion/e2e.Dockerfile   # provides a hermetic environment with tools installed. optional; if absent, runs native/in-process.
-    image: ghcr.io/acme/e2e:latest         # alternative to `dockerfile` for a pre-built image. optional; if both `dockerfile` and `image` are present, `dockerfile` takes precedence.
-  env:
-    PREVIEW_URL: ${PREVIEW_URL}            # environment variables to inject into the container. optional; if absent, no env vars are injected.
-  capabilities:
-    network: true                          # containers always need some network for the model provider; this enables general network access.
-    mcp: [playwright]                      # loads MCPs needed by the review into the agent's context, and gives permission to call them.
-    skills: [checkout-flow, browser]       # loads skills needed by the review into the agent's context.
-  inputs:
-    preview_url: ${PREVIEW_URL}            # variables that are interpolated into the prompt by Bastion before handing off to the agent.
-  prompt: |
-    Run the e2e checkout flow against the preview environment at `${preview_url}` using Playwright.
-    If it fails, block the PR and explain; otherwise, approve it.
+  # Heavy and privileged: runs in a container with real tooling.
+  - name: e2e-checkout-flow
+    trigger: ["src/**"]
+    mode: gate
+    backend: claude-code                     # pinned by user preference. optional; `any` by default.
+    timeout: 15m
+    runner:
+      dockerfile: ./bastion/e2e.Dockerfile   # provides a hermetic environment with tools installed. optional; if absent, runs native/in-process.
+      image: ghcr.io/acme/e2e:latest         # alternative to `dockerfile` for a pre-built image. optional; if both `dockerfile` and `image` are present, `dockerfile` takes precedence.
+    env:
+      PREVIEW_URL: http://preview.internal   # literal environment variables injected into the reviewer process. optional.
+    capabilities:
+      network: true                          # containers always need some network for the model provider; this enables general network access.
+      mcp: [playwright]                      # loads MCPs needed by the review into the agent's context, and gives permission to call them.
+      skills: [checkout-flow, browser]       # loads skills needed by the review into the agent's context.
+    inputs:
+      preview_url: http://preview.internal   # values interpolated into the prompt (`${preview_url}`) by Bastion before handing off to the agent.
+    prompt: |
+      Run the e2e checkout flow against the preview environment at `${preview_url}` using Playwright.
+      If it fails, block the PR and explain; otherwise, approve it.
 ```
+
+> **Implementation status.** This schema is the design target. In the current
+> build, `name`, `trigger`, `mode`, `backend`, `prompt`, `timeout`, `env`, and
+> `inputs` are honored; `runner` (containers) and `capabilities` (network/mcp/skills)
+> parse but are **not yet provisioned** -- execution is native only. `env` and
+> `inputs` values are literal strings (no shell `$VAR` expansion). See the
+> [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today).
 
 ---
 
@@ -165,14 +183,14 @@ To comply with subscription terms of service (which tie a subscription to an ind
 Bastion supports local execution and GitHub Actions as first-class CI backends.
 
 Bastion is designed to be portable so that it can run locally as well as in CI; for this reason Bastion config does not specify CI details.
-Where Bastion interacts with CI systems, it does so using a plugin-style interface that allows it to integrate without being tightly coupled; the GitHub implementation of that interface is specified in [Bastion on GitHub](./GITHUB.md).
+Where Bastion interacts with CI systems, it does so using a plugin-style interface that allows it to integrate without being tightly coupled; the GitHub implementation of that interface is specified in [Bastion on GitHub](./github-adapter.md).
 
 Since Bastion supports local execution, technically any CI that allows arbitrary code execution can be made to work with Bastion, and more may be supported over time.
 
 ### The verdict
 
 Every reviewer returns a structured judgment, captured via each backend's native
-**structured-output mode**, with a stable schema that Bastion can parse and aggregate. The schema is:
+**structured-output mechanism**, with a stable schema that Bastion can parse and aggregate. (In the current build that is a JSON schema for Claude Code and a requested fenced verdict block for Codex.) The schema is:
 
 ```yaml
 verdict: pass | block   # Ignored for "advisor" style reviewers, which always functionally "pass" with reported findings.

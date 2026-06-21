@@ -2,7 +2,7 @@
 //!
 //! Bastion does not run its own agent loop; it translates a reviewer's execution
 //! profile into a backend's native config and shells out to that backend's CLI
-//! (`docs/DESIGN.md`). This module defines the contract — [`Backend`], what it is
+//! (`docs/developer-guide/design.md`). This module defines the contract — [`Backend`], what it is
 //! handed ([`ReviewRequest`]) and what it must return ([`ReviewOutcome`]) — plus
 //! the concrete backends and the dispatch that picks one for a reviewer.
 //!

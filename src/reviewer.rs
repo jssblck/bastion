@@ -3,7 +3,7 @@
 //! A reviewer is a bundle of *prompt + trigger + mode + backend + capabilities +
 //! (optional) environment* — its execution profile. Reviewers are declarative and
 //! static so they stay reviewable and produce a stable trigger set; see
-//! `docs/DESIGN.md`.
+//! `docs/developer-guide/design.md`.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
