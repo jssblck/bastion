@@ -7,6 +7,7 @@
 //! `docs/GITHUB.md`.
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
@@ -14,6 +15,7 @@ use color_eyre::eyre::{Context, Result};
 
 use crate::paths::Layout;
 use crate::render::Format;
+use crate::verdict::Decision;
 
 /// Agentic code review: single-concern reviewers as fitness functions.
 #[derive(Debug, Parser)]
@@ -96,11 +98,16 @@ pub enum GithubCommand {
 
 /// Parse arguments and dispatch to the matching command handler.
 ///
+/// Returns the process exit code: `bastion review` exits non-zero when the
+/// aggregate verdict is `block` (so an agent loop and CI agree that the gate
+/// failed), and every command exits zero on success. Errors are surfaced via the
+/// `Result` and rendered by `color_eyre`.
+///
 /// # Errors
 ///
 /// Returns any error from the dispatched command, or exits early via clap on a
 /// parse error or `--help`/`--version`.
-pub async fn run() -> Result<()> {
+pub async fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
     let layout = match cli.data_dir {
         Some(root) => Layout::with_root(root),
@@ -110,7 +117,13 @@ pub async fn run() -> Result<()> {
     match cli.command {
         Command::Review { base, format } => {
             let cwd = std::env::current_dir().wrap_err("determining the current directory")?;
-            crate::commands::review(&layout, &cwd, &base, format).await
+            let decision = crate::commands::review(&layout, &cwd, &base, format).await?;
+            // A blocked review is an expected, non-error outcome that must still
+            // signal failure to the caller: map `block` to a non-zero exit.
+            Ok(match decision {
+                Decision::Pass => ExitCode::SUCCESS,
+                Decision::Block => ExitCode::FAILURE,
+            })
         }
         Command::Transcript { first, second } => {
             let (run, reviewer) = match second {
@@ -118,12 +131,21 @@ pub async fn run() -> Result<()> {
                 None => (None, first),
             };
             crate::commands::transcript(&layout, run.as_deref(), &reviewer)
+                .map(|()| ExitCode::SUCCESS)
         }
-        Command::Show { run, format } => crate::commands::show(&layout, run.as_deref(), format),
-        Command::Runs { format } => crate::commands::runs(&layout, format),
-        Command::Clean { keep, older_than } => crate::commands::clean(&layout, keep, older_than),
+        Command::Show { run, format } => {
+            crate::commands::show(&layout, run.as_deref(), format).map(|()| ExitCode::SUCCESS)
+        }
+        Command::Runs { format } => {
+            crate::commands::runs(&layout, format).map(|()| ExitCode::SUCCESS)
+        }
+        Command::Clean { keep, older_than } => {
+            crate::commands::clean(&layout, keep, older_than).map(|()| ExitCode::SUCCESS)
+        }
         Command::Github { command } => match command {
-            GithubCommand::Codeowners { owners } => crate::commands::codeowners(&owners),
+            GithubCommand::Codeowners { owners } => {
+                crate::commands::codeowners(&owners).map(|()| ExitCode::SUCCESS)
+            }
         },
     }
 }

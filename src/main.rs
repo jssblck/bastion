@@ -7,6 +7,6 @@
 // runner needs. A current-thread runtime keeps the process lean and avoids a
 // worker pool the workload would not use.
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> color_eyre::Result<()> {
+async fn main() -> color_eyre::Result<std::process::ExitCode> {
     bastion::run().await
 }

@@ -95,6 +95,19 @@ impl Layout {
         self.reviewer_dir(id, reviewer).join("transcript.jsonl")
     }
 
+    /// A reviewer's raw structured verdict (`.../verdict.json`).
+    #[must_use]
+    pub fn verdict(&self, id: &RunId, reviewer: &str) -> PathBuf {
+        self.reviewer_dir(id, reviewer).join("verdict.json")
+    }
+
+    /// A reviewer's metadata: backend, timing, usage, matched trigger
+    /// (`.../meta.json`).
+    #[must_use]
+    pub fn meta(&self, id: &RunId, reviewer: &str) -> PathBuf {
+        self.reviewer_dir(id, reviewer).join("meta.json")
+    }
+
     /// The pointer file recording the most recent run id (`<root>/runs/latest`).
     ///
     /// A plain file holding the id is used rather than a symlink, since symlink

@@ -3,8 +3,10 @@
 //! Each function implements one CLI subcommand. The read-back commands
 //! (`transcript`, `show`, `runs`, `clean`) are fully functional over saved runs;
 //! `review` does real config discovery, git-based change detection, and routing,
-//! then hands off to the (stubbed) [`crate::runner`] to actually execute
-//! reviewers. `codeowners` is pure generation.
+//! then hands off to the [`crate::runner`] to execute the matched reviewers. The
+//! runner owns event emission and persistence; this handler renders the stream and
+//! reports the aggregate decision so the CLI can set the exit status.
+//! `codeowners` is pure generation.
 
 use std::io::{self, Write};
 use std::path::Path;
@@ -24,19 +26,24 @@ use crate::verdict::{Decision, Money};
 
 /// `bastion review`: route and run the triggered reviewers, gating the result.
 ///
-/// Computes the changed files against `base`, selects matching reviewers, and
-/// emits a `run.started` plan. With zero matches the run is a trivial pass
-/// (mirroring the always-present `bastion` check in CI). Otherwise it hands off
-/// to the runner, which is not yet implemented and fails closed.
+/// Computes the changed files against `base`, selects matching reviewers, emits a
+/// `run.started` plan, and hands off to the runner to execute them concurrently.
+/// With zero matches the run is a trivial pass (mirroring the always-present
+/// `bastion` check in CI). Returns the aggregate [`Decision`] so the caller can
+/// map `block` to a non-zero exit status.
+///
+/// The runner owns event emission for the per-reviewer and completion events and
+/// persists the full run; this handler renders the `run.started` event and the
+/// events the runner streams back.
 ///
 /// `cwd` is the directory to resolve the repository and config from — the process
 /// working directory in normal use, but explicit so the handler is testable.
 ///
 /// # Errors
 ///
-/// Returns an error if the repository, config, or git queries fail, or — in this
-/// build — when any reviewer would need to execute.
-pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> Result<()> {
+/// Returns an error if the repository, config, git queries, or persistence fail.
+/// A blocked review is *not* an error: it returns `Ok(Decision::Block)`.
+pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> Result<Decision> {
     let repo_root = git::repo_root(cwd)?;
     let branch = git::current_branch(&repo_root)?;
     let config = Config::discover(&repo_root)?;
@@ -45,6 +52,14 @@ pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> 
     let router = Router::compile(&config.reviewers)?;
     let matched = router.matched(&changed);
     let run = local_run_id(&repo_root);
+    let reviewer_refs: Vec<ReviewerRef> = matched
+        .iter()
+        .map(|r| ReviewerRef {
+            name: r.name.clone(),
+            mode: r.mode,
+        })
+        .collect();
+    let changed_count = u32::try_from(changed.len()).unwrap_or(u32::MAX);
 
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -53,14 +68,8 @@ pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> 
         run: run.clone(),
         branch: branch.clone(),
         base: base.to_string(),
-        changed: u32::try_from(changed.len()).unwrap_or(u32::MAX),
-        reviewers: matched
-            .iter()
-            .map(|r| ReviewerRef {
-                name: r.name.clone(),
-                mode: r.mode,
-            })
-            .collect(),
+        changed: changed_count,
+        reviewers: reviewer_refs.clone(),
     };
     render::write_event(&mut out, format, &started)?;
 
@@ -80,7 +89,7 @@ pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> 
         };
         render::write_event(&mut out, format, &completed)?;
         store::write_run(layout, &run, &[started, completed])?;
-        return Ok(());
+        return Ok(Decision::Pass);
     }
 
     let ctx = ExecContext {
@@ -88,8 +97,29 @@ pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> 
         repo_root,
         branch,
         base: base.to_string(),
+        changed: changed_count,
+        reviewers: reviewer_refs,
     };
-    runner::execute(&matched, &ctx).await
+
+    // The runner streams the per-reviewer and completion events; render each as it
+    // lands. Rendering failures must not be swallowed, so capture the first.
+    let mut render_err: Option<io::Error> = None;
+    let aggregate = {
+        let out = &mut out;
+        runner::execute(&matched, &ctx, layout, &mut |event| {
+            if render_err.is_none()
+                && let Err(err) = render::write_event(out, format, event)
+            {
+                render_err = Some(err);
+            }
+        })
+        .await?
+    };
+    if let Some(err) = render_err {
+        return Err(err).wrap_err("rendering run events");
+    }
+
+    Ok(aggregate)
 }
 
 /// `bastion transcript [<run>] <reviewer>`: print a saved session transcript.
@@ -272,9 +302,10 @@ mod tests {
         std::fs::write(dir.join("main.rs"), "fn main() {}\n").unwrap();
 
         let layout = Layout::with_root(data.path().to_path_buf());
-        review(&layout, dir, "main", Format::Jsonl)
+        let decision = review(&layout, dir, "main", Format::Jsonl)
             .await
             .expect("zero-match review passes");
+        assert_eq!(decision, Decision::Pass);
 
         // The pass was persisted and is now inspectable.
         let runs = store::list_runs(&layout).unwrap();

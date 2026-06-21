@@ -5,10 +5,10 @@
 //! with a trigger; matched reviewers run, return a structured [`verdict`], and
 //! Bastion aggregates them into a single merge gate.
 //!
-//! This crate is the local surface described in `docs/LOCAL.md`. It is currently
-//! a *walking skeleton*: the data and routing layers are real and tested, while
-//! the agent [`runner`] backends are stubbed behind async traits awaiting
-//! implementation.
+//! This crate is the local surface described in `docs/LOCAL.md`. The data and
+//! routing layers, the Claude Code [`backend`], and the parallel [`runner`] are
+//! real and tested; sibling backends (Codex, Pi) are stubbed behind the stable
+//! [`backend::Backend`] trait awaiting implementation.
 //!
 //! The module layout follows the domain rather than file kind:
 //!
@@ -18,11 +18,13 @@
 //! - [`git`] — the few git queries the CLI needs (changed files, branch).
 //! - [`paths`] / [`store`] — the on-disk run history under the data directory.
 //! - [`render`] — turning events into human or JSONL output.
-//! - [`runner`] — the (stubbed) backend execution boundary.
+//! - [`backend`] — the agent execution boundary (Claude Code and siblings).
+//! - [`runner`] — the parallel, timeout-bounded runner and aggregation.
 //! - [`cli`] / [`commands`] — the argument surface and command handlers.
 
 #![warn(missing_docs)]
 
+pub mod backend;
 pub mod cli;
 pub mod commands;
 pub mod config;
@@ -40,13 +42,15 @@ pub mod version;
 /// Install error reporting and tracing, then parse and dispatch the CLI.
 ///
 /// This is the single entrypoint shared by [`main`](../src/main.rs) and by
-/// integration tests that want to drive the CLI in-process.
+/// integration tests that want to drive the CLI in-process. The returned
+/// [`ExitCode`](std::process::ExitCode) carries the gate result: `bastion review`
+/// yields a non-zero code when the aggregate verdict is `block`.
 ///
 /// # Errors
 ///
 /// Returns any error bubbled up from a command handler, already enriched with
 /// `color_eyre` context for display.
-pub async fn run() -> color_eyre::Result<()> {
+pub async fn run() -> color_eyre::Result<std::process::ExitCode> {
     install()?;
     cli::run().await
 }
