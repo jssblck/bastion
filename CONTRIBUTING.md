@@ -44,15 +44,19 @@ performed (especially the core Rust checks).
 
 ## Releases
 
-Bastion uses GitHub Releases as its changelog: there is no hand-maintained
-changelog file. Release builds derive their reported version from the git tag
-through `git describe --tags` (and in CI the tag is passed through directly, so
-the binary's `--version` is exact regardless of clone depth).
+Bastion is a binary on GitHub Releases, not a crates.io package, so a release is
+just a tag: there is no crates.io publish and no crate-version bump. GitHub Releases
+double as the changelog, so there is no hand-maintained changelog file either.
+Release builds derive their reported version from the git tag through
+`git describe --tags` (and in CI the tag is passed through directly, so the binary's
+`--version` is exact regardless of clone depth).
 
 To cut a release:
 
 1. Make sure `main` is green and points at the commit you want to ship.
-2. Tag it and push the tag:
+2. Tag it in the shape `vX.Y.Z` and push the tag. Do not edit `version` in
+   `Cargo.toml`: it stays `0.0.0` as a placeholder and build-time fallback only, and
+   the tag is the source of truth for the released version.
 
    ```sh
    git tag v0.2.0
