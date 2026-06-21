@@ -230,17 +230,8 @@ fn default_keep() -> usize {
 
 /// Build a run id for a local run from the short HEAD sha, falling back to a
 /// fixed local marker when git can't supply one.
-fn local_run_id(repo_root: &std::path::Path) -> RunId {
-    let short = std::process::Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
-        .current_dir(repo_root)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    match short {
+fn local_run_id(repo_root: &Path) -> RunId {
+    match git::short_head(repo_root) {
         Some(sha) => RunId(format!("r-{sha}")),
         None => RunId("r-local".to_string()),
     }
