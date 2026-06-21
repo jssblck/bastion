@@ -147,3 +147,64 @@ reviewers:
         redirect when capturing.
       - Reliance on interactive-only behavior (prompts, paging, a TTY) in a
         non-interactive CI shell.
+
+  - name: user-guide-integrity
+    trigger: [docs/user-guide/**]
+    mode: gate
+    backend: codex
+    prompt: |
+      The user guide under docs/user-guide is single-sourced: the same markdown
+      is published at bastion.jessica.black/guide, where the site build sorts and
+      routes chapters by their frontmatter and rewrites their relative `.md`
+      links to `/guide/*` routes (links that leave the guide are rewritten to
+      GitHub URLs). A change that is fine to read on GitHub can therefore break
+      the published site. You are running in the repository, so inspect the
+      actual files under docs/user-guide and the link targets directly.
+
+      Block the PR if any of the following is definitely true for a changed file;
+      otherwise approve it. When you cannot confirm a problem, approve.
+
+      - A chapter is missing required frontmatter: every file must have a YAML
+        frontmatter block with `title` (string), `summary` (string), and `order`
+        (number). A new chapter without it will not render.
+      - Two chapters share the same `order` value (the site sorts by it, so a
+        collision makes navigation order undefined).
+      - An in-guide relative link (e.g. `./concepts.md` or
+        `./concepts.md#a-heading`) points to a docs/user-guide file that does not
+        exist, or to a `#heading` anchor that does not exist in the target
+        chapter. Once rewritten to a `/guide` route it would 404.
+      - A relative link that leaves the guide (e.g. `../developer-guide/x.md`,
+        `../../bastion/reviewers.yaml`) resolves to a repository path that does
+        not exist. The build turns these into GitHub links, so a dead path is a
+        dead link.
+
+  - name: user-facing-docs-current
+    trigger:
+      [
+        src/cli.rs,
+        src/commands.rs,
+        src/render.rs,
+        src/event.rs,
+        src/verdict.rs,
+        scripts/install.sh,
+        scripts/install.ps1,
+        site/src/components/Install.astro,
+        docs/user-guide/**,
+      ]
+    mode: advisor
+    backend: codex
+    prompt: |
+      Keep the user-facing surfaces current with the product. Unlike docs-in-sync
+      (which guards the developer-guide mirror surfaces and the schema reference),
+      this reviewer watches the surfaces an end user actually copies from: the
+      user guide (docs/user-guide), the install scripts, and the marketing site's
+      install copy (site/src/components/Install.astro). These show concrete,
+      runnable detail -- install one-liners, subcommands and their flags, exit-code
+      semantics, and example JSONL event/verdict output.
+
+      As an advisor, when a changeset alters the CLI surface (commands,
+      subcommands, flags, exit codes), the event or verdict schema, or the install
+      scripts, check that these user-facing surfaces still match. Report as
+      optional findings any command, flag, exit code, field name, event type, or
+      install invocation shown to users that no longer matches the code, and any
+      new user-visible surface that should be documented or shown. Do not block.
