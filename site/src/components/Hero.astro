@@ -212,6 +212,10 @@ const policyHtml = [
   }
   @media (max-width: 520px) {
     .hero-run {
+      /* Full width on mobile, so the desktop overlap effect (negative
+         margin-top, right offset) collapses into the cards butting together
+         with no breathing room. Stack them with a real gap instead. */
+      margin-top: 1rem;
       margin-right: 0;
       margin-left: 0;
       width: 100%;
