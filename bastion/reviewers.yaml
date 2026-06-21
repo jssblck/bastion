@@ -86,19 +86,6 @@ reviewers:
       describe their failure conditions under a `# Errors` heading. Report gaps as
       optional findings; do not block.
 
-  - name: docs-in-sync
-    trigger: [src/**/*.rs, docs/**/*.md, "bastion/reviewers.yaml"]
-    mode: advisor
-    backend: codex
-    prompt: |
-      The local CLI surface (docs/developer-guide/local-surface.md) and the GitHub
-      adapter (docs/developer-guide/github-adapter.md) are meant to be mirror
-      images, and the reviewer schema lives in docs/developer-guide/design.md. The
-      user-facing guides under docs/user-guide/ mirror this surface for end users.
-      If this changeset alters a user-visible command, the verdict or event schema,
-      or the reviewer schema without updating the relevant docs, report it as an
-      optional finding.
-
   - name: release-surface-robustness
     trigger:
       [
@@ -178,33 +165,73 @@ reviewers:
         not exist. The build turns these into GitHub links, so a dead path is a
         dead link.
 
-  - name: user-facing-docs-current
-    trigger:
-      [
-        src/cli.rs,
-        src/commands.rs,
-        src/render.rs,
-        src/event.rs,
-        src/verdict.rs,
-        scripts/install.sh,
-        scripts/install.ps1,
-        site/src/components/Install.astro,
-        docs/user-guide/**,
-      ]
-    mode: advisor
+  - name: user-docs-in-sync
+    trigger: [src/**/*.rs, docs/user-guide/**]
+    mode: gate
     backend: codex
     prompt: |
-      Keep the user-facing surfaces current with the product. Unlike docs-in-sync
-      (which guards the developer-guide mirror surfaces and the schema reference),
-      this reviewer watches the surfaces an end user actually copies from: the
-      user guide (docs/user-guide), the install scripts, and the marketing site's
-      install copy (site/src/components/Install.astro). These show concrete,
-      runnable detail -- install one-liners, subcommands and their flags, exit-code
-      semantics, and example JSONL event/verdict output.
+      The user guide under docs/user-guide is the end-user documentation for
+      Bastion: it describes the CLI a user runs and the policy they author --
+      commands and subcommands, their flags and defaults, exit-code semantics,
+      the reviewer/registry schema, configuration, and example JSONL event/verdict
+      output. It must stay truthful about how the shipped tool behaves. You are
+      running in the repository, so read the relevant user-guide chapters and the
+      changed code directly.
 
-      As an advisor, when a changeset alters the CLI surface (commands,
-      subcommands, flags, exit codes), the event or verdict schema, or the install
-      scripts, check that these user-facing surfaces still match. Report as
-      optional findings any command, flag, exit code, field name, event type, or
-      install invocation shown to users that no longer matches the code, and any
-      new user-visible surface that should be documented or shown. Do not block.
+      This is a gate. Block the PR if either of the following holds; otherwise
+      approve it.
+
+      - CONTRADICTION: this change alters user-visible behavior (a command or
+        subcommand, a flag or its default, an exit code, the reviewer/registry
+        schema, a configuration key, or an event/verdict field a user reads) in a
+        way that makes an existing statement or example in docs/user-guide now
+        wrong, and that documentation was not updated to match.
+      - OMISSION: this change adds new user-visible behavior of those same kinds
+        (a new command, subcommand, flag, config key, exit code, or event/verdict
+        field a user would invoke or observe) and the user guide was not updated
+        to document it.
+
+      Judge only the USER-visible surface. A purely internal change -- refactoring,
+      renaming private items, performance work, anything a user cannot observe from
+      the CLI, its output, or the files they author -- does not require a
+      user-guide update, so approve it. When the change is user-visible and the
+      matching docs were updated (or already cover it), approve. When you block,
+      name the exact command, flag, or field and the chapter that must change.
+
+  - name: contributor-docs-in-sync
+    trigger:
+      [src/**/*.rs, build.rs, docs/developer-guide/**, AGENTS.md, CONTRIBUTING.md]
+    mode: gate
+    backend: codex
+    prompt: |
+      The contributor documentation -- docs/developer-guide/ (architecture, the
+      backend boundary, conventions, and the design references), AGENTS.md, and
+      CONTRIBUTING.md -- describes how Bastion is built for people working ON it:
+      the module map and the life of a review, the Backend trait and the
+      subprocess seam, the data/store layout, the verdict/event schema, version
+      derivation and the build flow, and the release runbook. It must stay
+      truthful about the actual code and process. You are running in the
+      repository, so read the relevant developer-guide sections (and AGENTS.md /
+      CONTRIBUTING.md) and the changed code directly.
+
+      This is a gate. Block the PR if either of the following holds; otherwise
+      approve it.
+
+      - CONTRADICTION: this change alters something the contributor docs describe
+        -- the module/architecture map, the backend boundary or dispatch, the
+        runner, the data-directory/store layout, the verdict/event schema, the
+        version-derivation or build flow, or a stated convention -- in a way that
+        makes an existing statement in docs/developer-guide, AGENTS.md, or
+        CONTRIBUTING.md now wrong, and that documentation was not updated to match.
+      - OMISSION: this change adds a new architectural element those docs are
+        meant to cover (a new module or subsystem, a new backend, a new CLI
+        surface in the architecture map, a new persisted artifact, a changed
+        build or release step) and the contributor docs were not updated to
+        describe it.
+
+      Judge against what the contributor docs actually claim. A change that does
+      not touch anything they describe -- an internal edit fully contained within
+      an already-documented module, a test-only change, a typo fix -- does not
+      require a docs update, so approve it. When the relevant docs were updated
+      (or already cover the change), approve. When you block, name the exact code
+      element and the doc section that must change.
