@@ -152,4 +152,34 @@ reviewers:
         let err = Config::discover(tmp.path()).unwrap_err();
         assert!(err.to_string().contains("no reviewer registry found"));
     }
+
+    #[test]
+    fn the_shipped_registry_loads_and_is_well_formed() {
+        // The registry under bastion/ is load-bearing: it is what Bastion uses to
+        // review its own changes locally and in CI. Guard it so an edit that makes
+        // it unparseable, duplicates a name, or leaves a reviewer empty fails here
+        // rather than at review time.
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(CONFIG_DIR)
+            .join(REGISTRY_FILE);
+        let config = Config::load(&path).expect("shipped reviewers.yaml loads");
+
+        assert!(
+            !config.reviewers.is_empty(),
+            "the shipped registry should define reviewers"
+        );
+        for reviewer in &config.reviewers {
+            assert!(!reviewer.name.is_empty(), "reviewer name must be non-empty");
+            assert!(
+                !reviewer.trigger.is_empty(),
+                "reviewer '{}' must declare at least one trigger glob",
+                reviewer.name
+            );
+            assert!(
+                !reviewer.prompt.trim().is_empty(),
+                "reviewer '{}' must carry a prompt",
+                reviewer.name
+            );
+        }
+    }
 }

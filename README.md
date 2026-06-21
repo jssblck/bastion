@@ -13,12 +13,14 @@ until green, then opens a PR that CI largely just confirms.
 
 ## Status
 
-- **Experimental, and a walking skeleton.** The data and routing layers are real
+- **Experimental, but no longer hollow.** The data and routing layers are real
   and tested — the reviewer registry, trigger routing, the verdict and event
-  schemas, the on-disk run store, and human/JSONL rendering all work. The agent
-  **backends that actually execute a reviewer** (Claude Code, Codex, Pi) and the
-  parallel, timeout-bounded runner are not yet implemented; `bastion review`
-  routes and then fails closed where execution would happen.
+  schemas, the on-disk run store, and human/JSONL rendering all work. The
+  **Claude Code and Codex backends now execute reviewers for real** over an
+  injectable subprocess seam, and the parallel, timeout-bounded runner aggregates
+  their verdicts into the merge gate; Bastion reviews its own pull requests in CI
+  (see [`.github/workflows/bastion.yml`](.github/workflows/bastion.yml)). The
+  remaining `Pi` backend is still stubbed and fails closed when selected.
 - Rust 2024 project using `cargo`. Single binary, `bastion`.
 - The design is specified in detail under [`docs/`](docs/); the code implements
   the local surface from [`docs/LOCAL.md`](docs/LOCAL.md).

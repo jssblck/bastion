@@ -1,0 +1,94 @@
+name: bastion
+
+# Bastion reviewing Bastion. On every pull request this builds the CLI from the
+# PR's own sources and runs `bastion review` over the changeset; a blocked review
+# exits non-zero and fails the job. Branch protection on `main` should require the
+# `bastion / bastion review` check so a blocking gate stops the merge.
+#
+# This is the concrete, self-hosted MVP of the adapter described in docs/GITHUB.md.
+# It does not yet post per-reviewer check runs or inline PR comments (that is the
+# packaged `review-action`/GitHub App, still future); here the job's pass/fail is
+# the gate and the full run is uploaded as an artifact.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Read-only: this MVP only needs to read the diff and fail the job. The future
+# comment-posting adapter will additionally need `pull-requests: write` and
+# `checks: write`.
+permissions:
+  contents: read
+
+# One in-flight review per PR; a new push cancels the previous run.
+concurrency:
+  group: bastion-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: bastion review
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The Codex subscription credentials live in an Actions secret, and GitHub
+    # does not share secrets with workflows triggered by fork PRs. We also will
+    # not run an agentic backend over untrusted code. So this runs for same-repo
+    # PRs only; a maintainer reviews a fork PR by pushing its branch to a trusted
+    # branch in this repo.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Full history so the base branch resolves for the changeset diff and so
+          # the Codex reviewer can run `git diff <base>...HEAD`.
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build bastion
+        run: cargo build --release --locked
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install the Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: Authenticate Codex with the subscription
+        env:
+          # The contents of a `~/.codex/auth.json` produced by `codex login` on a
+          # machine signed in to the billed ChatGPT/Codex subscription. Store it as
+          # a repository secret; Codex refreshes the access token from it at run
+          # time. See docs/GITHUB.md, "Authentication & billing".
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          if [ -z "$CODEX_AUTH_JSON" ]; then
+            echo "::error::CODEX_AUTH_JSON secret is not set; cannot run subscription-billed reviews." >&2
+            exit 1
+          fi
+          mkdir -p "$HOME/.codex"
+          printf '%s' "$CODEX_AUTH_JSON" > "$HOME/.codex/auth.json"
+          chmod 600 "$HOME/.codex/auth.json"
+
+      - name: Run bastion review
+        env:
+          # Keep run history inside the workspace so it can be uploaded as an
+          # artifact instead of landing in the runner's per-user data directory.
+          BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
+          # Resolve the `codex` binary npm just put on PATH.
+          BASTION_CODEX_BIN: codex
+        # Default GitHub bash runs with `-eo pipefail`, so a blocked review's
+        # non-zero exit fails the job (and the required check). The human-readable
+        # stream goes to the log; the canonical JSONL is persisted under
+        # BASTION_DATA_DIR and uploaded below.
+        run: ./target/release/bastion review --base "origin/${{ github.base_ref }}"
+
+      - name: Upload the run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bastion-run
+          path: ${{ github.workspace }}/.bastion/runs/**
+          if-no-files-found: warn

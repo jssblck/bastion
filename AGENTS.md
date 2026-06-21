@@ -10,10 +10,13 @@ CI. Each reviewer is a focused agent prompt with a trigger; matched reviewers
 run, return a structured verdict, and Bastion aggregates them into one merge
 gate. The human sits at the policy layer, authoring and governing reviewers.
 
-**This crate is a walking skeleton.** The data and routing layers are real and
-tested; the agent backends that execute a reviewer and the parallel runner are
-stubbed (see `src/runner.rs`). Keep that boundary honest: do not make
-`bastion review` claim to have reviewed anything until a real backend exists.
+**This crate is past the walking-skeleton stage but still partial.** The data and
+routing layers are real and tested; the parallel, timeout-bounded runner
+(`src/runner.rs`) and the Claude Code and Codex backends (`src/backend/`) are
+implemented and execute reviewers for real over an injectable subprocess seam.
+The `Pi` backend is still stubbed and fails closed when selected. Keep that
+boundary honest: do not make an unimplemented backend claim to have reviewed
+anything, and keep gates failing closed.
 
 ## Source of truth
 
@@ -69,8 +72,14 @@ bastion github codeowners --owner @your-org/platform
 - `src/git.rs` — the git queries the CLI needs (changed files, branch, root).
 - `src/paths.rs` / `src/store.rs` — the data-directory layout and run history.
 - `src/render.rs` — human and JSONL output.
-- `src/runner.rs` — the (stubbed) backend execution boundary: the `Backend`
-  trait, a deterministic `MockBackend`, and the not-yet-implemented `execute`.
+- `src/runner.rs` — the parallel, timeout-bounded runner: fans matched reviewers
+  out over a `JoinSet`, fails closed on error/timeout, streams run events, and
+  persists each run.
+- `src/backend/` — the agent execution boundary. `mod.rs` defines the `Backend`
+  trait, the deterministic `MockBackend`, and `dispatch`; `command.rs` is the
+  injectable `CommandRunner` subprocess seam; `claude_code.rs` and `codex.rs` are
+  the real backends driven against a fake executable in tests. The `Pi` arm of
+  `dispatch` is still unwired and bails.
 
 ## Development rules
 

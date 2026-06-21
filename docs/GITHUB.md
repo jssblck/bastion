@@ -116,6 +116,18 @@ Bastion does not store any credentials; the team stores them as Actions secrets 
 
 One operational note carried over from the core design: under heavy volume a subscription's rate limits can throttle reviewers, and because gates fail closed a throttled reviewer reads as a blocked merge. Bastion can optionally support API key fallback for this sort of situation as well, or teams may decide to simply use API billing and keep subscriptions for the local loop. That is a tradeoff to make per org and repo.
 
+### Self-hosted example: Bastion reviewing Bastion
+
+This repository dogfoods the adapter through [`.github/workflows/bastion.yml`](../.github/workflows/bastion.yml). Every reviewer in [`bastion/reviewers.yaml`](../bastion/reviewers.yaml) pins `backend: codex`, so each review runs on the Codex CLI billed to the maintainer's subscription. The workflow wires that subscription into CI:
+
+1. **Capture the credential once, locally.** Run `codex login` on a machine signed in to the billed ChatGPT/Codex subscription. Codex writes an OAuth credential (an access token plus a refresh token) to `~/.codex/auth.json`.
+2. **Store it as a repository secret.** Copy the contents of that `auth.json` into a secret named `CODEX_AUTH_JSON`. Bastion never stores credentials; the secret lives in GitHub Actions, exactly as author-mapped credentials would.
+3. **The job rehydrates it at run time.** Before running `bastion review`, the workflow writes `CODEX_AUTH_JSON` back to `$HOME/.codex/auth.json`; Codex refreshes the short-lived access token from the stored refresh token on each run, so the secret does not need rotating every time the access token expires.
+
+Two boundaries keep this safe. GitHub does not expose secrets to workflows triggered by fork pull requests, and the job additionally guards on `head.repo.full_name == github.repository`, so an agentic backend never runs over untrusted code with a live credential; a fork contribution is reviewed by a maintainer re-running it from a trusted branch. The job's pass/fail is the gate (a blocked review exits non-zero), and the full run is uploaded as an artifact rather than posted as per-reviewer checks, which is the MVP standing in for the packaged action below.
+
+For API-key billing instead of a subscription, set `OPENAI_API_KEY` as the secret and export it into the review step rather than writing `auth.json`; the same workflow shape applies.
+
 ---
 
 ## Environments & inputs
