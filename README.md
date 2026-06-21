@@ -38,10 +38,35 @@ For the full motivation, mental model, and threat model, see
 
 ## Install
 
-Prebuilt binaries for Linux (x86_64 and aarch64, glibc and musl), macOS (Intel and
-Apple silicon), and Windows (x86_64) are attached to every
-[GitHub release](https://github.com/jssblck/bastion/releases). Download the archive
-for your platform, extract it, and put `bastion` on your `PATH`:
+The install scripts detect your platform, download the matching archive from the
+latest [GitHub release](https://github.com/jssblck/bastion/releases), verify its
+SHA-256 checksum, and put `bastion` on your `PATH`.
+
+**Linux and macOS:**
+
+```sh
+curl -sSfL https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.ps1 | iex
+```
+
+The shell installer accepts `-v/--version`, `-b/--bin-dir`, and `-t/--tmp-dir`
+(pass them after `bash -s --`); the PowerShell installer reads the `Version` and
+`BinDir` environment variables. Run either with `--help` / `$env:Help="true"` for
+details. For example, to pin a version and install location:
+
+```sh
+curl -sSfL https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.sh | bash -s -- -v 0.1.0 -b /usr/local/bin
+```
+
+Prefer to do it by hand? Prebuilt binaries for Linux (x86_64 and aarch64, glibc and
+musl), macOS (Intel and Apple silicon), and Windows (x86_64) are attached to every
+release. Each archive bundles the binary with `README.md`, `LICENSE`, and `NOTICE`,
+and the release lists SHA-256 `checksums.txt`:
 
 ```sh
 # Example: Linux x86_64
@@ -50,9 +75,7 @@ sudo install bastion-x86_64-unknown-linux-gnu/bastion /usr/local/bin/
 bastion --version
 ```
 
-Each archive bundles the binary with `README.md`, `LICENSE`, and `NOTICE`, and the
-release lists SHA-256 `checksums.txt`. To build from source instead, you need a
-Rust 2024 toolchain:
+To build from source instead, you need a Rust 2024 toolchain:
 
 ```sh
 cargo build --release

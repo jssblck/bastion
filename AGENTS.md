@@ -99,6 +99,12 @@ version:
   output, crashes, and hangs, so the suite exercises the full subprocess path,
   fail-closed/fail-open aggregation, concurrency, persistence, and the read-back
   commands at scale. It detect-and-skips when `rustc`/`git` are absent.
+- `scripts/install.sh` / `scripts/install.ps1` — the public install scripts
+  (`curl | bash` and `irm | iex`). They detect the platform, download the matching
+  release archive plus `checksums.txt`, verify the SHA-256, and place `bastion` on
+  the user's `PATH`. They fail closed on any checksum problem; `tests/script_safety.rs`
+  pins that. `.github/workflows/installers.yml` smoke-tests them against published
+  releases on a schedule (not in PR CI, since it depends on release state).
 
 ## Development rules
 
