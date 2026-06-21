@@ -126,6 +126,25 @@ version:
   `Cargo.toml`.
 - Use plain ASCII quotes in docs, comments, and generated text.
 
+## Releases
+
+Bastion ships as a binary on GitHub Releases. It is not published to crates.io, so
+a release is just a tag, never a crates.io publish.
+
+- To cut a release, push a tag in the shape `vX.Y.Z` to the remote (for example
+  `git tag v0.2.0 && git push origin v0.2.0`). The
+  [release workflow](.github/workflows/release.yml) fires on `v*` tags, builds the
+  platform matrix, and opens a draft GitHub Release for a human to publish.
+- Do not bump the crate version in `Cargo.toml`. Leave `version = "0.0.0"` as it is:
+  it is a deliberate placeholder, not a real version. The released binary's
+  `--version` comes from the git tag (CI passes the tag through `BASTION_VERSION`;
+  locally `build.rs` runs `git describe`). The `Cargo.toml` version is only a
+  build-time fallback, not the source of truth, and is never published.
+- A tag with a pre-release suffix (`v0.2.0-rc.1`) ships as a prerelease.
+
+The full release runbook (the build matrix, version derivation, and bumping the
+self-review pin in `.github/workflows/bastion.yml`) lives in `CONTRIBUTING.md`.
+
 ## Verification expectations
 
 Run the core checks for ordinary changes:
