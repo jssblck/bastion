@@ -7,6 +7,9 @@ name: Release
 # otherwise -- then creates a DRAFT GitHub Release whose notes are generated from
 # the pull requests merged since the previous tag (`--generate-notes`, the
 # "releases as changelog" pattern). The draft is reviewed and published by hand.
+#
+# macOS binaries are shipped unsigned for now. Code signing and notarization need
+# an Apple Developer account; wire them in once that exists.
 
 on:
   push:
@@ -34,7 +37,6 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}
-      macos_signing: ${{ steps.signing.outputs.enabled }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,21 +72,6 @@ jobs:
             echo "prerelease=${PRERELEASE}"
           } >> "$GITHUB_OUTPUT"
           echo "Releasing ${TAG} (version ${VERSION}, prerelease ${PRERELEASE})"
-
-      - name: Detect macOS signing availability
-        id: signing
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-        run: |
-          # Signing and notarization are opt-in: they light up only once the Apple
-          # Developer secrets exist. Until then macOS binaries ship unsigned rather
-          # than failing the release.
-          if [[ -n "$APPLE_CERTIFICATE_BASE64" ]]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Apple signing secrets are not configured; macOS binaries will be unsigned."
-          fi
 
   build:
     name: Build ${{ matrix.target }}
@@ -155,59 +142,6 @@ jobs:
         if: ${{ !matrix.cross }}
         run: cargo build --target ${{ matrix.target }} --package bastion --release --locked
 
-      # --- macOS signing & notarization -------------------------------------
-      # Inert unless the Apple Developer secrets are configured (see the prepare
-      # job). When they are, the binary is Developer ID-signed and notarized.
-      - name: Import signing certificate
-        if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing == 'true'
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          echo -n "$APPLE_CERTIFICATE_BASE64" | base64 --decode -o "$RUNNER_TEMP/certificate.p12"
-          security create-keychain -p "$APPLE_CERTIFICATE_PASSWORD" "$RUNNER_TEMP/build.keychain"
-          security default-keychain -s "$RUNNER_TEMP/build.keychain"
-          security unlock-keychain -p "$APPLE_CERTIFICATE_PASSWORD" "$RUNNER_TEMP/build.keychain"
-          security import "$RUNNER_TEMP/certificate.p12" -k "$RUNNER_TEMP/build.keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$APPLE_CERTIFICATE_PASSWORD" "$RUNNER_TEMP/build.keychain"
-          rm "$RUNNER_TEMP/certificate.p12"
-
-      - name: Sign macOS binary
-        if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing == 'true'
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          codesign --sign "$APPLE_TEAM_ID" \
-                   --timestamp \
-                   --options=runtime \
-                   --force \
-                   "target/${{ matrix.target }}/release/bastion"
-
-      - name: Store notarization credentials
-        if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing == 'true'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        run: |
-          xcrun notarytool store-credentials "notarytool-password" \
-                  --apple-id "$APPLE_ID" \
-                  --team-id "$APPLE_TEAM_ID" \
-                  --password "$APPLE_APP_SPECIFIC_PASSWORD"
-
-      - name: Submit for notarization
-        if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing == 'true'
-        run: |
-          zip "$RUNNER_TEMP/bastion-macos.zip" "target/${{ matrix.target }}/release/bastion"
-          xcrun notarytool submit "$RUNNER_TEMP/bastion-macos.zip" \
-                  --keychain-profile "notarytool-password" \
-                  --wait
-
-      - name: Cleanup keychain
-        if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing == 'true' && always()
-        run: security delete-keychain "$RUNNER_TEMP/build.keychain" || true
-
-      # --- Package ----------------------------------------------------------
       - name: Package binary
         id: package
         shell: bash
