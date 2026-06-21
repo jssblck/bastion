@@ -8,17 +8,19 @@
 //! # The Codex invocation contract
 //!
 //! Bastion drives Codex in its headless `exec` mode and asks for a machine
-//! readable event stream (`codex exec --json --skip-git-repo-check`). Each line of
-//! stdout is a JSON event; Bastion reconstructs the transcript from those events,
-//! takes the final agent message as the reviewer's structured output, and reads
-//! token/cost accounting from the usage event when Codex reports it. The reviewer's
-//! prompt (with [`inputs`](crate::reviewer::Reviewer::inputs) interpolated and a
-//! trailing instruction pinning the verdict schema) is piped to Codex over stdin --
-//! the final `-` argument tells Codex to read the task from there -- so a long,
+//! readable event stream (`codex exec --json
+//! --dangerously-bypass-approvals-and-sandbox`). Each line of stdout is a JSON
+//! event; Bastion reconstructs the transcript from those events, takes the final
+//! agent message as the reviewer's structured output, and reads token/cost
+//! accounting from the usage event when Codex reports it. The reviewer's prompt
+//! (with [`inputs`](crate::reviewer::Reviewer::inputs) interpolated and a trailing
+//! instruction pinning the verdict schema) is piped to Codex over stdin -- the
+//! final `-` argument tells Codex to read the task from there -- so a long,
 //! multi-line prompt is never an OS argument. Reviewer
 //! [`env`](crate::reviewer::Reviewer::env) is propagated into the child process.
-//! `--skip-git-repo-check` lets Codex run in a checkout it has not been
-//! interactively trusted in, such as a fresh CI clone.
+//! The bypass flag is the counterpart to the Claude backend's
+//! `--permission-mode bypassPermissions`: an unattended reviewer must not stop to
+//! ask, and it also lets Codex run in an untrusted, fresh CI checkout.
 //!
 //! # Fail-closed parsing
 //!
@@ -78,19 +80,24 @@ impl<R: CommandRunner> CodexBackend<R> {
         Self {
             runner,
             program: program.into(),
-            // `--skip-git-repo-check` lets Codex run in a checkout it has not been
-            // interactively "trusted" in -- a fresh CI clone, or any repo on a new
-            // machine -- which it otherwise refuses to do in headless `exec` mode.
+            // Reviewers run unattended, so Codex must never stop to ask: this is
+            // the counterpart to the Claude backend's `--permission-mode
+            // bypassPermissions`. `--dangerously-bypass-approvals-and-sandbox`
+            // disables the approval prompts and the command sandbox, and also lets
+            // Codex run in a checkout it has not interactively "trusted" (a fresh CI
+            // clone), so it subsumes `--skip-git-repo-check`. This matches Bastion's
+            // threat model: the checkout is trusted and the reviewer runs with the
+            // same latitude on both backends.
             base_args: vec![
                 "exec".to_string(),
                 "--json".to_string(),
-                "--skip-git-repo-check".to_string(),
+                "--dangerously-bypass-approvals-and-sandbox".to_string(),
             ],
             resume_args: vec![
                 "exec".to_string(),
                 "resume".to_string(),
                 "--json".to_string(),
-                "--skip-git-repo-check".to_string(),
+                "--dangerously-bypass-approvals-and-sandbox".to_string(),
             ],
         }
     }
@@ -876,7 +883,7 @@ findings:
         let retry = args_of(&specs[1]);
         assert_eq!(retry[0], "exec");
         assert_eq!(retry[1], "resume");
-        assert!(retry.contains(&"--skip-git-repo-check".to_string()));
+        assert!(retry.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
         assert!(retry.contains(&"th-abc".to_string()));
         assert_eq!(retry.last().unwrap(), "-");
         // On resume the new turn is only the reprompt suffix, not the full review.
@@ -993,7 +1000,7 @@ findings:
         let args = args_of(spec);
         assert_eq!(args[0], "exec");
         assert_eq!(args[1], "--json");
-        assert_eq!(args[2], "--skip-git-repo-check");
+        assert_eq!(args[2], "--dangerously-bypass-approvals-and-sandbox");
         assert_eq!(args.last().unwrap(), "-");
         // The prompt travels via stdin, not as an argument.
         assert!(stdin_of(spec).contains("Check the thing."));
