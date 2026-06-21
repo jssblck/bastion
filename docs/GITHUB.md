@@ -118,15 +118,16 @@ One operational note carried over from the core design: under heavy volume a sub
 
 ### Self-hosted example: Bastion reviewing Bastion
 
-This repository dogfoods the adapter through [`.github/workflows/bastion.yml`](../.github/workflows/bastion.yml). Every reviewer in [`bastion/reviewers.yaml`](../bastion/reviewers.yaml) pins `backend: codex`, so each review runs on the Codex CLI billed to the maintainer's subscription. The workflow wires that subscription into CI:
+This repository dogfoods the adapter through [`.github/workflows/bastion.yml`](../.github/workflows/bastion.yml). Every reviewer in [`bastion/reviewers.yaml`](../bastion/reviewers.yaml) pins `backend: codex`, so each review runs on the Codex CLI billed to the PR author's own subscription. The workflow wires that up by mapping the author's GitHub login to a per-author credential:
 
-1. **Capture the credential once, locally.** Run `codex login` on a machine signed in to the billed ChatGPT/Codex subscription. Codex writes an OAuth credential (an access token plus a refresh token) to `~/.codex/auth.json`.
-2. **Store it as a repository secret.** Copy the contents of that `auth.json` into a secret named `CODEX_AUTH_JSON`. Bastion never stores credentials; the secret lives in GitHub Actions, exactly as author-mapped credentials would.
-3. **The job rehydrates it at run time.** Before running `bastion review`, the workflow writes `CODEX_AUTH_JSON` back to `$HOME/.codex/auth.json`; Codex refreshes the short-lived access token from the stored refresh token on each run, so the secret does not need rotating every time the access token expires.
+1. **Capture the credential once, locally.** Each contributor runs `codex login` on a machine signed in to their billed ChatGPT/Codex subscription. Codex writes an OAuth credential (an access token plus a refresh token) to `~/.codex/auth.json`.
+2. **Store it as a per-author secret.** Copy the contents of that `auth.json` into a repository secret named `CODEX_AUTH_<LOGIN>` — the login uppercased, e.g. `CODEX_AUTH_JSSBLCK` for `jssblck`. Bastion never stores credentials; the secret lives in GitHub Actions.
+3. **Map the login to the secret.** The `Authenticate Codex as the PR author` step resolves `github.event.pull_request.user.login` to the matching secret through a `case` arm, so reviewing `jssblck`'s PR bills `jssblck`'s subscription. Onboarding a contributor is two reviewed lines: their secret and a `case` arm. Because the mapping lives in the workflow, which is a CODEOWNERS-protected path, changing who may spend a subscription is itself a human-reviewed change.
+4. **The job rehydrates it at run time.** Before running `bastion review`, the step writes the resolved credential back to `$HOME/.codex/auth.json`; Codex refreshes the short-lived access token from the stored refresh token on each run, so the secret does not need rotating every time the access token expires.
 
-Two boundaries keep this safe. GitHub does not expose secrets to workflows triggered by fork pull requests, and the job additionally guards on `head.repo.full_name == github.repository`, so an agentic backend never runs over untrusted code with a live credential; a fork contribution is reviewed by a maintainer re-running it from a trusted branch. The job's pass/fail is the gate (a blocked review exits non-zero), and the full run is uploaded as an artifact rather than posted as per-reviewer checks, which is the MVP standing in for the packaged action below.
+An author with no mapped secret fails closed: the step errors and the gate blocks, rather than silently billing someone else's subscription. Two further boundaries keep this safe: GitHub does not expose secrets to workflows triggered by fork pull requests, and the job additionally guards on `head.repo.full_name == github.repository`, so an agentic backend never runs over untrusted code with a live credential; a fork contribution is reviewed by a maintainer re-running it from a trusted branch. The job's pass/fail is the gate (a blocked review exits non-zero), and the full run is uploaded as an artifact rather than posted as per-reviewer checks, which is the MVP standing in for the packaged action below.
 
-For API-key billing instead of a subscription, set `OPENAI_API_KEY` as the secret and export it into the review step rather than writing `auth.json`; the same workflow shape applies.
+For API-key billing instead of a subscription, store an `OPENAI_API_KEY` secret and export it into the review step rather than writing `auth.json`; the same mapping shape applies.
 
 ---
 

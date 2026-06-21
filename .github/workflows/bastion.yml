@@ -56,20 +56,34 @@ jobs:
       - name: Install the Codex CLI
         run: npm install -g @openai/codex
 
-      - name: Authenticate Codex with the subscription
+      - name: Authenticate Codex as the PR author
         env:
-          # The contents of a `~/.codex/auth.json` produced by `codex login` on a
-          # machine signed in to the billed ChatGPT/Codex subscription. Store it as
-          # a repository secret; Codex refreshes the access token from it at run
-          # time. See docs/GITHUB.md, "Authentication & billing".
-          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          # Bastion bills each PR's reviews to its author's own Codex subscription
+          # (docs/GITHUB.md, "Authentication & billing"). The author's GitHub login
+          # maps to a `CODEX_AUTH_<LOGIN>` secret holding the contents of that
+          # person's `~/.codex/auth.json`; Codex refreshes the access token from the
+          # stored refresh token at run time. To onboard a contributor, add their
+          # secret and a `case` arm below. The mapping lives here, in a
+          # CODEOWNERS-protected workflow, so changing who may spend a subscription
+          # is itself a reviewed change. An unmapped author fails closed (the gate
+          # blocks) rather than silently billing someone else.
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          CODEX_AUTH_JSSBLCK: ${{ secrets.CODEX_AUTH_JSSBLCK }}
         run: |
-          if [ -z "$CODEX_AUTH_JSON" ]; then
-            echo "::error::CODEX_AUTH_JSON secret is not set; cannot run subscription-billed reviews." >&2
+          author="$(printf '%s' "$AUTHOR" | tr '[:upper:]' '[:lower:]')"
+          case "$author" in
+            jssblck) cred="$CODEX_AUTH_JSSBLCK" ;;
+            *)
+              echo "::error::No Codex subscription is mapped for PR author '$AUTHOR'. Add a CODEX_AUTH_<LOGIN> secret and a case arm in .github/workflows/bastion.yml." >&2
+              exit 1
+              ;;
+          esac
+          if [ -z "$cred" ]; then
+            echo "::error::Codex credential for '$AUTHOR' is mapped but its secret is empty; set the matching CODEX_AUTH_<LOGIN> repository secret." >&2
             exit 1
           fi
           mkdir -p "$HOME/.codex"
-          printf '%s' "$CODEX_AUTH_JSON" > "$HOME/.codex/auth.json"
+          printf '%s' "$cred" > "$HOME/.codex/auth.json"
           chmod 600 "$HOME/.codex/auth.json"
 
       - name: Run bastion review
