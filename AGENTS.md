@@ -115,6 +115,12 @@ version:
 - Reviewers are declarative and static. Do not add code paths that generate
   reviewers on the fly; that would break the stable trigger set and the
   governance story.
+- When you fix an issue, consider whether the class of issue is one a Bastion
+  reviewer could catch in future changesets (a recurring bug pattern, a convention
+  that keeps getting violated, a footgun in the schema or CLI surface). If so,
+  suggest adding or extending a reviewer in `bastion/reviewers.yaml` and say what
+  its concern and trigger would be. Do not add the reviewer yourself: reviewers are
+  governed policy, so leave the decision to the user.
 - Gates fail closed. A gate that cannot produce a valid verdict is a block, never
   a silent pass. Advisors fail open.
 - Do not use mocks for collaborators; prefer real pure functions and real
