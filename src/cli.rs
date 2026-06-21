@@ -82,6 +82,38 @@ pub enum Command {
         #[command(subcommand)]
         command: GithubCommand,
     },
+    /// Manage the bundled agent skills that teach coding agents to use Bastion.
+    Skills {
+        /// The skills subcommand to run.
+        #[command(subcommand)]
+        command: SkillsCommand,
+    },
+}
+
+/// Skills adapter subcommands. They install the skills bundled into this binary
+/// into a repository (so its agents discover how to drive `bastion review`) and
+/// check that the checked-in copies are still current.
+#[derive(Debug, Subcommand)]
+pub enum SkillsCommand {
+    /// Write the bundled skills into the repository so agents discover them.
+    Install {
+        /// Skills directory to install into, relative to the repo root. Repeatable;
+        /// defaults to `.claude/skills` and `.agents/skills`.
+        #[arg(long = "dir", value_name = "DIR")]
+        dirs: Vec<PathBuf>,
+        /// Overwrite existing skill files even if they were edited locally.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Check that the installed skills match this binary (non-zero exit on drift).
+    Check {
+        /// Skills directory to check, relative to the repo root. Repeatable;
+        /// defaults to `.claude/skills` and `.agents/skills`.
+        #[arg(long = "dir", value_name = "DIR")]
+        dirs: Vec<PathBuf>,
+    },
+    /// List the skills bundled into this binary.
+    List,
 }
 
 /// GitHub adapter subcommands. These are specific to the GitHub surface
@@ -146,6 +178,24 @@ pub async fn run() -> Result<ExitCode> {
             GithubCommand::Codeowners { owners } => {
                 crate::commands::codeowners(&owners).map(|()| ExitCode::SUCCESS)
             }
+        },
+        Command::Skills { command } => match command {
+            SkillsCommand::Install { dirs, force } => {
+                let cwd = std::env::current_dir().wrap_err("determining the current directory")?;
+                crate::commands::skills_install(&cwd, &dirs, force).map(|()| ExitCode::SUCCESS)
+            }
+            SkillsCommand::Check { dirs } => {
+                let cwd = std::env::current_dir().wrap_err("determining the current directory")?;
+                // Drifted or missing skills are a fail-closed signal for CI, so map
+                // them to a non-zero exit, mirroring how `review` maps a block.
+                let current = crate::commands::skills_check(&cwd, &dirs)?;
+                Ok(if current {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::FAILURE
+                })
+            }
+            SkillsCommand::List => crate::commands::skills_list().map(|()| ExitCode::SUCCESS),
         },
     }
 }
@@ -223,5 +273,65 @@ mod tests {
     fn clean_keep_and_older_than_conflict() {
         let result = Cli::try_parse_from(["bastion", "clean", "--keep", "3", "--older-than", "7d"]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn skills_install_collects_repeatable_dirs_and_force() {
+        let cli = Cli::parse_from([
+            "bastion",
+            "skills",
+            "install",
+            "--dir",
+            ".claude/skills",
+            "--dir",
+            "vendor/skills",
+            "--force",
+        ]);
+        match cli.command {
+            Command::Skills {
+                command: SkillsCommand::Install { dirs, force },
+            } => {
+                assert_eq!(
+                    dirs,
+                    [
+                        PathBuf::from(".claude/skills"),
+                        PathBuf::from("vendor/skills")
+                    ]
+                );
+                assert!(force);
+            }
+            other => panic!("expected skills install, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn skills_install_defaults_to_no_dirs_and_no_force() {
+        // With no `--dir`, the handler fills in the defaults; clap leaves it empty.
+        let cli = Cli::parse_from(["bastion", "skills", "install"]);
+        match cli.command {
+            Command::Skills {
+                command: SkillsCommand::Install { dirs, force },
+            } => {
+                assert!(dirs.is_empty());
+                assert!(!force);
+            }
+            other => panic!("expected skills install, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn skills_has_check_and_list_subcommands() {
+        assert!(matches!(
+            Cli::parse_from(["bastion", "skills", "check"]).command,
+            Command::Skills {
+                command: SkillsCommand::Check { .. }
+            }
+        ));
+        assert!(matches!(
+            Cli::parse_from(["bastion", "skills", "list"]).command,
+            Command::Skills {
+                command: SkillsCommand::List
+            }
+        ));
     }
 }
