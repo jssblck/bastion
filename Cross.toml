@@ -1,0 +1,11 @@
+# Configuration for `cross` (used by the release workflow to cross-compile the
+# Linux aarch64/musl and Windows targets).
+#
+# `cross` runs the build inside a target-specific container and, by default, does
+# not forward arbitrary host environment variables into it. Forward BASTION_VERSION
+# so build.rs can stamp the binary's `--version` from the release tag, exactly as a
+# native build does. Without this, a cross-built binary would fall back to
+# `git describe` inside the container (or the Cargo.toml version) and could report
+# the wrong version.
+[build.env]
+passthrough = ["BASTION_VERSION"]

@@ -44,5 +44,31 @@ performed (especially the core Rust checks).
 
 ## Releases
 
-Bastion uses GitHub Releases as the changelog. Release builds derive their
-reported version from the git tag through `git describe --tags`.
+Bastion uses GitHub Releases as its changelog: there is no hand-maintained
+changelog file. Release builds derive their reported version from the git tag
+through `git describe --tags` (and in CI the tag is passed through directly, so
+the binary's `--version` is exact regardless of clone depth).
+
+To cut a release:
+
+1. Make sure `main` is green and points at the commit you want to ship.
+2. Tag it and push the tag:
+
+   ```sh
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+3. The [release workflow](.github/workflows/release.yml) builds the binary for
+   every supported target -- Linux x86_64/aarch64 (glibc and musl), macOS
+   x86_64/aarch64, and Windows x86_64 -- packages each as a `.tar.gz` alongside
+   `README.md`, `LICENSE`, and `NOTICE`, generates SHA-256 `checksums.txt`, and
+   opens a **draft** GitHub Release whose notes are generated from the pull
+   requests merged since the previous tag (`--generate-notes`).
+4. Review the draft and its generated notes, edit if needed, and publish.
+
+Run the workflow via `workflow_dispatch` with `dry_run: true` to build and package
+the whole matrix without creating a release. A tag with a pre-release suffix
+(`v0.2.0-rc.1`) is published as a prerelease. macOS binaries currently ship
+unsigned; code signing and notarization are a future addition that needs an Apple
+Developer account.
