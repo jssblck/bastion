@@ -1,0 +1,129 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "Bastion -- a merge gate you govern, not a bot you tolerate",
+  description = "Bastion runs code review as single-concern reviewers: declarative, human-authored fitness functions over every changeset. They aggregate into one merge gate that fails closed. No black-box super-reviewer, no silent passes, no lock-in.",
+} = Astro.props;
+
+const canonical = new URL(Astro.url.pathname, Astro.site).href.replace(/\/$/, "");
+const ogImage = new URL("/og.png", Astro.site).href;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="theme-color" content="#f6f7f9" />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Bastion" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+  </head>
+  <body>
+    <a href="#main" class="skip-link">Skip to content</a>
+    <slot />
+    <script is:inline>
+      // Reveals enhance an already-visible default. Mark the document as JS-capable
+      // only when motion is allowed, so the CSS reveal rules apply; otherwise content
+      // stays plainly visible. IntersectionObserver settles each element on entry.
+      (function () {
+        var reduce = window.matchMedia(
+          "(prefers-reduced-motion: reduce)"
+        ).matches;
+        if (reduce || !("IntersectionObserver" in window)) return;
+        document.documentElement.classList.add("js");
+        var io = new IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (e) {
+              if (e.isIntersecting) {
+                e.target.classList.add("is-in");
+                io.unobserve(e.target);
+              }
+            });
+          },
+          { rootMargin: "0px 0px -8% 0px", threshold: 0.08 }
+        );
+        var all = [];
+        function bind() {
+          all = Array.prototype.slice.call(
+            document.querySelectorAll("[data-reveal]")
+          );
+          all.forEach(function (el) {
+            io.observe(el);
+          });
+        }
+        // Failsafe: content must never stay hidden because a reveal didn't fire
+        // (background tab, headless renderer, no scroll). Reveal everything that
+        // is still pending shortly after load, regardless of intersection.
+        function revealAll() {
+          all.forEach(function (el) {
+            el.classList.add("is-in");
+          });
+        }
+        if (document.readyState !== "loading") bind();
+        else document.addEventListener("DOMContentLoaded", bind);
+        window.addEventListener("load", function () {
+          setTimeout(revealAll, 1400);
+        });
+      })();
+
+      // Copy-to-clipboard, delegated once for every [data-copy] button on the page.
+      (function () {
+        document.addEventListener("click", function (ev) {
+          var btn = ev.target.closest && ev.target.closest("[data-copy]");
+          if (!btn) return;
+          var target = document.getElementById(btn.getAttribute("data-copy"));
+          if (!target || !navigator.clipboard) return;
+          navigator.clipboard
+            .writeText((target.textContent || "").trim())
+            .then(function () {
+              btn.setAttribute("data-copied", "");
+              setTimeout(function () {
+                btn.removeAttribute("data-copied");
+              }, 1600);
+            });
+        });
+      })();
+    </script>
+    <style>
+      .skip-link {
+        position: absolute;
+        left: 50%;
+        translate: -50% -120%;
+        top: 0.6rem;
+        z-index: var(--z-overlay);
+        background: var(--ink);
+        color: var(--ink-inverse);
+        padding: 0.6rem 1rem;
+        border-radius: var(--radius-2);
+        font-size: var(--text-sm);
+        transition: translate var(--dur-2) var(--ease-out);
+      }
+      .skip-link:focus {
+        translate: -50% 0;
+      }
+    </style>
+  </body>
+</html>

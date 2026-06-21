@@ -1,0 +1,311 @@
+---
+import SectionHeading from "./SectionHeading.astro";
+
+interface Row {
+  name: string;
+  mode: "gate" | "advisor";
+  happened: string;
+  state: "pass" | "block";
+  countsAs: "pass" | "block" | "open";
+}
+
+const rows: Row[] = [
+  { name: "single-responsibility", mode: "gate", happened: "returned pass", state: "pass", countsAs: "pass" },
+  { name: "error-handling", mode: "gate", happened: "returned block", state: "block", countsAs: "block" },
+  { name: "e2e-checkout-flow", mode: "gate", happened: "timed out", state: "block", countsAs: "block" },
+  { name: "migration-safety", mode: "gate", happened: "crashed", state: "block", countsAs: "block" },
+  { name: "no-verdict", mode: "gate", happened: "malformed output", state: "block", countsAs: "block" },
+  { name: "test-coverage", mode: "advisor", happened: "errored", state: "pass", countsAs: "open" },
+];
+
+const countLabel: Record<Row["countsAs"], string> = {
+  pass: "pass",
+  block: "block",
+  open: "skipped",
+};
+---
+
+<section class="section gate" id="gate">
+  <div class="container">
+    <SectionHeading title="Fails closed.">
+      Reviewers run in parallel with per-reviewer timeouts; their verdicts
+      aggregate into one decision. A gate that crashes, times out, or can't
+      produce a valid verdict resolves to <strong>block</strong>, never a silent
+      pass. Advisors are best-effort: when one fails, it's ignored.
+    </SectionHeading>
+
+    <div class="gate-layout">
+      <div class="ledger" data-reveal>
+        <div class="ledger-head" aria-hidden="true">
+          <span>reviewer</span>
+          <span>what happened</span>
+          <span class="ledger-head-result">counts as</span>
+        </div>
+        <ul class="ledger-list">
+          {
+            rows.map((r, i) => (
+              <li class="ledger-row" style={`--i:${i}`}>
+                <span class="l-name">
+                  <span class={`mode-tick mode-tick--${r.mode}`} aria-hidden="true" />
+                  {r.name}
+                  {r.mode === "advisor" && <em class="l-advisor">advisor</em>}
+                </span>
+                <span class="l-happened">{r.happened}</span>
+                <span class="l-result">
+                  <span class="l-arrow" aria-hidden="true">&rarr;</span>
+                  <span class={`pill pill--${r.countsAs === "open" ? "neutral" : r.countsAs === "pass" ? "pass" : "block"}`}>
+                    <span class="pill-dot" />
+                    {countLabel[r.countsAs]}
+                  </span>
+                </span>
+              </li>
+            ))
+          }
+        </ul>
+        <div class="ledger-foot">
+          <div class="ledger-foot-text">
+            <span class="ledger-q">Every gate returned pass?</span>
+            <span class="ledger-a">No. Four gates resolved to block.</span>
+          </div>
+          <div class="aggregate">
+            <span class="aggregate-label">merge gate</span>
+            <span class="pill pill--block aggregate-pill">
+              <span class="pill-dot"></span>block
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <aside class="gate-laws" aria-label="Failure semantics">
+        <div class="law" data-reveal>
+          <span class="law-key">timeout</span>
+          <span class="law-arrow" aria-hidden="true">&rarr;</span>
+          <span class="law-val law-val--block">block</span>
+        </div>
+        <div class="law" data-reveal style="--reveal-delay:60ms">
+          <span class="law-key">crash</span>
+          <span class="law-arrow" aria-hidden="true">&rarr;</span>
+          <span class="law-val law-val--block">block</span>
+        </div>
+        <div class="law" data-reveal style="--reveal-delay:120ms">
+          <span class="law-key">no valid verdict</span>
+          <span class="law-arrow" aria-hidden="true">&rarr;</span>
+          <span class="law-val law-val--block">block</span>
+        </div>
+        <div class="law law--open" data-reveal style="--reveal-delay:180ms">
+          <span class="law-key">advisor error</span>
+          <span class="law-arrow" aria-hidden="true">&rarr;</span>
+          <span class="law-val law-val--open">ignored</span>
+        </div>
+        <p class="gate-laws-note" data-reveal style="--reveal-delay:220ms">
+          Gates fail closed. Advisors fail open. An unimplemented backend never
+          claims to have reviewed anything.
+        </p>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<style>
+  .gate {
+    background:
+      linear-gradient(var(--paper-2), var(--paper-2)) padding-box;
+    border-block: 1px solid var(--line);
+  }
+  .gate-layout {
+    margin-top: clamp(2rem, 1rem + 3vw, 3rem);
+    display: grid;
+    gap: 1.5rem;
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  @media (min-width: 900px) {
+    .gate-layout {
+      grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+    }
+  }
+
+  .ledger {
+    background: var(--paper-raised);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-3);
+    overflow: hidden;
+    box-shadow: var(--shadow-2);
+  }
+  .ledger-head,
+  .ledger-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto;
+    gap: 1rem;
+    align-items: center;
+    padding: 0.8rem 1.1rem;
+  }
+  .ledger-head {
+    background: var(--ink);
+    color: var(--ink-inverse);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.03em;
+  }
+  .ledger-head-result {
+    text-align: right;
+  }
+  .ledger-list {
+    list-style: none;
+  }
+  .ledger-row + .ledger-row {
+    border-top: 1px solid var(--line);
+  }
+  .l-name {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--ink);
+    flex-wrap: wrap;
+  }
+  .mode-tick {
+    width: 0.4rem;
+    height: 1rem;
+    border-radius: 1px;
+    flex: none;
+  }
+  .mode-tick--gate {
+    background: var(--ink-3);
+  }
+  .mode-tick--advisor {
+    background: var(--advisor);
+  }
+  .l-advisor {
+    font-family: var(--font-sans);
+    font-style: normal;
+    font-size: 0.64rem;
+    color: var(--advisor-ink);
+    background: var(--advisor-bg);
+    border: 1px solid var(--advisor-line);
+    padding: 0.05em 0.4em;
+    border-radius: var(--radius-1);
+  }
+  .l-happened {
+    font-size: var(--text-sm);
+    color: var(--ink-2);
+  }
+  .l-result {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+  .l-arrow {
+    color: var(--ink-3);
+    font-size: 0.85rem;
+  }
+
+  .ledger-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 1rem 1.1rem;
+    background: var(--block-bg);
+    border-top: 1px solid var(--block-line);
+  }
+  .ledger-foot-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .ledger-q {
+    font-size: var(--text-sm);
+    color: var(--ink-2);
+  }
+  .ledger-a {
+    font-size: var(--text-sm);
+    font-weight: 560;
+    color: var(--block-ink);
+  }
+  .aggregate {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .aggregate-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--ink-3);
+  }
+  .aggregate-pill {
+    font-size: var(--text-sm);
+    padding: 0.5em 0.8em;
+  }
+
+  /* failure-semantics laws */
+  .gate-laws {
+    display: grid;
+    gap: 0.6rem;
+    align-content: start;
+  }
+  .law {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 0.95rem;
+    background: var(--paper-raised);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+  .law-key {
+    color: var(--ink-2);
+  }
+  .law-arrow {
+    color: var(--ink-3);
+    margin-left: auto;
+  }
+  .law-val {
+    font-weight: 600;
+  }
+  .law-val--block {
+    color: var(--block-ink);
+  }
+  .law-val--open {
+    color: var(--ink-3);
+  }
+  .law--open {
+    border-style: dashed;
+    background: var(--paper-2);
+  }
+  .gate-laws-note {
+    margin-top: 0.4rem;
+    font-size: var(--text-sm);
+    color: var(--ink-2);
+  }
+
+  @media (max-width: 540px) {
+    .ledger-head,
+    .ledger-row {
+      grid-template-columns: 1fr auto;
+    }
+    .ledger-head span:nth-child(2),
+    .l-happened {
+      display: none;
+    }
+  }
+
+  /* reveal stagger for rows */
+  @media (prefers-reduced-motion: no-preference) {
+    .js .ledger.is-in .ledger-row {
+      animation: row-in var(--dur-2) var(--ease-out) backwards;
+      animation-delay: calc(var(--i) * 70ms + 120ms);
+    }
+    @keyframes row-in {
+      from {
+        opacity: 0;
+        transform: translateX(-6px);
+      }
+    }
+  }
+</style>

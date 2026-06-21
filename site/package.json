@@ -1,0 +1,22 @@
+{
+  "name": "bastion-site",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Marketing site for Bastion (bastion.jessica.black).",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.2.5",
+    "@fontsource-variable/schibsted-grotesk": "^5.2.5",
+    "astro": "^6.4.8"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  }
+}

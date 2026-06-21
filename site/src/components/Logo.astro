@@ -1,0 +1,60 @@
+---
+interface Props {
+  size?: number;
+}
+const { size = 26 }: Props = Astro.props;
+---
+
+<span class="logo" style={`--logo-size:${size}px`}>
+  <svg
+    class="logo-mark"
+    width={size}
+    height={size}
+    viewBox="0 0 32 32"
+    aria-hidden="true"
+    fill="none"
+  >
+    <path
+      class="logo-wall"
+      d="M5 9h4.5v3.2h3.2V9h6.6v3.2h3.2V9H27v14.2A2.8 2.8 0 0 1 24.2 26H7.8A2.8 2.8 0 0 1 5 23.2V9Z"
+    ></path>
+    <path class="logo-gate" d="M12.6 26v-5.3a3.4 3.4 0 0 1 6.8 0V26h-6.8Z"></path>
+    <path
+      class="logo-check"
+      d="M12.6 16.1l2 2 3.9-4.1"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    ></path>
+  </svg>
+  <span class="logo-word">bastion</span>
+</span>
+
+<style>
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--ink);
+  }
+  .logo-mark {
+    flex: none;
+  }
+  .logo-wall {
+    fill: var(--ink);
+  }
+  .logo-gate {
+    fill: var(--paper);
+  }
+  .logo-check {
+    fill: none;
+    stroke: var(--pass);
+  }
+  .logo-word {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: calc(var(--logo-size) * 0.66);
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+</style>

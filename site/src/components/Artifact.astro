@@ -1,0 +1,112 @@
+---
+// A "file" rendered as a structural artifact: a labeled tab (filename), an
+// optional right-aligned meta slot (e.g. a verdict pill), and a monospace body.
+interface Props {
+  filename: string;
+  lang?: string;
+  class?: string;
+}
+const { filename, lang, class: cls = "" }: Props = Astro.props;
+---
+
+<figure class={`artifact ${cls}`}>
+  <figcaption class="artifact-bar">
+    <span class="artifact-dot" aria-hidden="true"></span>
+    <span class="artifact-name">{filename}</span>
+    {lang && <span class="artifact-lang">{lang}</span>}
+    <span class="artifact-meta"><slot name="meta" /></span>
+  </figcaption>
+  <div class="artifact-body">
+    <pre><code><slot /></code></pre>
+  </div>
+</figure>
+
+<style>
+  .artifact {
+    margin: 0;
+    background: var(--paper-raised);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-3);
+    box-shadow: var(--shadow-2);
+    overflow: hidden;
+  }
+  .artifact-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0.85rem;
+    background: var(--paper-2);
+    border-bottom: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+  }
+  .artifact-dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 999px;
+    border: 1px solid var(--steel-line);
+    background: var(--steel-bg);
+    flex: none;
+  }
+  .artifact-name {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .artifact-lang {
+    color: var(--ink-3);
+    padding: 0.15em 0.45em;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-1);
+    font-size: 0.92em;
+  }
+  .artifact-meta {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+  }
+  .artifact-body {
+    overflow-x: auto;
+    padding: 1rem 1.1rem 1.15rem;
+    background: var(--paper-raised);
+  }
+  .artifact-body pre {
+    margin: 0;
+  }
+  .artifact-body code {
+    font-size: 0.86rem;
+    line-height: 1.7;
+    color: var(--tok-str);
+    white-space: pre;
+  }
+
+  /* token classes used by callers */
+  .artifact :global(.t-com) {
+    color: var(--tok-com);
+    font-style: italic;
+  }
+  .artifact :global(.t-key) {
+    color: var(--tok-key);
+    font-weight: 560;
+  }
+  .artifact :global(.t-str) {
+    color: var(--tok-str);
+  }
+  .artifact :global(.t-punct) {
+    color: var(--tok-punct);
+  }
+  .artifact :global(.t-gate) {
+    color: var(--block-ink);
+    font-weight: 600;
+  }
+  .artifact :global(.t-advisor) {
+    color: var(--advisor-ink);
+    font-weight: 600;
+  }
+  .artifact :global(.t-pass) {
+    color: var(--pass-ink);
+    font-weight: 600;
+  }
+  .artifact :global(.t-glob) {
+    color: var(--steel);
+  }
+</style>

@@ -1,0 +1,115 @@
+---
+import SectionHeading from "./SectionHeading.astro";
+
+const points = [
+  {
+    title: "Open source",
+    body: "AGPL-3.0. Every reviewer, every verdict, the whole gate. Nothing about how your code is judged is hidden behind a service.",
+  },
+  {
+    title: "Self-hostable",
+    body: "Runs anywhere code can run, local or any CI. It drives the agent backends you already use (Claude Code, Codex) and reuses your own auth and billing.",
+  },
+  {
+    title: "No lock-in",
+    body: "Your policy is one declarative file in your repo. Take it with you. There's no proprietary format and no black box to migrate off of.",
+  },
+];
+---
+
+<section class="section trust" id="open">
+  <div class="container">
+    <SectionHeading title="Inspectable, not just trusted.">
+      The closed reviewers sell you a SOC 2 badge and a vanity counter, and bill
+      you for the privilege. Bastion offers something you can verify yourself:
+      read every reviewer, run it on your own infrastructure through the model
+      provider and billing you already use, and own the gate outright.
+    </SectionHeading>
+
+    <div class="trust-grid">
+      {
+        points.map((p, i) => (
+          <article class="trust-card" data-reveal style={`--reveal-delay:${i * 70}ms`}>
+            <h3>{p.title}</h3>
+            <p>{p.body}</p>
+          </article>
+        ))
+      }
+    </div>
+
+    <div class="honest" data-reveal>
+      <div class="honest-mark" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <path d="M12 3 4 6v6c0 4.5 3.2 7.3 8 9 4.8-1.7 8-4.5 8-9V6l-8-3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path>
+          <path d="M9.2 12.2l1.9 1.9 3.9-4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </div>
+      <div class="honest-body">
+        <h3>We'd rather block than pretend.</h3>
+        <p>
+          Bastion is early software and evolving fast. The runner, the gate, and
+          the Claude Code and Codex backends execute reviewers for real, and
+          anything not yet wired <strong>fails closed</strong> rather than
+          pretending. An unimplemented reviewer never claims to have reviewed
+          anything. That honesty is the whole point of a gate.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .trust-grid {
+    margin-top: clamp(2rem, 1rem + 3vw, 3rem);
+    display: grid;
+    gap: 1.25rem;
+  }
+  @media (min-width: 760px) {
+    .trust-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  .trust-card {
+    padding: clamp(1.1rem, 0.8rem + 1vw, 1.5rem);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-3);
+    background: var(--paper-raised);
+  }
+  .trust-card h3 {
+    font-size: var(--text-md);
+    margin-bottom: 0.5rem;
+  }
+  .trust-card p {
+    font-size: var(--text-sm);
+    color: var(--ink-2);
+  }
+
+  .honest {
+    margin-top: 1.25rem;
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    padding: clamp(1.25rem, 0.9rem + 1.4vw, 1.8rem);
+    border: 1px solid var(--pass-line);
+    border-radius: var(--radius-3);
+    background: linear-gradient(
+      to bottom right,
+      var(--pass-bg),
+      var(--paper-raised) 55%
+    );
+  }
+  .honest-mark {
+    flex: none;
+    color: var(--pass-ink);
+    margin-top: 0.15rem;
+  }
+  .honest-body h3 {
+    font-size: var(--text-lg);
+    margin-bottom: 0.5rem;
+  }
+  .honest-body p {
+    font-size: var(--text-base);
+    color: var(--ink-2);
+    max-width: 62ch;
+  }
+</style>

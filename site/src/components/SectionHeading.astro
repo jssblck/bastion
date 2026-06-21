@@ -1,0 +1,36 @@
+---
+// Spec-style section header: a structural rule above a statement title and its
+// lede. Deliberately label-free; the title carries the meaning.
+interface Props {
+  title: string;
+  id?: string;
+}
+const { title, id }: Props = Astro.props;
+---
+
+<header class="sh" id={id} data-reveal>
+  <div class="sh-rule" aria-hidden="true"></div>
+  <h2 class="sh-title">{title}</h2>
+  <p class="sh-lede prose"><slot /></p>
+</header>
+
+<style>
+  .sh {
+    scroll-margin-top: 5rem;
+  }
+  .sh-rule {
+    height: 2px;
+    background: var(--ink);
+    width: 100%;
+  }
+  .sh-title {
+    margin-top: 1.1rem;
+    font-size: var(--text-2xl);
+    max-width: 22ch;
+  }
+  .sh-lede {
+    margin-top: 1.1rem;
+    font-size: var(--text-md);
+    color: var(--ink-2);
+  }
+</style>
