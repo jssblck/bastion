@@ -1,0 +1,206 @@
+---
+import SectionHeading from "./SectionHeading.astro";
+
+const loop = [
+  {
+    n: "01",
+    title: "An escape slips through",
+    body: "A change merges that a reviewer should have caught. Inevitable, especially early. It's also your most valuable signal.",
+  },
+  {
+    n: "02",
+    title: "Triage which reviewer missed",
+    body: "Find the concern that wasn't covered, or the reviewer whose prompt was too loose to catch it.",
+  },
+  {
+    n: "03",
+    title: "Adjust the policy",
+    body: "Tighten a prompt, add a narrow reviewer, or harden a trigger. It's a diff against reviewers.yaml, reviewed like any other.",
+  },
+  {
+    n: "04",
+    title: "The gate gets sharper",
+    body: "The next changeset meets a better policy. Convergence over time beats strict perfection up front.",
+  },
+];
+---
+
+<section class="section govern" id="govern">
+  <div class="container">
+    <SectionHeading title="You govern the policy.">
+      Bastion doesn't take the human out of the loop, it moves them up a level:
+      from reviewing every diff to authoring, curating, and governing the
+      reviewers that do. Your interface becomes the registry and the escape
+      feed.
+    </SectionHeading>
+
+    <div class="govern-grid">
+      <div class="govern-left" data-reveal>
+        <div class="codeowner-card">
+          <div class="codeowner-head">
+            <span class="codeowner-file">.github/CODEOWNERS</span>
+            <span class="pill pill--neutral"><span class="pill-dot"></span>human review required</span>
+          </div>
+          <pre class="codeowner-body"><code><span class="t-com"># Changing the review policy is itself reviewed.</span>
+<span class="t-glob">bastion/reviewers.yaml</span>   <span class="t-key">@your-org/platform</span></code></pre>
+        </div>
+        <p class="govern-note">
+          Because reviewers are declarative and static, any PR that weakens the
+          gate, loosens a prompt, drops a trigger, or downgrades a gate to an
+          advisor shows up as a diff a human must approve. The policy can't
+          quietly erode.
+        </p>
+        <ul class="govern-points">
+          <li>Reviewers are the agents you already trust, written down.</li>
+          <li>Even earnest agents can game a check; governance makes it visible.</li>
+          <li>The registry is the artifact. Review it, version it, own it.</li>
+        </ul>
+      </div>
+
+      <ol class="loop" data-reveal style="--reveal-delay:90ms" aria-label="The escape to improvement loop">
+        {
+          loop.map((s, i) => (
+            <li class="loop-step" style={`--i:${i}`}>
+              <span class="loop-n">{s.n}</span>
+              <div class="loop-body">
+                <h3>{s.title}</h3>
+                <p>{s.body}</p>
+              </div>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </div>
+</section>
+
+<style>
+  .govern-grid {
+    margin-top: clamp(2rem, 1rem + 3vw, 3rem);
+    display: grid;
+    gap: clamp(1.75rem, 1rem + 3vw, 3rem);
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  @media (min-width: 920px) {
+    .govern-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  .codeowner-card {
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-3);
+    overflow: hidden;
+    background: var(--paper-raised);
+    box-shadow: var(--shadow-1);
+  }
+  .codeowner-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.65rem 0.9rem;
+    background: var(--paper-2);
+    border-bottom: 1px solid var(--line);
+  }
+  .codeowner-file {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .codeowner-body {
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.8rem;
+    line-height: 1.7;
+  }
+  .codeowner-body .t-com {
+    color: var(--tok-com);
+    font-style: italic;
+  }
+  .codeowner-body .t-glob {
+    color: var(--steel);
+  }
+  .codeowner-body .t-key {
+    color: var(--tok-key);
+    font-weight: 560;
+  }
+
+  .govern-note {
+    margin-top: 1.4rem;
+    font-size: var(--text-base);
+    color: var(--ink-2);
+  }
+  .govern-points {
+    margin-top: 1.2rem;
+    list-style: none;
+    display: grid;
+    gap: 0.7rem;
+  }
+  .govern-points li {
+    position: relative;
+    padding-left: 1.5rem;
+    font-size: var(--text-sm);
+    color: var(--ink-2);
+  }
+  .govern-points li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.5em;
+    width: 0.55rem;
+    height: 0.55rem;
+    border: 1.5px solid var(--steel);
+    border-radius: 2px;
+    rotate: 45deg;
+  }
+
+  /* the loop */
+  .loop {
+    list-style: none;
+    position: relative;
+    display: grid;
+    gap: 0;
+    padding-left: 0.5rem;
+  }
+  .loop-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: 3rem 1fr;
+    gap: 1rem;
+    padding-block: 1.1rem;
+  }
+  .loop-step + .loop-step {
+    border-top: 1px dashed var(--line);
+  }
+  .loop-n {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--steel);
+    padding-top: 0.15rem;
+  }
+  .loop-body h3 {
+    font-size: var(--text-md);
+    margin-bottom: 0.3rem;
+  }
+  .loop-body p {
+    font-size: var(--text-sm);
+    color: var(--ink-2);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .js .loop.is-in .loop-step {
+      animation: loop-in var(--dur-2) var(--ease-out) backwards;
+      animation-delay: calc(var(--i) * 90ms + 100ms);
+    }
+    @keyframes loop-in {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+    }
+  }
+</style>

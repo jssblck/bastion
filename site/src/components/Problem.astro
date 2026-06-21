@@ -1,0 +1,193 @@
+---
+import SectionHeading from "./SectionHeading.astro";
+
+const generic = [
+  { concerns: "1 concern", recall: 96, note: "works" },
+  { concerns: "10 concerns", recall: 58, note: "slips" },
+  { concerns: "100 concerns", recall: 14, note: "useless" },
+];
+---
+
+<section class="section problem">
+  <div class="container">
+    <SectionHeading title="Other AI reviewers were built for the old world.">
+      Copilot, CodeRabbit and the rest read the whole diff at once and leave
+      comments for a person to act on. Pile more concerns onto one generic
+      reviewer and its recall on any single one collapses. Attention is scarce,
+      for humans and for agents, and smarter models don't change that.
+    </SectionHeading>
+
+    <div class="problem-grid">
+      <article class="panel panel--old" data-reveal>
+        <div class="panel-head">
+          <span class="panel-kind">one generic reviewer</span>
+          <span class="pill pill--block"><span class="pill-dot"></span>recall collapses</span>
+        </div>
+        <ul class="bars">
+          {
+            generic.map((g) => (
+              <li class="bar-row">
+                <span class="bar-label">{g.concerns}</span>
+                <span class="bar-track">
+                  <span class="bar-fill bar-fill--down" style={`--w:${g.recall}%`} />
+                </span>
+                <span class="bar-note">{g.note}</span>
+              </li>
+            ))
+          }
+        </ul>
+        <p class="panel-foot">
+          One checklist stretched across everything. The more you ask, the less
+          it catches.
+        </p>
+      </article>
+
+      <article class="panel panel--new" data-reveal style="--reveal-delay:90ms">
+        <div class="panel-head">
+          <span class="panel-kind">many single-concern reviewers</span>
+          <span class="pill pill--pass"><span class="pill-dot"></span>recall holds</span>
+        </div>
+        <ul class="bars">
+          <li class="bar-row">
+            <span class="bar-label">single-responsibility</span>
+            <span class="bar-track"><span class="bar-fill bar-fill--full" style="--w:95%"></span></span>
+            <span class="bar-note">holds</span>
+          </li>
+          <li class="bar-row">
+            <span class="bar-label">error-handling</span>
+            <span class="bar-track"><span class="bar-fill bar-fill--full" style="--w:94%"></span></span>
+            <span class="bar-note">holds</span>
+          </li>
+          <li class="bar-row">
+            <span class="bar-label">+ tenant-isolation</span>
+            <span class="bar-track"><span class="bar-fill bar-fill--full" style="--w:96%"></span></span>
+            <span class="bar-note">holds</span>
+          </li>
+        </ul>
+        <p class="panel-foot">
+          You cover more ground by <strong>adding narrow reviewers</strong>,
+          never by broadening one. Each stays at high recall.
+        </p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<style>
+  .problem-grid {
+    margin-top: clamp(2rem, 1rem + 3vw, 3.25rem);
+    display: grid;
+    gap: 1.25rem;
+  }
+  @media (min-width: 820px) {
+    .problem-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  .panel {
+    background: var(--paper-raised);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-3);
+    padding: clamp(1.1rem, 0.8rem + 1vw, 1.6rem);
+    box-shadow: var(--shadow-1);
+  }
+  .panel--new {
+    border-color: var(--pass-line);
+    background: linear-gradient(
+      to bottom,
+      color-mix(in oklch, var(--pass-bg) 50%, var(--paper-raised)),
+      var(--paper-raised) 40%
+    );
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.3rem;
+  }
+  .panel-kind {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .bars {
+    list-style: none;
+    display: grid;
+    gap: 0.85rem;
+  }
+  .bar-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.3rem 0.75rem;
+    align-items: center;
+  }
+  @media (min-width: 420px) {
+    .bar-row {
+      grid-template-columns: 11rem 1fr auto;
+    }
+  }
+  .bar-label {
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--ink-2);
+  }
+  .bar-track {
+    height: 0.7rem;
+    background: var(--paper-sunk);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-1);
+    overflow: hidden;
+  }
+  .bar-fill {
+    display: block;
+    height: 100%;
+    width: var(--w);
+  }
+  .bar-fill--down {
+    background: repeating-linear-gradient(
+      -45deg,
+      var(--block) 0 6px,
+      color-mix(in oklch, var(--block) 78%, white) 6px 12px
+    );
+  }
+  .bar-fill--full {
+    background: var(--pass);
+  }
+  .bar-note {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--ink-3);
+    justify-self: start;
+  }
+  @media (min-width: 420px) {
+    .bar-note {
+      justify-self: end;
+    }
+  }
+
+  .panel-foot {
+    margin-top: 1.4rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--line);
+    font-size: var(--text-sm);
+    color: var(--ink-2);
+  }
+
+  /* animate bars on reveal */
+  @media (prefers-reduced-motion: no-preference) {
+    .js .panel .bar-fill {
+      width: 0;
+      transition: width var(--dur-4) var(--ease-out-quart);
+      transition-delay: 160ms;
+    }
+    .js .panel.is-in .bar-fill {
+      width: var(--w);
+    }
+  }
+</style>

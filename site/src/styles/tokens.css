@@ -1,0 +1,119 @@
+/*
+  Bastion design tokens. Aesthetic: "drafting-paper spec".
+  A structural engineering document, not a sci-fi dashboard. The verdict triad
+  (pass / block / advisor) is the only saturated color and it is always
+  semantic, never decoration. The brand accent (steel) sits outside the triad
+  so the semantics stay legible. Colors are authored in OKLCH.
+*/
+
+:root {
+  /* ---- Surfaces: cool drafting paper, never warm cream ---- */
+  --paper: oklch(0.985 0.004 235); /* page background */
+  --paper-2: oklch(0.967 0.005 235); /* sectioned panels */
+  --paper-sunk: oklch(0.945 0.006 238); /* code / artifact wells */
+  --paper-raised: oklch(1 0 0); /* cards lifted off the page */
+
+  /* ---- Ink: cool near-black ramp ---- */
+  --ink: oklch(0.23 0.014 252); /* primary text, headings */
+  --ink-2: oklch(0.41 0.016 252); /* body / secondary text */
+  --ink-3: oklch(0.52 0.018 252); /* muted: labels, captions (large/non-body only) */
+  --ink-inverse: oklch(0.97 0.004 235); /* text on ink fills */
+
+  /* ---- Structural rules (full borders only, never side-stripes) ---- */
+  --line: oklch(0.89 0.008 240); /* hairlines */
+  --line-strong: oklch(0.81 0.011 244); /* emphasized rules */
+
+  /* ---- Brand accent: structural steel-blue ---- */
+  --steel: oklch(0.50 0.105 252); /* links, marks, key structure */
+  --steel-deep: oklch(0.40 0.11 254); /* hover / active */
+  --steel-bg: oklch(0.95 0.025 250); /* faint steel wash */
+  --steel-line: oklch(0.78 0.05 250); /* steel hairline */
+
+  /* ---- Verdict semantics: pass ---- */
+  --pass: oklch(0.60 0.135 150);
+  --pass-ink: oklch(0.46 0.12 150); /* on light, >= 4.5:1 */
+  --pass-bg: oklch(0.95 0.035 150);
+  --pass-line: oklch(0.80 0.07 150);
+
+  /* ---- Verdict semantics: block ---- */
+  --block: oklch(0.56 0.195 26);
+  --block-ink: oklch(0.50 0.19 27);
+  --block-bg: oklch(0.955 0.03 26);
+  --block-line: oklch(0.80 0.10 27);
+
+  /* ---- Verdict semantics: advisor ---- */
+  --advisor: oklch(0.72 0.13 73);
+  --advisor-ink: oklch(0.52 0.095 67); /* amber darkened for text contrast */
+  --advisor-bg: oklch(0.955 0.045 80);
+  --advisor-line: oklch(0.83 0.09 78);
+
+  /* ---- Syntax token colors (artifact highlighting) ---- */
+  --tok-key: oklch(0.44 0.11 254); /* yaml keys */
+  --tok-str: oklch(0.34 0.02 252); /* string values */
+  --tok-com: oklch(0.55 0.02 250); /* comments */
+  --tok-punct: oklch(0.50 0.015 252);
+  --tok-meta: oklch(0.46 0.12 150); /* enum-ish values (gate/advisor handled inline) */
+
+  /* ---- Type families ---- */
+  --font-sans: "Schibsted Grotesk Variable", system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", "Cascadia Code",
+    "Roboto Mono", monospace;
+
+  /* ---- Type scale: 1.26 ratio, fluid, display ceiling < 6rem ---- */
+  --text-xs: 0.78rem;
+  --text-sm: 0.875rem;
+  --text-base: clamp(1.0125rem, 0.97rem + 0.21vw, 1.1rem);
+  --text-md: clamp(1.15rem, 1.08rem + 0.33vw, 1.32rem);
+  --text-lg: clamp(1.4rem, 1.27rem + 0.6vw, 1.72rem);
+  --text-xl: clamp(1.72rem, 1.5rem + 1vw, 2.3rem);
+  --text-2xl: clamp(2.1rem, 1.74rem + 1.6vw, 3.1rem);
+  --text-3xl: clamp(2.55rem, 1.95rem + 2.7vw, 4.4rem);
+  --text-4xl: clamp(3rem, 2.2rem + 3.4vw, 5.2rem);
+
+  /* ---- Spacing scale ---- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+  --space-9: 6rem;
+  --space-10: 8rem;
+
+  /* ---- Layout widths ---- */
+  --measure: 66ch; /* prose line length cap */
+  --width-content: 78rem; /* main column */
+  --width-narrow: 52rem;
+  --gutter: clamp(1.25rem, 0.6rem + 3vw, 3rem);
+
+  /* ---- Radii: crisp, spec-like ---- */
+  --radius-1: 2px;
+  --radius-2: 4px;
+  --radius-3: 7px;
+  --radius-pill: 999px;
+
+  /* ---- Elevation: faint, structural ---- */
+  --shadow-1: 0 1px 2px oklch(0.4 0.02 250 / 0.05);
+  --shadow-2: 0 2px 4px oklch(0.4 0.02 250 / 0.05),
+    0 8px 24px oklch(0.4 0.02 250 / 0.06);
+  --shadow-lift: 0 1px 0 oklch(1 0 0 / 0.6) inset,
+    0 8px 30px oklch(0.35 0.03 252 / 0.10);
+
+  /* ---- Motion ---- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* ease-out-expo */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --dur-1: 140ms;
+  --dur-2: 280ms;
+  --dur-3: 520ms;
+  --dur-4: 820ms;
+
+  /* ---- z-index scale ---- */
+  --z-base: 0;
+  --z-raised: 10;
+  --z-sticky: 100;
+  --z-nav: 200;
+  --z-overlay: 300;
+}

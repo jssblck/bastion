@@ -1,0 +1,135 @@
+---
+import Logo from "./Logo.astro";
+
+const repo = "https://github.com/jssblck/bastion";
+const year = new Date().getFullYear();
+
+const cols = [
+  {
+    title: "Docs",
+    links: [
+      { label: "User guide", href: `${repo}/blob/main/docs/user-guide/README.md` },
+      { label: "Getting started", href: `${repo}/blob/main/docs/user-guide/getting-started.md` },
+      { label: "Core design", href: `${repo}/blob/main/docs/developer-guide/design.md` },
+      { label: "Developer guide", href: `${repo}/blob/main/docs/developer-guide/README.md` },
+    ],
+  },
+  {
+    title: "Project",
+    links: [
+      { label: "Source", href: repo },
+      { label: "Releases", href: `${repo}/releases` },
+      { label: "Contributing", href: `${repo}/blob/main/CONTRIBUTING.md` },
+      { label: "Security", href: `${repo}/blob/main/SECURITY.md` },
+    ],
+  },
+];
+---
+
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <Logo size={24} />
+      <p class="footer-tag">
+        A merge gate you govern, not a bot you tolerate.
+      </p>
+      <p class="footer-license">
+        AGPL-3.0 software &middot; CC-BY-SA-4.0 docs. Built for a world where
+        agents write the code.
+      </p>
+    </div>
+
+    <nav class="footer-cols" aria-label="Footer">
+      {
+        cols.map((c) => (
+          <div class="footer-col">
+            <h2 class="footer-col-title">{c.title}</h2>
+            <ul>
+              {c.links.map((l) => (
+                <li>
+                  <a href={l.href} rel="noopener">
+                    {l.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </nav>
+  </div>
+
+  <div class="container footer-base">
+    <span>&copy; {year} Bastion</span>
+    <span class="footer-base-note">bastion.jessica.black</span>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    border-top: 1px solid var(--line);
+    background: var(--paper-2);
+    padding-block: clamp(2.5rem, 1.5rem + 3vw, 4rem) 1.5rem;
+  }
+  .footer-inner {
+    display: grid;
+    gap: 2.5rem;
+  }
+  @media (min-width: 760px) {
+    .footer-inner {
+      grid-template-columns: 1.4fr 1fr;
+      align-items: start;
+    }
+  }
+  .footer-tag {
+    margin-top: 1rem;
+    font-size: var(--text-base);
+    color: var(--ink);
+    max-width: 30ch;
+  }
+  .footer-license {
+    margin-top: 0.75rem;
+    font-size: var(--text-sm);
+    color: var(--ink-3);
+    max-width: 40ch;
+  }
+
+  .footer-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+  }
+  .footer-col-title {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--ink-3);
+    letter-spacing: 0.04em;
+    margin-bottom: 0.85rem;
+  }
+  .footer-col ul {
+    list-style: none;
+    display: grid;
+    gap: 0.6rem;
+  }
+  .footer-col a {
+    font-size: var(--text-sm);
+    color: var(--ink-2);
+  }
+  .footer-col a:hover {
+    color: var(--steel-deep);
+  }
+
+  .footer-base {
+    margin-top: 2.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--ink-3);
+  }
+</style>

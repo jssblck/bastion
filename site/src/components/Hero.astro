@@ -1,0 +1,269 @@
+---
+import Artifact from "./Artifact.astro";
+
+// Built as an HTML string so the newlines and indentation are exact inside the
+// slotted <pre>. (Whitespace-only {expressions} are not reliable in raw text.)
+const policyHtml = [
+  '<span class="t-com"># Each reviewer owns exactly one concern.</span>',
+  '<span class="t-key">reviewers</span><span class="t-punct">:</span>',
+  '  <span class="t-punct">-</span> <span class="t-key">name</span><span class="t-punct">:</span> single-responsibility',
+  '    <span class="t-key">trigger</span><span class="t-punct">:</span> <span class="t-punct">[</span><span class="t-glob">src/**/*.rs</span><span class="t-punct">]</span>',
+  '    <span class="t-key">mode</span><span class="t-punct">:</span> <span class="t-gate">gate</span>',
+  '    <span class="t-key">prompt</span><span class="t-punct">:</span> <span class="t-punct">|</span>',
+  '      <span class="t-str">Block if any one file has taken on multiple</span>',
+  '      <span class="t-str">unrelated concerns; otherwise approve it.</span>',
+  "",
+  '  <span class="t-punct">-</span> <span class="t-key">name</span><span class="t-punct">:</span> parse-dont-validate',
+  '    <span class="t-key">trigger</span><span class="t-punct">:</span> <span class="t-punct">[</span><span class="t-glob">src/**/*.rs</span><span class="t-punct">]</span>',
+  '    <span class="t-key">mode</span><span class="t-punct">:</span> <span class="t-advisor">advisor</span>',
+  '    <span class="t-key">prompt</span><span class="t-punct">:</span> <span class="t-punct">|</span>',
+  '      <span class="t-str">Flag boundaries that pass raw strings where a</span>',
+  '      <span class="t-str">parsed type would remove a class of bugs.</span>',
+].join("\n");
+---
+
+<section class="hero" id="top">
+  <div class="container hero-inner">
+    <div class="hero-copy">
+      <p class="hero-kicker" data-reveal>
+        <span class="hero-kicker-mark" aria-hidden="true"></span>
+        <span class="hero-kicker-text"
+          >Agentic code review for a world where agents write the code</span
+        >
+      </p>
+
+      <h1 class="hero-title" data-reveal style="--reveal-delay:60ms">
+        A merge gate you govern, not a bot you tolerate.
+      </h1>
+
+      <p class="hero-lede prose" data-reveal style="--reveal-delay:120ms">
+        Most AI reviewers are one opaque model you hope behaves. Bastion is a
+        registry of small, single-concern reviewers you author and govern, and a
+        gate that <strong>blocks when it can't be sure</strong>.
+      </p>
+
+      <div class="hero-cta" data-reveal style="--reveal-delay:180ms">
+        <a href="#install" class="btn btn--primary">Get started</a>
+        <a
+          href="#reviewers"
+          class="btn btn--ghost">See how it works</a
+        >
+      </div>
+
+      <ul class="hero-claims" data-reveal style="--reveal-delay:220ms">
+        <li>Single-concern reviewers</li>
+        <li>Fails closed</li>
+        <li>Local loop + CI</li>
+        <li>Open source, self-hostable</li>
+      </ul>
+    </div>
+
+    <div class="hero-art" data-reveal style="--reveal-delay:160ms">
+      <Artifact
+        filename="bastion/reviewers.yaml"
+        lang="yaml"
+        class="hero-policy"
+      >
+        <Fragment set:html={policyHtml} />
+      </Artifact>
+
+      <div class="hero-run" aria-label="Review result">
+        <div class="hero-run-head">
+          <code>bastion review --base main</code>
+        </div>
+        <ul class="hero-run-list">
+          <li>
+            <span class="run-name">single-responsibility</span>
+            <span class="run-lead" aria-hidden="true"></span>
+            <span class="pill pill--pass"><span class="pill-dot"></span>pass</span>
+          </li>
+          <li>
+            <span class="run-name">error-handling</span>
+            <span class="run-lead" aria-hidden="true"></span>
+            <span class="pill pill--block"><span class="pill-dot"></span>block</span>
+          </li>
+          <li>
+            <span class="run-name">parse-dont-validate</span>
+            <span class="run-lead" aria-hidden="true"></span>
+            <span class="pill pill--advisor"><span class="pill-dot"></span>advisor</span>
+          </li>
+        </ul>
+        <div class="hero-run-foot">
+          <span class="run-foot-label">aggregate</span>
+          <span class="run-lead" aria-hidden="true"></span>
+          <span class="pill pill--block run-foot-pill"
+            ><span class="pill-dot"></span>block</span
+          >
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    padding-block: clamp(2.5rem, 1rem + 7vw, 6rem)
+      clamp(3rem, 1rem + 6vw, 5.5rem);
+  }
+  .hero-inner {
+    display: grid;
+    gap: clamp(2.5rem, 1rem + 5vw, 4.5rem);
+    align-items: center;
+    /* minmax(0, ...) keeps the track from being stretched to a child's
+       max-width (the install box) and overflowing the viewport */
+    grid-template-columns: minmax(0, 1fr);
+  }
+  @media (min-width: 960px) {
+    .hero-inner {
+      grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+    }
+  }
+
+  .hero-kicker {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    max-width: 100%;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--ink-3);
+    letter-spacing: 0.01em;
+  }
+  .hero-kicker-mark {
+    width: 0.55rem;
+    height: 0.55rem;
+    margin-top: 0.4em;
+    border-radius: 999px;
+    background: var(--pass);
+    box-shadow: 0 0 0 3px var(--pass-bg);
+    flex: none;
+  }
+  .hero-kicker-text {
+    min-width: 0;
+  }
+
+  .hero-title {
+    margin-top: 1.1rem;
+    font-size: clamp(2.5rem, 1.4rem + 3vw, 3.7rem);
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+  }
+
+  .hero-lede {
+    margin-top: 1.35rem;
+    font-size: var(--text-md);
+    color: var(--ink-2);
+  }
+
+  .hero-cta {
+    margin-top: 1.9rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .hero-claims {
+    margin-top: 1.6rem;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.4rem;
+    font-size: var(--text-sm);
+    color: var(--ink-2);
+  }
+  .hero-claims li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .hero-claims li::before {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    border: 1.5px solid var(--steel-line);
+    border-radius: 2px;
+    rotate: 45deg;
+    flex: none;
+  }
+
+  /* ---- artifact stack ---- */
+  .hero-art {
+    position: relative;
+    display: grid;
+    justify-items: stretch;
+  }
+  .hero-policy {
+    position: relative;
+    z-index: var(--z-base);
+  }
+  .hero-run {
+    position: relative;
+    z-index: var(--z-raised);
+    width: min(100%, 24rem);
+    margin-top: -1.4rem;
+    margin-left: auto;
+    margin-right: clamp(-1.5rem, -2vw, 0rem);
+    background: var(--paper-raised);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-3);
+    box-shadow: var(--shadow-lift);
+    overflow: hidden;
+  }
+  @media (max-width: 520px) {
+    .hero-run {
+      margin-right: 0;
+      margin-left: 0;
+      width: 100%;
+    }
+  }
+  .hero-run-head {
+    padding: 0.6rem 0.85rem;
+    background: var(--ink);
+    color: var(--ink-inverse);
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+  }
+  .hero-run-head code {
+    color: var(--ink-inverse);
+  }
+  .hero-run-list {
+    list-style: none;
+    padding: 0.35rem 0.85rem;
+  }
+  .hero-run-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding-block: 0.5rem;
+  }
+  .hero-run-list li + li {
+    border-top: 1px dashed var(--line);
+  }
+  .run-name {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--ink);
+  }
+  .run-lead {
+    flex: 1;
+    border-bottom: 1px dotted var(--line-strong);
+    translate: 0 -0.18rem;
+  }
+  .hero-run-foot {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.7rem 0.85rem;
+    background: var(--paper-2);
+    border-top: 1px solid var(--line);
+  }
+  .run-foot-label {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--ink-3);
+  }
+  .run-foot-pill {
+    flex: none;
+  }
+</style>

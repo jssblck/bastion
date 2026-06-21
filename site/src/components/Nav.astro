@@ -1,0 +1,121 @@
+---
+import Logo from "./Logo.astro";
+
+const repo = "https://github.com/jssblck/bastion";
+const docs = `${repo}/blob/main/docs/user-guide/README.md`;
+---
+
+<header class="nav" id="site-nav">
+  <div class="container nav-inner">
+    <a href="#top" class="nav-brand" aria-label="Bastion home">
+      <Logo />
+    </a>
+
+    <nav class="nav-links" aria-label="Primary">
+      <a href="#reviewers">Reviewers</a>
+      <a href="#gate">The gate</a>
+      <a href="#govern">Governance</a>
+      <a href="#open">Open source</a>
+    </nav>
+
+    <div class="nav-actions">
+      <a href={docs} class="nav-docs">Docs</a>
+      <a href={repo} class="btn btn--ghost nav-gh" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">
+          <path
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+          ></path>
+        </svg>
+        <span>GitHub</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<style>
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-nav);
+    background: color-mix(in oklch, var(--paper) 82%, transparent);
+    backdrop-filter: saturate(140%) blur(10px);
+    -webkit-backdrop-filter: saturate(140%) blur(10px);
+    border-bottom: 1px solid transparent;
+    transition: border-color var(--dur-2) var(--ease-out),
+      background-color var(--dur-2) var(--ease-out);
+  }
+  .nav[data-scrolled] {
+    border-bottom-color: var(--line);
+    background: color-mix(in oklch, var(--paper) 90%, transparent);
+  }
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+    height: 4rem;
+  }
+  .nav-brand {
+    flex: none;
+  }
+  .nav-links {
+    display: none;
+    align-items: center;
+    gap: clamp(1rem, 0.4rem + 1.4vw, 1.8rem);
+    margin-inline: auto;
+  }
+  .nav-links a {
+    color: var(--ink-2);
+    font-size: var(--text-sm);
+    font-weight: 480;
+  }
+  .nav-links a:hover {
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .nav-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    margin-left: auto;
+  }
+  .nav-docs {
+    display: none;
+    color: var(--ink-2);
+    font-size: var(--text-sm);
+    font-weight: 480;
+  }
+  .nav-docs:hover {
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .nav-gh {
+    padding: 0.6em 0.9em;
+  }
+  @media (min-width: 720px) {
+    .nav-links,
+    .nav-docs {
+      display: flex;
+    }
+    .nav-actions {
+      margin-left: 0;
+    }
+  }
+  @media (min-width: 900px) {
+    .nav-links {
+      margin-inline: auto;
+    }
+  }
+</style>
+
+<script is:inline>
+  (function () {
+    var nav = document.getElementById("site-nav");
+    if (!nav) return;
+    var onScroll = function () {
+      if (window.scrollY > 8) nav.setAttribute("data-scrolled", "");
+      else nav.removeAttribute("data-scrolled");
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+  })();
+</script>
