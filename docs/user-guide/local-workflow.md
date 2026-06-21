@@ -99,6 +99,10 @@ If you are an agent driving the loop, this is the whole contract:
 5. Fix what blocked and re-run. Loop until `run.completed.verdict` is `pass` (exit
    zero), then open your PR.
 
+This contract is exactly what `bastion skills install` checks into your repo as the
+`using-bastion` agent skill, so your agents follow it without being told each time.
+See [Teach your agents to use Bastion](./getting-started.md#7-teach-your-agents-to-use-bastion).
+
 ### Money is dollars
 
 Cost fields (`cost_usd`) serialize as dollars (`0.21`) even though Bastion tracks

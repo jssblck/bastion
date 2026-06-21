@@ -167,6 +167,42 @@ command away when a verdict surprises you. (`show` and `transcript` default to t
 latest run; pass a run id for an older one -- the full forms are in
 [the local workflow](./local-workflow.md).)
 
+## 7. Teach your agents to use Bastion
+
+You just drove the loop by hand. The point, though, is for your *coding agents* to
+drive it themselves: run the review, read the findings, fix what blocks, and reach a
+green gate before they ever open a PR. Bastion ships that instruction as a skill you
+install into the repo and commit, so every agent picks it up on checkout:
+
+```sh
+bastion skills install
+```
+
+This writes a `using-bastion` skill into both `.claude/skills/` (Claude Code's
+native skill path) and `.agents/skills/` (the agent-neutral convention). Commit the
+result:
+
+```sh
+git add .claude/skills .agents/skills
+git commit -m "Install the bastion onboarding skill"
+```
+
+The skill is generated from the binary, so re-running install after you upgrade
+Bastion keeps the checked-in copy current. To confirm it has not drifted from the
+binary (handy as a CI guard), run:
+
+```sh
+bastion skills check        # exits non-zero if a skill is missing or has drifted
+```
+
+The rendered file is deterministic (no version stamp or timestamp), so `check`
+stays green across upgrades that do not change the skill text and only flags real
+drift: a hand edit, or a forgotten re-install after the skill itself changed. When
+you do upgrade, re-run `bastion skills install` to refresh, or
+`bastion skills install --force` if you have local edits to overwrite. See what is
+bundled with `bastion skills list`, and install into a different directory with
+`--dir <path>` (repeatable).
+
 ## Keeping scratch runs out of your history
 
 While you are experimenting, point Bastion at a throwaway data directory so trial

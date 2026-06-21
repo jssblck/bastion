@@ -1,0 +1,78 @@
+---
+name: using-bastion
+description: Use when working in a repository that uses Bastion for agentic code review (a bastion/reviewers.yaml exists, or `bastion` is on PATH). Covers the local loop: run `bastion review --format jsonl`, read the streamed findings, fix what blocks, and reach a green gate before opening a PR. Also covers inspecting saved runs and the rule that reviewers are governed policy you must not edit just to pass a gate.
+---
+
+<!-- BASTION_SKILL_PROVENANCE -->
+
+# Using Bastion
+
+Bastion is an agentic code-review gate. It runs a set of single-concern reviewers
+over your changeset and aggregates their verdicts into one pass-or-block decision.
+The same reviewers run locally and in CI, so a green local run means CI will largely
+just confirm it. Your job as the authoring agent is to reach that green gate before
+you open a PR.
+
+## The loop
+
+Run the review, read what blocks, fix it, run again, until it passes:
+
+```sh
+bastion review --base <branch> --format jsonl
+```
+
+- `--base` is the branch you are merging into (default `main`).
+- `--format jsonl` gives you one JSON object per line, emitted as each reviewer
+  resolves. Always use it: the default human format is for a person watching.
+- The process exits zero when the gate passes and non-zero when it blocks, so you
+  can branch on the exit code alone when you only need pass or fail.
+
+## Reading the stream
+
+Each line carries a `type`:
+
+| Event | What to do with it |
+| --- | --- |
+| `run.started` | Lists the reviewers that matched your changes and will run. |
+| `reviewer.started` | One reviewer began. Nothing to do. |
+| `reviewer.resolved` | One reviewer finished. If its `verdict` is `block`, act on its `findings`. |
+| `run.completed` | The aggregate `verdict` (`pass` or `block`) and the gate tally. |
+
+A `finding` tells you exactly what to change: a `path`, a `line_start` and
+`line_end`, and a `detail`. That is everything you need to make the fix; you do not
+need to open anything else.
+
+## The contract
+
+1. Run `bastion review --base <branch> --format jsonl`.
+2. Parse stdout one line at a time as JSON.
+3. For every `reviewer.resolved` with `verdict: "block"`, fix the code its
+   `findings` point at.
+4. Re-run. Loop until `run.completed.verdict` is `pass` (exit zero).
+5. Then open your PR.
+
+Do not open transcripts to do this. The findings already say what to change.
+
+## When a verdict surprises you
+
+Transcripts and raw verdicts are saved to disk, not streamed, to keep the loop
+tight. Reach for them only when a block does not make sense:
+
+```sh
+bastion runs                       # recent runs: id, verdict, branch, reviewer count
+bastion show                       # re-print the latest run's verdicts and findings
+bastion transcript <reviewer>      # the full agent session for one reviewer (latest run)
+```
+
+Pass a run id to target an older run (for example `bastion show r-0f3a`).
+
+## Rules that keep the gate meaningful
+
+- **Reviewers are governed policy, not yours to weaken.** They live in
+  `bastion/reviewers.yaml`. Never edit, disable, or narrow a reviewer's trigger to
+  get past a block. Fix the code instead. If you believe a reviewer is wrong, say so
+  to the human who owns the policy; do not route around it.
+- **Gates fail closed.** A gate that errors or times out blocks, exactly as if it
+  had found a problem. A block is a normal outcome, not a crash: read it and fix it.
+- **Green locally, then PR.** The whole point of the local loop is that CI confirms
+  rather than surprises. Do not open the PR until `run.completed.verdict` is `pass`.

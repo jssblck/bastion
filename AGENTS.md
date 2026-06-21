@@ -56,6 +56,9 @@ bastion show
 bastion transcript <reviewer>
 bastion clean --keep 20
 bastion github codeowners --owner @your-org/platform
+bastion skills install
+bastion skills check
+bastion skills list
 ```
 
 ## Architecture map
@@ -91,6 +94,15 @@ version:
   injectable `CommandRunner` subprocess seam; `claude_code.rs` and `codex.rs` are
   the real backends driven against a fake executable in tests. The `Pi` arm of
   `dispatch` is still unwired and bails.
+- `src/skills.rs` / `skills/` — the agent skills bundled into the binary. Each
+  `skills/<slug>/SKILL.md` is embedded with `include_str!`; `bastion skills
+  install` writes it into a consuming repo's `.claude/skills/` and `.agents/skills/`,
+  `bastion skills check` fails closed when a checked-in copy has drifted from the
+  embedded source (a deterministic, version-independent lint wired into
+  `.github/workflows/ci.yml`), and `bastion skills list` shows what is bundled.
+  This repo dogfoods the `using-bastion` skill: its agents work *on* Bastion and
+  *with* it. These are distinct from the repo-local Rust skills under
+  `.agents/skills/`, which guide agents working on Bastion.
 - `tests/integration.rs` — the end-to-end suite. It drives the *real compiled
   `bastion` binary* (`CARGO_BIN_EXE_bastion`), each scenario in its own throwaway
   `git` repo and private `BASTION_DATA_DIR`, against a `rustc`-compiled fake agent
