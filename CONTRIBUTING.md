@@ -66,6 +66,11 @@ To cut a release:
    opens a **draft** GitHub Release whose notes are generated from the pull
    requests merged since the previous tag (`--generate-notes`).
 4. Review the draft and its generated notes, edit if needed, and publish.
+5. Bump `BASTION_VERSION` in [`.github/workflows/bastion.yml`](.github/workflows/bastion.yml)
+   to the new tag so Bastion's own review gate adopts the released engine. That
+   workflow downloads a pinned, published `bastion` binary rather than building
+   from each PR's sources, so the engine that judges a PR is never the engine the
+   PR edits; the pin lags a release until this reviewed bump lands.
 
 Run the workflow via `workflow_dispatch` with `dry_run: true` to build and package
 the whole matrix without creating a release. A tag with a pre-release suffix
