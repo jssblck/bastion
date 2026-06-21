@@ -265,18 +265,14 @@ Your previous response did not contain a valid structured verdict. Do not perfor
 any further work. Reply with ONLY the fenced YAML verdict block described above, \
 for the review you already completed, and nothing else.";
 
-/// Build the full prompt handed to Codex for `request`: a one-line context
-/// preamble naming the base branch, the interpolated review instruction, and the
-/// schema instruction.
+/// Build the full prompt handed to Codex for `request`: the shared changeset
+/// preamble (how to see the diff against the base branch), the interpolated review
+/// instruction, and the schema instruction.
 fn build_prompt(request: &ReviewRequest<'_>) -> String {
     let reviewer = request.reviewer;
+    let preamble = super::changeset_preamble(request.base);
     let interpolated = super::interpolate(&reviewer.prompt, &reviewer.inputs);
-    format!(
-        "You are reviewing a changeset computed against the base branch \
-         `{base}`. Use `git diff {base}...HEAD` to see exactly what changed.\n\n\
-         {interpolated}\n\n{SCHEMA_INSTRUCTION}",
-        base = request.base,
-    )
+    format!("{preamble}\n\n{interpolated}\n\n{SCHEMA_INSTRUCTION}")
 }
 
 /// A parsed Codex `exec --json` session: the reconstructed transcript, the final

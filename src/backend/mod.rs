@@ -129,6 +129,30 @@ pub async fn dispatch(request: &ReviewRequest<'_>) -> Result<ReviewOutcome> {
     }
 }
 
+/// The shared preamble that tells a reviewing agent what its changeset is and how
+/// to see it, regardless of backend.
+///
+/// Bastion's notion of "the changeset" is whatever the working tree differs from
+/// `base` by (see [`crate::git::changed_files`]): tracked edits *and* new untracked
+/// files, committed or not. So the agent must be told to use `git diff {base}`
+/// (two-dot: working tree vs base) plus an untracked-file scan -- not
+/// `{base}...HEAD`, which shows only committed history and silently misses the
+/// uncommitted work an author is iterating on in the local loop. In CI the head is
+/// already committed and there are no untracked files, so the same instruction is
+/// correct there too.
+fn changeset_preamble(base: &str) -> String {
+    format!(
+        "You are reviewing a changeset computed against the base branch `{base}`. \
+         Bastion defines the changeset as everything in the current working tree that \
+         differs from `{base}`, which may include uncommitted edits and new, untracked \
+         files -- not only committed history. To see exactly what changed, run \
+         `git diff {base}` for changes to tracked files, and `git status --short` (or \
+         `git ls-files --others --exclude-standard`) to find untracked files, then read \
+         those files directly. Do not rely on `git diff {base}...HEAD`: it shows only \
+         committed work and will miss local changes that have not been committed yet."
+    )
+}
+
 /// Replace `${key}` occurrences in `template` with values from `inputs`.
 ///
 /// Shared by the backends so prompt interpolation is identical regardless of
@@ -202,6 +226,18 @@ mod tests {
         assert_eq!(interpolate("${unterminated", &inputs), "${unterminated");
         // No inputs short-circuits to the original.
         assert_eq!(interpolate("${a}", &BTreeMap::new()), "${a}");
+    }
+
+    #[test]
+    fn changeset_preamble_steers_to_the_working_tree_diff() {
+        let preamble = changeset_preamble("origin/main");
+        // Names the base and uses the two-dot, working-tree form...
+        assert!(preamble.contains("base branch `origin/main`"));
+        assert!(preamble.contains("git diff origin/main"));
+        // ...covers untracked files Bastion also counts as changed...
+        assert!(preamble.contains("untracked"));
+        // ...and explicitly warns off the committed-only three-dot form.
+        assert!(preamble.contains("Do not rely on `git diff origin/main...HEAD`"));
     }
 
     #[test]

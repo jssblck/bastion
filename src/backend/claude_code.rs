@@ -14,7 +14,7 @@
 use color_eyre::eyre::{Context, Result, bail, eyre};
 use serde::Deserialize;
 
-use crate::reviewer::{self, Reviewer};
+use crate::reviewer;
 use crate::verdict::{Money, Usage, Verdict};
 
 use super::command::{CommandOutput, CommandRunner, CommandSpec, resolve_program};
@@ -143,7 +143,7 @@ impl<R: CommandRunner> Backend for ClaudeCodeBackend<R> {
     }
 
     async fn review(&self, request: &ReviewRequest<'_>) -> Result<ReviewOutcome> {
-        let prompt = build_prompt(request.reviewer);
+        let prompt = build_prompt(request);
 
         // First turn: the full review prompt with the schema instruction.
         let mut spec = self.base_spec(request);
@@ -208,10 +208,14 @@ const REPROMPT: &str = "Your previous response did not include a valid structure
      `verdict` of \"pass\" or \"block\", a `summary` string, and an optional `findings` array. \
      A `block` must include at least one finding with kind \"blocking\".";
 
-/// Interpolate a reviewer's `inputs` into its prompt and append the schema
-/// instruction. `${name}` placeholders are replaced with the matching input.
-fn build_prompt(reviewer: &Reviewer) -> String {
-    let mut prompt = super::interpolate(&reviewer.prompt, &reviewer.inputs);
+/// Build the prompt handed to `claude`: the shared changeset preamble (how to see
+/// the diff against the base branch), the reviewer's instruction with `${name}`
+/// inputs interpolated, and the schema instruction.
+fn build_prompt(request: &ReviewRequest<'_>) -> String {
+    let reviewer = request.reviewer;
+    let mut prompt = super::changeset_preamble(request.base);
+    prompt.push_str("\n\n");
+    prompt.push_str(&super::interpolate(&reviewer.prompt, &reviewer.inputs));
     prompt.push_str(
         "\n\nWhen you have finished reviewing, return your judgment as structured output \
          conforming to the requested JSON schema: a top-level `verdict` of \"pass\" or \"block\", \
@@ -428,7 +432,7 @@ mod tests {
     use super::*;
     use crate::backend::command::{CommandSpec, SystemCommandRunner};
     use crate::event::RunId;
-    use crate::reviewer::{Capabilities, Mode};
+    use crate::reviewer::{Capabilities, Mode, Reviewer};
     use crate::verdict::{Decision, FindingKind};
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
@@ -747,10 +751,25 @@ mod tests {
     }
 
     #[test]
-    fn build_prompt_appends_schema_instruction() {
+    fn build_prompt_prepends_changeset_preamble_and_appends_schema() {
         let r = reviewer();
-        let prompt = build_prompt(&r);
-        assert!(prompt.starts_with("Review it."));
+        let run = RunId("r".into());
+        let root = PathBuf::from(".");
+        let request = ReviewRequest {
+            reviewer: &r,
+            run: &run,
+            repo_root: &root,
+            base: "main",
+        };
+        let prompt = build_prompt(&request);
+        // The shared changeset preamble leads, naming the base and steering the
+        // agent to the working-tree diff rather than the committed-only form.
+        assert!(prompt.starts_with("You are reviewing a changeset"));
+        assert!(prompt.contains("base branch `main`"));
+        assert!(prompt.contains("git diff main"));
+        assert!(prompt.contains("Do not rely on `git diff main...HEAD`"));
+        // The reviewer's own instruction and the schema instruction follow.
+        assert!(prompt.contains("Review it."));
         assert!(prompt.contains("structured output"));
     }
 
