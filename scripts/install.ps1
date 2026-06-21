@@ -19,8 +19,8 @@ param(
 
 # GitHub repository configuration
 $REPO = "jssblck/bastion"
-$GITHUB_API = "https://api.github.com/repos/$REPO/releases"
-$GITHUB_DOWNLOAD = "https://github.com/$REPO/releases/download"
+$GITHUB_BASE = "https://github.com/$REPO"
+$GITHUB_DOWNLOAD = "$GITHUB_BASE/releases/download"
 
 function Write-Info {
     param([string]$Message)
@@ -66,15 +66,25 @@ Examples:
 }
 
 function Get-LatestVersion {
-    $latestUrl = "$GITHUB_API/latest"
+    # Resolve the tag from the redirect target of /releases/latest rather than
+    # the JSON API. api.github.com is tightly rate limited for unauthenticated
+    # callers (60 requests/hour/IP), so it 403s from shared NATs and CI runners;
+    # the github.com redirect has no such limit.
+    $latestUrl = "$GITHUB_BASE/releases/latest"
 
     try {
-        $response = Invoke-RestMethod -Uri $latestUrl -ErrorAction Stop
-        return $response.tag_name -replace '^v', ''
+        $response = Invoke-WebRequest -Uri $latestUrl -MaximumRedirection 5 -ErrorAction Stop
+        $finalUrl = $response.BaseResponse.RequestMessage.RequestUri.AbsoluteUri
     }
     catch {
-        Write-Error-Message "Failed to fetch latest release from $latestUrl. Error: $_"
+        Write-Error-Message "Failed to resolve latest release from $latestUrl. Error: $_"
     }
+
+    # The redirect lands on .../releases/tag/vX.Y.Z; take the segment after /tag/.
+    if ($finalUrl -notmatch '/tag/') {
+        Write-Error-Message "Could not parse version from latest release URL: $finalUrl"
+    }
+    return ($finalUrl -replace '.*/tag/', '') -replace '^v', ''
 }
 
 function Get-Platform {

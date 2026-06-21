@@ -21,8 +21,8 @@ NC='\033[0m' # No Color
 
 # GitHub repository configuration
 REPO="jssblck/bastion"
-GITHUB_API="https://api.github.com/repos/${REPO}/releases"
-GITHUB_DOWNLOAD="https://github.com/${REPO}/releases/download"
+GITHUB_BASE="https://github.com/${REPO}"
+GITHUB_DOWNLOAD="${GITHUB_BASE}/releases/download"
 
 # Fail with an error message
 fail() {
@@ -166,21 +166,26 @@ parse_args() {
   done
 }
 
-# Get the latest version number from GitHub Releases API
+# Get the latest version number from the releases redirect
 get_latest_version() {
-  local latest_url="${GITHUB_API}/latest"
+  # Resolve the tag from the redirect target of /releases/latest rather than
+  # the JSON API. api.github.com is tightly rate limited for unauthenticated
+  # callers (60 requests/hour/IP), so it 403s from shared NATs and CI runners;
+  # the github.com redirect has no such limit.
+  local latest_url="${GITHUB_BASE}/releases/latest"
+  local effective_url
   local version
-  local response
 
-  # Try to fetch latest release info from GitHub API
-  if ! response=$(curl -sSfL "$latest_url" 2>&1); then
-    fail "Failed to fetch latest release from $latest_url. Error: $response"
+  if ! effective_url=$(curl -sSfL -o /dev/null -w '%{url_effective}' "$latest_url" 2>&1); then
+    fail "Failed to resolve latest release from $latest_url. Error: $effective_url"
   fi
 
-  version=$(echo "$response" | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/^v//')
+  # The redirect lands on .../releases/tag/vX.Y.Z; take the segment after /tag/.
+  version="${effective_url##*/tag/}"
+  version="${version#v}"
 
-  if [[ -z "$version" ]]; then
-    fail "Could not parse version from GitHub API response. Response: $response"
+  if [[ -z "$version" || "$version" == "$effective_url" ]]; then
+    fail "Could not parse version from latest release URL: $effective_url"
   fi
 
   echo "$version"
