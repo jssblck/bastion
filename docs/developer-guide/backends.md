@@ -17,7 +17,7 @@ stays pure orchestration.
 
 | File | Role |
 | --- | --- |
-| [`mod.rs`](../../src/backend/mod.rs) | The `Backend` trait, `ReviewRequest`/`ReviewOutcome`, `MockBackend`, `dispatch`, and the shared helpers (`changeset_preamble`, `interpolate`, `money_from_dollars`). |
+| [`mod.rs`](../../src/backend/mod.rs) | The `Backend` trait, `ReviewRequest`/`ReviewOutcome`, `MockBackend`, `dispatch`, and the shared prompt/helpers (`changeset_preamble`, `EXHAUSTIVE_FINDINGS_INSTRUCTION`, `interpolate`, `money_from_dollars`). |
 | [`command.rs`](../../src/backend/command.rs) | The `CommandRunner` subprocess seam: `CommandSpec` and `SystemCommandRunner`, plus a fake runner for tests. |
 | [`claude_code.rs`](../../src/backend/claude_code.rs) | The Claude Code backend. |
 | [`codex.rs`](../../src/backend/codex.rs) | The Codex backend. |
