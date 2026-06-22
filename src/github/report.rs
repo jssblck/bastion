@@ -213,16 +213,20 @@ fn gate_row_blocks(row: &ReviewerRow) -> bool {
             || row.findings.iter().any(|f| f.kind == FindingKind::Blocking))
 }
 
-/// Whether a resolved row's recorded decision is internally consistent with its
-/// findings, mirroring [`crate::verdict::Verdict::is_consistent`]: a `block` must
+/// Whether a resolved *gate* row's recorded decision is internally consistent with
+/// its findings, mirroring [`crate::verdict::Verdict::is_consistent`]: a `block` must
 /// carry at least one blocking finding, and a `pass` must carry none.
 ///
-/// This holds for every mode, not just gates: an advisor row that records `pass`
-/// while carrying a blocking finding is just as self-contradictory as a gate one, and
-/// a persisted run with any such row has been corrupted or hand-edited. Replay must
-/// reject it the same way the backend parser rejects an inconsistent live verdict,
-/// rather than publishing a check off a contradictory record.
+/// Only gate rows are subject to this. The runner clamps every advisor decision to
+/// `pass` while preserving its findings (see `resolve` in `src/runner.rs`), so an
+/// advisor row that passes while carrying a blocking finding is the normal clamped
+/// state, not a corruption. Treating it as malformed would fail the run closed and let
+/// an advisor block the merge, which advisors must never do. So advisors are always
+/// consistent here, exactly as they never gate in the live aggregation.
 fn row_is_consistent(row: &ReviewerRow) -> bool {
+    if row.mode != Mode::Gate {
+        return true;
+    }
     let has_blocking = row.findings.iter().any(|f| f.kind == FindingKind::Blocking);
     match row.decision {
         Decision::Pass => !has_blocking,
@@ -254,9 +258,11 @@ fn is_well_formed_run(digest: &RunDigest) -> bool {
     if digest.started_count != 1 || digest.completed_count != 1 {
         return false;
     }
-    // No resolved row may contradict itself (a block with no blocking finding, or a
-    // pass that carries one). Such a row is a corrupted record, untrustworthy for any
-    // mode, so the whole run fails closed rather than publishing a check off it.
+    // No resolved gate row may contradict itself (a block with no blocking finding, or
+    // a pass that carries one); such a row is a corrupted record, so the whole run
+    // fails closed. Advisors are exempt: the runner clamps them to pass while keeping
+    // their findings, so an advisor pass with a blocking finding is legitimate and must
+    // not fail the run closed (that would let an advisor gate). See `row_is_consistent`.
     if !digest.rows.iter().all(row_is_consistent) {
         return false;
     }
@@ -1675,10 +1681,11 @@ mod tests {
     }
 
     #[test]
-    fn advisor_with_a_pass_and_blocking_finding_fails_closed() {
-        // An advisor row that records pass while carrying a blocking finding is self-
-        // contradictory. Advisors never gate, but the run is malformed, so the advisor
-        // check must conclude neutral rather than a green success.
+    fn advisor_pass_with_a_blocking_finding_does_not_block() {
+        // The runner clamps advisors to pass while keeping their findings, so an advisor
+        // row with verdict pass and a blocking finding is legitimate, not malformed. It
+        // must not fail the run closed (that would let an advisor gate): the run stays
+        // well formed, the advisor check is success, and the aggregate passes.
         let events = vec![
             RunEvent::RunStarted {
                 run: RunId("r-forge".into()),
@@ -1713,14 +1720,23 @@ mod tests {
             },
         ];
         let digest = digest(&events);
-        assert!(!is_well_formed_run(&digest));
+        assert!(is_well_formed_run(&digest));
+        let checks = check_runs(&ctx(), &digest);
         assert_eq!(
-            check_runs(&ctx(), &digest)
+            checks
                 .iter()
                 .find(|c| c.name == "bastion / a1")
                 .unwrap()
                 .conclusion,
-            Conclusion::Neutral
+            Conclusion::Success
+        );
+        assert_eq!(
+            checks
+                .iter()
+                .find(|c| c.name == "bastion")
+                .unwrap()
+                .conclusion,
+            Conclusion::Success
         );
     }
 
