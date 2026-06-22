@@ -89,6 +89,12 @@ is *surfaced*, not whether the merge proceeds; only `verdict` decides that.
 needs from the findings: a file, a line range, and what to change. It should never
 have to open a transcript to learn what to do.
 
+A reviewer reports the complete actionable set in one pass, one finding per
+distinct instance, not just one representative reason. The author can then fix
+everything from a single run instead of meeting the next issue on the following
+review cycle. Bastion requests this from every reviewer automatically, so a prompt
+does not need to ask for it.
+
 ## The merge gate
 
 Bastion runs all matched reviewers in parallel (they have wildly different
