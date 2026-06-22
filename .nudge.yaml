@@ -61,17 +61,11 @@ rules:
       # --- The reviewer registry ---
       - { hook: PreToolUse, tool: Write, file: "bastion/*.yaml", content: *dash }
       - { hook: PreToolUse, tool: Edit,  file: "bastion/*.yaml", new_content: *dash }
-      # --- First-party skills. The bundled skill source under skills/** is ours,
-      # and the stop-slop prose skill is authored here too. stop-slop lives mirrored
-      # under both skill dirs (.agents/skills/ and .claude/skills/ are kept as exact
-      # copies; see tests/skills_mirror.rs), so gate it in both. The rest of those
-      # trees are vendored or generated copies (see .agents/skills/readme.md) and are
-      # intentionally NOT gated, the same way the broader .agents/skills/** is left
-      # excluded above, so re-vendored upstream text is never forced into this
-      # project's dash convention. ---
+      # --- First-party skill source. Only the bundled skill source under skills/**
+      # is gated: that is what `bastion skills install` embeds and ships into a
+      # consuming repo. The top-level skill dirs themselves (.agents/skills/ and
+      # .claude/skills/, kept as exact mirrors; see tests/skills_mirror.rs) are not
+      # gated at all: they hold installed copies and vendored upstream trees that
+      # this project does not police. ---
       - { hook: PreToolUse, tool: Write, file: "skills/**/*.md", content: *dash }
       - { hook: PreToolUse, tool: Edit,  file: "skills/**/*.md", new_content: *dash }
-      - { hook: PreToolUse, tool: Write, file: ".claude/skills/stop-slop/**/*.md", content: *dash }
-      - { hook: PreToolUse, tool: Edit,  file: ".claude/skills/stop-slop/**/*.md", new_content: *dash }
-      - { hook: PreToolUse, tool: Write, file: ".agents/skills/stop-slop/**/*.md", content: *dash }
-      - { hook: PreToolUse, tool: Edit,  file: ".agents/skills/stop-slop/**/*.md", new_content: *dash }

@@ -247,13 +247,13 @@ reviewers:
   # this project treats slop in user-facing prose as a merge blocker, biased toward
   # catching it since a false block is cheap to override.
   #
-  # The trigger covers all first-party authored markdown (the roots are enumerated
-  # because trigger globs are OR-combined with no negation). It deliberately omits
-  # the mirrored skill trees under .agents/skills/** and .claude/skills/** (kept as
-  # exact copies; see tests/skills_mirror.rs): those are vendored, generated, or the
-  # stop-slop skill's own reference files, which carry intentional "before" slop the
-  # gate must not flag. The bundled skill source under skills/** is first-party and
-  # is covered.
+  # The trigger covers first-party authored markdown (the roots are enumerated
+  # because trigger globs are OR-combined with no negation). For skills, only the
+  # bundled source under skills/** is reviewed: that is what `bastion skills install`
+  # ships into a consuming repo. The top-level skill dirs (.agents/skills/** and
+  # .claude/skills/**, kept as exact mirrors; see tests/skills_mirror.rs) are not
+  # reviewed: they hold installed copies and vendored upstream trees this project
+  # does not police.
   - name: prose-anti-slop
     trigger:
       [
