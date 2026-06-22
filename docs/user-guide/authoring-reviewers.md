@@ -145,18 +145,22 @@ shell environment.
 
 The schema also accepts a `runner` block (`dockerfile` / `image`, to run a reviewer
 in a container) and a `capabilities` block (`network`, `mcp`, `skills`, to opt into
-privileges beyond the least-privilege default). These describe the design's
-intended execution model and parse correctly today, **but this build executes every
-reviewer natively and does not yet provision containers, extra network, MCP
-servers, or skills.** A reviewer that depends on them will not get them yet; treat
-them as forward-looking until the container runner lands. The authoritative
-description of the intended behavior is in the
+privileges beyond the least-privilege default). These describe the design's intended
+execution model and parse correctly today, **but this build executes every reviewer
+natively and does not yet provision containers, extra network, MCP servers, or
+skills.** Because a gate that quietly ran without a privilege it asked for would be a
+silent fail-open, a reviewer that opts into one of these **fails closed**: a gate
+blocks and an advisor is skipped, with a message naming the unprovisioned field,
+rather than running degraded. So leave these out until the tier you need has landed.
+The least-privilege default (no `runner`, `network: false`, no `mcp` or `skills`) is
+what runs today. The authoritative description of the intended behavior is in the
 [core design](../developer-guide/design.md#the-reviewer).
 
 ## A fully-loaded example
 
-Putting the optional fields together (note the not-yet-provisioned blocks are shown
-for completeness):
+Putting the optional fields together (the `runner` and `capabilities` blocks are
+shown for schema completeness; as written, this reviewer **fails closed** today
+because it opts into tiers this build does not provision yet):
 
 ```yaml
 reviewers:
@@ -169,9 +173,9 @@ reviewers:
       PREVIEW_URL: http://localhost:3000     # literal value, no shell expansion
     inputs:
       preview_url: http://localhost:3000     # substituted into the prompt as ${preview_url}
-    runner:                                  # not yet provisioned in this build
+    runner:                                  # not yet provisioned: fails the gate closed
       dockerfile: ./bastion/e2e.Dockerfile
-    capabilities:                            # not yet provisioned in this build
+    capabilities:                            # not yet provisioned: fails the gate closed
       network: true
       mcp: [playwright]
     prompt: |

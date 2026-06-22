@@ -56,7 +56,9 @@ in the loop by owning the reviewer registry, not by reading every diff.
 
 Bastion is experimental and still partial. The routing, runner, verdict
 aggregation, and on-disk run store are implemented and tested, and the Claude Code
-and Codex backends execute reviewers for real. Some schema fields are accepted but
-not yet provisioned; those are called out where they appear in
+and Codex backends execute reviewers for real. Some schema fields (the container
+`runner` and the `network`/`mcp`/`skills` capabilities) are accepted but not yet
+provisioned, so a reviewer that opts into one fails closed rather than running
+without it; those are called out where they appear in
 [Authoring reviewers](./authoring-reviewers.md). The deep reference for any of
 this is the [core design](../developer-guide/design.md).

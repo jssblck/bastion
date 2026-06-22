@@ -30,7 +30,7 @@ Bastion runs as a GitHub Actions workflow triggered on pull request events: `ope
 3. Runs each selected reviewer through its backend, in parallel, with per-reviewer timeouts (see the core design's _Aggregation & the merge gate_).
 4. Reports each verdict back to the PR.
 
-Native reviewers run directly on the Actions runner; reviewers with a `runner` block run in their container on the same runner. None of routing or aggregation is GitHub-specific; only the steps that read the PR and write results go through the adapter.
+Native reviewers run directly on the Actions runner. A reviewer that declares a container `runner` is not provisioned in this build: it fails closed (see the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today)), and container execution on the Actions runner is the intended model once the runner lands. None of routing or aggregation is GitHub-specific; only the steps that read the PR and write results go through the adapter.
 
 ---
 
