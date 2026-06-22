@@ -27,7 +27,7 @@ const countLabel: Record<Row["countsAs"], string> = {
 
 <section class="section gate" id="gate">
   <div class="container">
-    <SectionHeading title="Fails closed.">
+    <SectionHeading title="How the gate aggregates">
       Reviewers run in parallel with per-reviewer timeouts; their verdicts
       aggregate into one decision. A gate that crashes, times out, or can't
       produce a valid verdict resolves to <strong>block</strong>, never a silent
@@ -98,8 +98,7 @@ const countLabel: Record<Row["countsAs"], string> = {
           <span class="law-val law-val--open">ignored</span>
         </div>
         <p class="gate-laws-note" data-reveal style="--reveal-delay:220ms">
-          Gates fail closed. Advisors fail open. An unimplemented backend never
-          claims to have reviewed anything.
+          Gates fail closed. Advisors fail open.
         </p>
       </aside>
     </div>
