@@ -101,8 +101,11 @@ version:
   embedded source (a deterministic, version-independent lint wired into
   `.github/workflows/ci.yml`), and `bastion skills list` shows what is bundled.
   This repo dogfoods the `using-bastion` skill: its agents work *on* Bastion and
-  *with* it. These are distinct from the repo-local Rust skills under
-  `.agents/skills/`, which guide agents working on Bastion.
+  *with* it. These are distinct from the repo-local skills that guide agents
+  working on Bastion: the Rust skills under `.agents/skills/`, and the
+  `stop-slop` prose skill under `.claude/skills/stop-slop/` (a plain Claude Code
+  skill, not bundled into the binary, so it is outside `bastion skills
+  install`/`check`).
 - `tests/integration.rs` — the end-to-end suite. It drives the *real compiled
   `bastion` binary* (`CARGO_BIN_EXE_bastion`), each scenario in its own throwaway
   `git` repo and private `BASTION_DATA_DIR`, against a `rustc`-compiled fake agent
@@ -142,7 +145,14 @@ version:
 - Follow the repo-local Rust skills under `.agents/skills/`: parse-don't-validate
   at boundaries, newtypes over stringly-typed data, and the clippy lint groups in
   `Cargo.toml`.
-- Use plain ASCII quotes in docs, comments, and generated text.
+- Keep user-facing prose (the marketing site, the guides, the README) free of
+  AI-register slop: state mechanisms, not the product's character. Follow the
+  `stop-slop` skill under `.claude/skills/stop-slop/`, which catches the
+  structural tells. The `prose-anti-slop` advisor in `bastion/reviewers.yaml`
+  flags them on changed prose.
+- Use plain ASCII quotes in docs, comments, and generated text. No em dashes or
+  en dashes, and no literal `--` used as a dash in prose; recast with a comma, a
+  colon, or parentheses.
 
 ## Releases
 
