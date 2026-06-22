@@ -341,3 +341,54 @@ reviewers:
         the cut was slop. If a rewrite would drop information, do not suggest it.
       - If the `stop-slop` skill is available in your context, use it for the full
         reference and the before/after examples.
+
+  # Table markup. A header-plus-rows tabular view must share one set of column
+  # tracks (a real <table>, or one grid container whose rows are subgrids or use
+  # display:contents), never a separate CSS grid per row. Independent per-row
+  # grids recompute their tracks from each row's own content, so a wider cell in
+  # one row (a badge, a longer label) silently shifts that row's later columns
+  # out of alignment with the rows above. This is a gate because column drift is
+  # a visible rendering bug and the structural fix is mechanical.
+  - name: table-column-alignment
+    trigger: [site/src/**/*.astro]
+    mode: gate
+    backend: codex
+    prompt: |
+      As a gate, review changed Astro components for tabular, column-aligned
+      views built as a separate CSS grid per row instead of as one table. A
+      tabular view here means a column header row plus repeating data rows whose
+      cells are meant to line up into shared columns (a registry, a ledger, a
+      results grid).
+
+      The bug this catches: when the header and each row are their own element,
+      each with its own `display: grid; grid-template-columns: ...`, the column
+      tracks are recomputed per row from that row's own content. Any
+      content-sized (`auto`) or flexible (`fr`) track then resolves to a
+      different width on a row whose content is wider (a badge, a longer label),
+      so that row's later columns drift out of alignment with the rows above it.
+      A real table, or one grid container the header and rows share, computes the
+      tracks once, so the columns cannot drift.
+
+      Block the PR if a changed file introduces or keeps a tabular,
+      column-aligned view whose header and data rows each declare their own
+      `grid-template-columns`, rather than one of:
+
+        - a real `<table>` (`thead`/`tbody`/`tfoot`) with one set of column
+          widths (for example via a `<colgroup>`), or
+        - a single grid container whose header and rows are subgrids or use
+          `display: contents`, so every row resolves against the same tracks.
+
+      When you block, name the file, the header and row classes, and which of the
+      two approaches fits.
+
+      Otherwise approve. Do not block these:
+
+        - Non-tabular layouts: page and section grids, two-up card layouts, a
+          connector between panels, anything where sibling rows are not meant to
+          share columns.
+        - Independent cards or list items that use grid internally but do not
+          need to align column-for-column with their siblings.
+        - A per-row grid whose every track is a fixed length (no `auto`, no
+          `fr`): fixed tracks resolve identically on every row, so they cannot
+          drift. A shared table is still cleaner, but this is not a block.
+        - Markdown tables and any existing `<table>`, which already share tracks.
