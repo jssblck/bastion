@@ -483,24 +483,25 @@ reviewers:
       changes that stay within already-covered directories, are not violations, so
       approve them.
 
-  # Capability honesty. A reviewer's execution profile must not opt into an
-  # execution tier this build cannot provision. The schema models a container
-  # `runner` and `network` / `mcp` / `skills` capabilities, but a reviewer that
-  # declares one this build does not honor would run degraded: a gate relying on a
-  # tool it never received is a fail-open hole. Bastion fails such a reviewer closed
-  # at run time (`ensure_provisionable` in src/backend/mod.rs); this gate catches it
-  # earlier, at authoring time, with a clearer message than a reviewer that simply
-  # blocks itself. Widen the provisioned set in this prompt as each tier lands; the
-  # honored-fields table in docs/developer-guide/backends.md is the source of truth.
+  # Unprovisioned capability opt-ins. A reviewer's execution profile must not opt
+  # into an execution tier this build cannot provision. The schema models a
+  # container `runner` and `network` / `mcp` / `skills` capabilities, but a reviewer
+  # that declares one this build does not honor would run degraded: a gate relying
+  # on a tool it never received is a fail-open hole. Bastion fails such a reviewer
+  # closed at run time (`ensure_provisionable` in src/backend/mod.rs); this gate
+  # catches it earlier, at authoring time, with a clearer message than a reviewer
+  # that simply blocks itself. Widen the provisioned set in this prompt as each tier
+  # lands; the honored-fields table in docs/developer-guide/backends.md is the
+  # source of truth.
   - name: capability-honesty
     trigger: [bastion/reviewers.yaml]
     mode: gate
     backend: codex
     prompt: |
       Review changes to the reviewer registry (bastion/reviewers.yaml) for
-      capability honesty: no reviewer may opt into an execution tier this build does
-      not yet provision. You are running in the repository, so read the changed
-      registry directly.
+      unprovisioned capability opt-ins. No reviewer may opt into an execution tier
+      this build does not yet provision. You are running in the repository, so read
+      the changed registry directly.
 
       This build provisions these fields: name, trigger, mode, prompt, backend
       (claude-code and codex; `any` maps to claude-code; `pi` fails closed),
@@ -520,6 +521,7 @@ reviewers:
         agent's context.
 
       When you block, name the reviewer and the exact field, and say it declares a
-      capability this build does not yet provision. Judge only capability honesty: a
-      reviewer that stays within the provisioned set above is fine, and ordinary
-      prompt, trigger, mode, or backend edits are not violations, so approve them.
+      capability this build does not yet provision. Judge only unprovisioned
+      capability opt-ins. A reviewer that stays within the provisioned set above is
+      fine, and ordinary prompt, trigger, mode, or backend edits are not violations,
+      so approve them.

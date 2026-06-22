@@ -107,12 +107,14 @@ impl Backend for MockBackend {
 ///
 /// # Errors
 ///
-/// Returns an error if the selected backend fails to run or cannot produce a
-/// verdict. The runner turns that into a fail-closed block for gates.
+/// Returns an error if the reviewer opts into an execution tier this build does
+/// not provision (the [`ensure_provisionable`] preflight), or if the selected
+/// backend fails to run or cannot produce a verdict. The runner turns either into
+/// a fail-closed block for gates.
 pub async fn dispatch(request: &ReviewRequest<'_>) -> Result<ReviewOutcome> {
     // Refuse to run a reviewer that opts into an execution tier this build cannot
-    // provision: failing closed is the only honest answer, since running it native
-    // without its declared environment would be a silent fail-open.
+    // provision, since running it native without its declared environment would be
+    // a silent fail-open.
     ensure_provisionable(request.reviewer)?;
 
     match request.reviewer.backend {
@@ -483,5 +485,28 @@ mod tests {
         };
         let err = dispatch(&request).await.unwrap_err();
         assert!(err.to_string().contains("skills"));
+    }
+
+    #[test]
+    fn the_shipped_registry_is_fully_provisionable() {
+        // Every reviewer in the shipped registry must pass the preflight: a
+        // declaration this build cannot honor would fail that reviewer closed at
+        // review time. Reintroducing `runner`, `network: true`, `mcp`, or `skills`
+        // there parses fine and loads fine, so without this guard it would slip past
+        // the registry-load test and only surface as a self-wedged gate. (The
+        // `capability-honesty` reviewer guards new edits in review; this guards the
+        // already-shipped set in the build.)
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(crate::config::CONFIG_DIR)
+            .join(crate::config::REGISTRY_FILE);
+        let config = crate::config::Config::load(&path).expect("shipped registry loads");
+        for reviewer in &config.reviewers {
+            ensure_provisionable(reviewer).unwrap_or_else(|err| {
+                panic!(
+                    "shipped reviewer '{}' is not provisionable: {err}",
+                    reviewer.name
+                )
+            });
+        }
     }
 }
