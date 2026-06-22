@@ -104,8 +104,8 @@ verdicts into a single decision:
 
 Locally, that aggregate is the exit code of `bastion review`. In CI it is the result
 of the Bastion review job (and, in the target adapter, a single always-present
-required check named `bastion`). Either way it is the same decision computed the
-same way, which is the whole point of running the same reviewers in both places.
+required check named `bastion`). Either way, the same reviewers compute the same
+decision in both places.
 
 ## The backend
 
