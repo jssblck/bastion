@@ -494,8 +494,8 @@ mod tests {
         // review time. Reintroducing `runner`, `network: true`, `mcp`, or `skills`
         // there parses fine and loads fine, so without this guard it would slip past
         // the registry-load test and only surface as a self-wedged gate. (The
-        // `capability-honesty` reviewer guards new edits in review; this guards the
-        // already-shipped set in the build.)
+        // `unprovisioned-capabilities` reviewer guards new edits in review; this
+        // guards the already-shipped set in the build.)
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(crate::config::CONFIG_DIR)
             .join(crate::config::REGISTRY_FILE);

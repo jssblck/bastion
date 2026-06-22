@@ -493,7 +493,7 @@ reviewers:
   # that simply blocks itself. Widen the provisioned set in this prompt as each tier
   # lands; the honored-fields table in docs/developer-guide/backends.md is the
   # source of truth.
-  - name: capability-honesty
+  - name: unprovisioned-capabilities
     trigger: [bastion/reviewers.yaml]
     mode: gate
     backend: codex
