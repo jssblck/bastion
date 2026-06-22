@@ -71,7 +71,7 @@ just version
 
 ## Targeted checks
 
-Run these in addition to the core three when relevant:
+Run these in addition to the core checks above when relevant:
 
 - **Versioning changes:** `bastion --version` (the string is derived at build time
   by `build.rs` from `git describe --always --tags --dirty=-dirty`, overridable via

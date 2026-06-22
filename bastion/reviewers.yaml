@@ -242,8 +242,10 @@ reviewers:
   # any backend. The companion `stop-slop` skill (.claude/skills/stop-slop) holds
   # the full reference and before/after examples; the `skills` capability below is
   # the forward hook for backends that load skills into the agent's context
-  # (declarative until provisioned; see docs/developer-guide/design.md). Advisor,
-  # because prose voice is a judgment call that should inform, not block a merge.
+  # (declarative until provisioned; see docs/developer-guide/design.md). A gate:
+  # prose voice is a judgment call, but this project treats slop in user-facing
+  # prose as a merge blocker, biased toward catching it since a false block is
+  # cheap to override.
   - name: prose-anti-slop
     trigger: [site/src/**/*.astro, docs/**/*.md, README.md, CONTRIBUTING.md]
     mode: gate
