@@ -64,31 +64,41 @@ const reviewers: Reviewer[] = [
     </SectionHeading>
 
     <div class="registry" data-reveal>
-      <div class="registry-head" aria-hidden="true">
-        <span>reviewer</span>
-        <span>concern</span>
-        <span>trigger</span>
-        <span class="registry-head-mode">mode</span>
-      </div>
-      <ul class="registry-list">
-        {
-          reviewers.map((r) => (
-            <li class="registry-row">
-              <span class="r-name">{r.name}</span>
-              <span class="r-concern">{r.concern}</span>
-              <span class="r-trigger">
-                <code>{r.trigger}</code>
-              </span>
-              <span class="r-mode">
-                <span class={`pill pill--${r.mode}`}>
-                  <span class="pill-dot" />
-                  {r.mode}
-                </span>
-              </span>
-            </li>
-          ))
-        }
-      </ul>
+      <table class="registry-table">
+        <colgroup>
+          <col class="col-name" />
+          <col class="col-concern" />
+          <col class="col-trigger" />
+          <col class="col-mode" />
+        </colgroup>
+        <thead>
+          <tr class="registry-head">
+            <th scope="col">reviewer</th>
+            <th scope="col">concern</th>
+            <th scope="col">trigger</th>
+            <th scope="col" class="registry-head-mode">mode</th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            reviewers.map((r) => (
+              <tr class="registry-row">
+                <td class="r-name">{r.name}</td>
+                <td class="r-concern">{r.concern}</td>
+                <td class="r-trigger">
+                  <code>{r.trigger}</code>
+                </td>
+                <td class="r-mode">
+                  <span class={`pill pill--${r.mode}`}>
+                    <span class="pill-dot" />
+                    {r.mode}
+                  </span>
+                </td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
     </div>
 
     <div class="reviewers-notes">
@@ -129,30 +139,42 @@ const reviewers: Reviewer[] = [
     background: var(--paper-raised);
     box-shadow: var(--shadow-1);
   }
-  .registry-head,
-  .registry-row {
-    display: grid;
-    grid-template-columns: 14rem 1fr 11rem 6.5rem;
-    gap: 1rem;
-    align-items: center;
-    padding: 0.85rem 1.1rem;
+  /* One table, one set of column tracks (set on the colgroup), so every row
+     aligns into the same columns no matter how wide a single cell's content
+     is. Independent per-row grids could drift; a table cannot. */
+  .registry-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
   }
-  .registry-head {
+  .col-name {
+    width: 14rem;
+  }
+  .col-trigger {
+    width: 11rem;
+  }
+  .col-mode {
+    width: 6.5rem;
+  }
+  .registry-head th {
     background: var(--paper-2);
     border-bottom: 1px solid var(--line);
     font-family: var(--font-mono);
+    font-weight: 400;
     font-size: var(--text-xs);
     color: var(--ink-3);
     letter-spacing: 0.03em;
+    text-align: left;
+    padding: 0.85rem 0.5rem;
+  }
+  .registry-head th:first-child {
+    padding-left: 1.1rem;
+  }
+  .registry-head th:last-child {
+    padding-right: 1.1rem;
   }
   .registry-head-mode {
     text-align: right;
-  }
-  .registry-list {
-    list-style: none;
-  }
-  .registry-row + .registry-row {
-    border-top: 1px solid var(--line);
   }
   .registry-row {
     transition: background-color var(--dur-1) var(--ease-out);
@@ -160,11 +182,25 @@ const reviewers: Reviewer[] = [
   .registry-row:hover {
     background: color-mix(in oklch, var(--steel-bg) 35%, var(--paper-raised));
   }
+  .registry-row td {
+    padding: 0.85rem 0.5rem;
+    vertical-align: middle;
+  }
+  .registry-row td:first-child {
+    padding-left: 1.1rem;
+  }
+  .registry-row td:last-child {
+    padding-right: 1.1rem;
+  }
+  .registry-row:not(:first-child) td {
+    border-top: 1px solid var(--line);
+  }
   .r-name {
     font-family: var(--font-mono);
     font-size: 0.82rem;
     font-weight: 600;
     color: var(--ink);
+    word-break: break-word;
   }
   .r-concern {
     font-size: var(--text-sm);
@@ -176,30 +212,48 @@ const reviewers: Reviewer[] = [
     background: var(--steel-bg);
     padding: 0.2em 0.45em;
     border-radius: var(--radius-1);
+    overflow-wrap: anywhere;
   }
   .r-mode {
-    display: flex;
-    justify-content: flex-end;
+    text-align: right;
   }
 
-  /* responsive: collapse the grid into stacked records */
+  /* responsive: collapse each row into a stacked record */
   @media (max-width: 860px) {
+    .registry-table,
+    .registry-table tbody {
+      display: block;
+    }
     .registry-head {
       display: none;
     }
     .registry-row {
+      display: grid;
       grid-template-columns: 1fr auto;
       grid-template-areas:
         "name mode"
         "concern concern"
         "trigger trigger";
       gap: 0.55rem 1rem;
+      align-items: center;
+      padding: 0.85rem 1.1rem;
+    }
+    .registry-row td,
+    .registry-row td:first-child,
+    .registry-row td:last-child {
+      padding: 0;
+      border-top: 0;
+    }
+    .registry-row:not(:first-child) {
+      border-top: 1px solid var(--line);
     }
     .r-name {
       grid-area: name;
     }
     .r-mode {
       grid-area: mode;
+      text-align: left;
+      justify-self: end;
     }
     .r-concern {
       grid-area: concern;

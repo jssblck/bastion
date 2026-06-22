@@ -36,44 +36,58 @@ const countLabel: Record<Row["countsAs"], string> = {
 
     <div class="gate-layout">
       <div class="ledger" data-reveal>
-        <div class="ledger-head" aria-hidden="true">
-          <span>reviewer</span>
-          <span>what happened</span>
-          <span class="ledger-head-result">counts as</span>
-        </div>
-        <ul class="ledger-list">
-          {
-            rows.map((r, i) => (
-              <li class="ledger-row" style={`--i:${i}`}>
-                <span class="l-name">
-                  <span class={`mode-tick mode-tick--${r.mode}`} aria-hidden="true" />
-                  {r.name}
-                  {r.mode === "advisor" && <em class="l-advisor">advisor</em>}
-                </span>
-                <span class="l-happened">{r.happened}</span>
-                <span class="l-result">
-                  <span class="l-arrow" aria-hidden="true">&rarr;</span>
-                  <span class={`pill pill--${r.countsAs === "open" ? "neutral" : r.countsAs === "pass" ? "pass" : "block"}`}>
-                    <span class="pill-dot" />
-                    {countLabel[r.countsAs]}
-                  </span>
-                </span>
-              </li>
-            ))
-          }
-        </ul>
-        <div class="ledger-foot">
-          <div class="ledger-foot-text">
-            <span class="ledger-q">Every gate returned pass?</span>
-            <span class="ledger-a">No. Four gates resolved to block.</span>
-          </div>
-          <div class="aggregate">
-            <span class="aggregate-label">merge gate</span>
-            <span class="pill pill--block aggregate-pill">
-              <span class="pill-dot"></span>block
-            </span>
-          </div>
-        </div>
+        <table class="ledger-table">
+          <thead>
+            <tr class="ledger-head">
+              <th scope="col">reviewer</th>
+              <th scope="col">what happened</th>
+              <th scope="col" class="ledger-head-result">counts as</th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              rows.map((r, i) => (
+                <tr class="ledger-row" style={`--i:${i}`}>
+                  <td class="l-name">
+                    <span class="l-name-inner">
+                      <span class={`mode-tick mode-tick--${r.mode}`} aria-hidden="true" />
+                      {r.name}
+                      {r.mode === "advisor" && <em class="l-advisor">advisor</em>}
+                    </span>
+                  </td>
+                  <td class="l-happened">{r.happened}</td>
+                  <td class="l-result">
+                    <span class="l-result-inner">
+                      <span class="l-arrow" aria-hidden="true">&rarr;</span>
+                      <span class={`pill pill--${r.countsAs === "open" ? "neutral" : r.countsAs === "pass" ? "pass" : "block"}`}>
+                        <span class="pill-dot" />
+                        {countLabel[r.countsAs]}
+                      </span>
+                    </span>
+                  </td>
+                </tr>
+              ))
+            }
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="ledger-foot-cell" colspan="3">
+                <div class="ledger-foot">
+                  <div class="ledger-foot-text">
+                    <span class="ledger-q">Every gate returned pass?</span>
+                    <span class="ledger-a">No. Four gates resolved to block.</span>
+                  </div>
+                  <div class="aggregate">
+                    <span class="aggregate-label">merge gate</span>
+                    <span class="pill pill--block aggregate-pill">
+                      <span class="pill-dot" />block
+                    </span>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
 
       <aside class="gate-laws" aria-label="Failure semantics">
@@ -131,31 +145,38 @@ const countLabel: Record<Row["countsAs"], string> = {
     overflow: hidden;
     box-shadow: var(--shadow-2);
   }
-  .ledger-head,
-  .ledger-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto;
-    gap: 1rem;
-    align-items: center;
-    padding: 0.8rem 1.1rem;
+  /* One table, one set of column tracks: every row shares the same column
+     widths, so a wider cell (the advisor badge) can't shift a single row
+     out of alignment the way independent per-row grids could. */
+  .ledger-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
   }
-  .ledger-head {
+  .ledger-head th {
     background: var(--ink);
     color: var(--ink-inverse);
     font-family: var(--font-mono);
     font-size: var(--text-xs);
+    font-weight: 400;
     letter-spacing: 0.03em;
+    text-align: left;
+    padding: 0.8rem 1.1rem;
   }
   .ledger-head-result {
     text-align: right;
   }
-  .ledger-list {
-    list-style: none;
+  .ledger-row td {
+    padding: 0.8rem 1.1rem;
+    vertical-align: middle;
   }
-  .ledger-row + .ledger-row {
+  .ledger-row:not(:first-child) td {
     border-top: 1px solid var(--line);
   }
   .l-name {
+    width: 46%;
+  }
+  .l-name-inner {
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -191,7 +212,12 @@ const countLabel: Record<Row["countsAs"], string> = {
     color: var(--ink-2);
   }
   .l-result {
-    display: flex;
+    text-align: right;
+    white-space: nowrap;
+    width: 1%;
+  }
+  .l-result-inner {
+    display: inline-flex;
     align-items: center;
     justify-content: flex-end;
     gap: 0.5rem;
@@ -201,6 +227,9 @@ const countLabel: Record<Row["countsAs"], string> = {
     font-size: 0.85rem;
   }
 
+  .ledger-foot-cell {
+    padding: 0;
+  }
   .ledger-foot {
     display: flex;
     align-items: center;
@@ -284,19 +313,21 @@ const countLabel: Record<Row["countsAs"], string> = {
   }
 
   @media (max-width: 540px) {
-    .ledger-head,
-    .ledger-row {
-      grid-template-columns: 1fr auto;
-    }
-    .ledger-head span:nth-child(2),
+    /* Drop the middle column; auto table layout collapses it once every
+       cell in it is hidden. */
+    .ledger-head th:nth-child(2),
     .l-happened {
       display: none;
     }
+    .l-name {
+      width: auto;
+    }
   }
 
-  /* reveal stagger for rows */
+  /* reveal stagger for rows; applied to the cells because transforms on
+     table-row boxes are not reliable across browsers */
   @media (prefers-reduced-motion: no-preference) {
-    .js .ledger.is-in .ledger-row {
+    .js .ledger.is-in .ledger-row td {
       animation: row-in var(--dur-2) var(--ease-out) backwards;
       animation-delay: calc(var(--i) * 70ms + 120ms);
     }
