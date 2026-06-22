@@ -317,9 +317,13 @@ reviewers:
       Decision:
 
       - If the changed prose carries one or more slop tells from the list below,
-        return verdict: block with one blocking finding per instance that names
-        the file, the line or sentence, which tell it is, and a shorter rewrite
-        that keeps every fact.
+        return verdict: block. Enumerate EVERY instance across all changed prose in
+        this single pass: emit one blocking finding per instance, each naming the
+        file, the line or sentence, which tell it is, and a shorter rewrite that
+        keeps every fact. Do not stop after the first tell or once you have enough
+        to block. A partial list costs the author another full review cycle per
+        remaining tell, so scan every changed prose file and report the complete
+        set before you finish.
       - If the changed prose is clean, return verdict: pass.
       - Bias toward catching slop. A missed tell is worse than a false block: a
         false block is cheap to override, but slop that merges becomes the house

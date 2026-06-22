@@ -210,6 +210,8 @@ findings:               # Allow the reviewer to point to specific files and line
 
 The top-level `verdict` is the authoritative gate decision; `findings` explain it. A `block` should carry at least one `blocking` finding (the reason it blocked), while a `pass` may still include `optional` findings as non-blocking suggestions. A finding's `kind` affects how a comment is surfaced, not the gate outcome; only `verdict` decides that.
 
+A reviewer enumerates every finding it can identify for the changeset in one pass, one per distinct instance, rather than stopping at the first. The author can then fix the whole set from a single run instead of paying a fresh review cycle per issue. This is a property of how each backend asks for findings (a shared exhaustive-findings instruction appended to the prompt), not of the gate logic, so a clean changeset still returns `pass` with no findings. The verdict schema itself caps nothing: `findings` is an unbounded list.
+
 Bastion requests the structured output, then parses the final agent turn against the schema requested. If the reviewer agent doesn't provide complying output, Bastion re-runs the same session with a new turn explaining the schema again and asking for just the structured output of the work already performed.
 
 Reviewer agents that continually fail (either unable to produce structured output, timeouts, or simple execution failures) are failed closed if they are a gate, and skipped if they are an advisor.
