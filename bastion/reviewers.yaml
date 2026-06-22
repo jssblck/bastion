@@ -312,8 +312,8 @@ reviewers:
   # display:contents), never a separate CSS grid per row. Independent per-row
   # grids recompute their tracks from each row's own content, so a wider cell in
   # one row (a badge, a longer label) silently shifts that row's later columns
-  # out of alignment with the rows above. A gate: column drift is a visible
-  # rendering bug, and the structural fix is mechanical.
+  # out of alignment with the rows above. This is a gate because column drift is
+  # a visible rendering bug and the structural fix is mechanical.
   - name: table-column-alignment
     trigger: [site/src/**/*.astro]
     mode: gate

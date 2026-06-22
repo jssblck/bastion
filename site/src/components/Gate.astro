@@ -145,8 +145,8 @@ const countLabel: Record<Row["countsAs"], string> = {
     overflow: hidden;
     box-shadow: var(--shadow-2);
   }
-  /* One table, one set of column tracks: every row shares the same column
-     widths, so a wider cell (the advisor badge) can't shift a single row
+  /* One table with one set of column tracks, so every row shares the same
+     column widths. A wider cell (the advisor badge) can't shift a single row
      out of alignment the way independent per-row grids could. */
   .ledger-table {
     width: 100%;
