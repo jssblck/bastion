@@ -118,7 +118,7 @@ jobs:
 
       # 1. Install a published bastion release (not built from the PR).
       # 2. Install and authenticate your backend CLI (e.g. claude or codex),
-      #    ideally billed to the PR author -- see the auth pattern referenced below.
+      #    ideally billed to the PR author; see the auth pattern referenced below.
       # 3. Stand up anything your reviewers consume (a preview env, a database).
 
       - name: Review
@@ -234,7 +234,7 @@ Bastion's job starts once it exists. (See
 This repository dogfoods the adapter through
 [`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml), running the
 latest published `bastion` release rather than a binary built from the PR's own
-sources -- so a change can never edit the engine that judges it. That workflow is
+sources, so a change can never edit the engine that judges it. That workflow is
 the concrete, self-hosted adapter described in the
 [GitHub adapter reference](../developer-guide/github-adapter.md).
 

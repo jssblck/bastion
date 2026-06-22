@@ -99,8 +99,8 @@ Govern with these limits in mind; they are deliberate, not gaps to be closed:
   stronger (signing, external rule storage, an enumerated trusted-computing-base)
   is deliberately out of scope.
 
-The full threat model and trust boundary -- the assumptions these limits follow
-from -- are in the
+The full threat model and trust boundary (the assumptions these limits follow
+from) are in the
 [core design](../developer-guide/design.md#threat-model--trust-boundary).
 
 ## A governance checklist
@@ -109,7 +109,7 @@ For a healthy deployment:
 
 - [ ] `bastion/reviewers.yaml` and the Bastion workflow are CODEOWNERS-protected.
 - [ ] Bastion's review is required by branch protection on the default branch (the
-      review job today; the aggregate `bastion` check once the packaged adapter lands).
+      review job, or the aggregate `bastion` check that `bastion github report` now posts).
 - [ ] Reviewer-policy PRs get a real human review, not a rubber stamp.
 - [ ] Someone owns escape triage, and escapes feed back into reviewer changes.
 - [ ] Billing is configured (per-author secrets or an API-key fallback) so reviews
