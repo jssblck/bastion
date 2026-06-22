@@ -86,7 +86,7 @@ Run these in addition to the core checks above when relevant:
 ## Contributing and releases
 
 The contribution workflow, AI-assisted-contribution policy, and the release process
-(tagging, the release matrix, version derivation, and bumping the self-review pin)
-live in [`CONTRIBUTING.md`](../../CONTRIBUTING.md) at the repository root. Agent
+(tagging, the release matrix, and version derivation) live in
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md) at the repository root. Agent
 guidance (the same rules in the form coding agents consume) is in
 [`AGENTS.md`](../../AGENTS.md).

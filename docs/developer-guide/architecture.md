@@ -32,6 +32,7 @@ through it.
 | [`src/runner.rs`](../../src/runner.rs) | The parallel, timeout-bounded runner: fans matched reviewers out over a `JoinSet`, fails closed on error/timeout, streams events, persists each run. |
 | [`src/skills.rs`](../../src/skills.rs) | The agent skills bundled into the binary (from `skills/<slug>/SKILL.md`) and installed into a consuming repo by `bastion skills install`/`check`/`list`. The rendered file is deterministic so `check` is a version-independent drift guard. |
 | [`src/backend/`](../../src/backend/) | The agent execution boundary. See [Backends](./backends.md). |
+| [`src/github/`](../../src/github/) | The GitHub adapter (CI surface): `codeowners.rs` generates the governance block, `client.rs` is the `reqwest`-backed REST seam (a proof-carrying `ApiRequest` plus a `GitHubApi` trait and a recording test double, modeled on the backend's `CommandRunner`), and `report.rs` posts a finished run as a sticky PR comment and check runs. See the [GitHub adapter](./github-adapter.md). |
 
 ## The two boundaries that shape the design
 

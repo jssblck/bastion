@@ -7,6 +7,10 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      # The guide is single-sourced from docs/user-guide (see
+      # site/src/content.config.ts), so edits there change the built site and
+      # must trigger a redeploy even when nothing under site/ changed.
+      - "docs/user-guide/**"
       - ".github/workflows/site.yml"
   workflow_dispatch:
 
