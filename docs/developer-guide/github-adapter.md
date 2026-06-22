@@ -73,7 +73,7 @@ Each reviewer's check run is also where its detail lives; a reader clicks "Detai
 - **Session transcript, collapsed.** *(Target.)* The full agent session is included inside a `<details>` block, so it is collapsed by default and one click to expand; most readers never need it, but when a decision is surprising the transcript is right there to explain it. Transcripts can be long and the check `output` is capped at 64KB, so an oversized transcript is truncated with a note pointing to the full job logs. *Shipped today:* `bastion github report` does not embed transcripts in the check output; the full run, transcripts included, is uploaded as the workflow artifact, and the sticky comment footer points there.
 - **Tokens and cost, when available.** When the backend reports usage, a small table shows input and output token counts and the session cost; when it doesn't, the block is omitted rather than shown empty. This is per reviewer, so an expensive e2e reviewer and a cheap hermetic one are each individually accountable.
 
-*(Target.)* The aggregate `bastion` check links each row of its table to the matching reviewer's check run, so the table doubles as the index into all of this detail. *Shipped today:* the aggregate check renders a plain Markdown table of the triggered reviewers (mode, status, elapsed) without per-row links.
+*(Target.)* The aggregate `bastion` check links each row of its table to the matching reviewer's check run, so the table doubles as the index into all of this detail. *Shipped today:* the aggregate check renders a plain Markdown table of the triggered reviewers with columns `Reviewer`, `Mode`, `Verdict`, and `Summary`, and no per-row links.
 
 A sketch of a reviewer's check output:
 

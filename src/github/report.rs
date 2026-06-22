@@ -186,18 +186,19 @@ fn gate_row_blocks(row: &ReviewerRow) -> bool {
             || row.findings.iter().any(|f| f.kind == FindingKind::Blocking))
 }
 
-/// Whether the replayed run is structurally complete and well-ordered enough to be
-/// trusted at all, independent of whether it passed.
+/// Whether the replayed run is structurally complete, well-ordered, and internally
+/// consistent enough to be trusted at all, independent of whether it passed.
 ///
 /// The report replays a persisted (and therefore untrusted) `run.jsonl`, which can be
 /// truncated, reordered, or hand-edited. Before any verdict it carries can be
-/// believed, the stream must prove itself a complete record: it announces its plan
-/// exactly once (one `run.started`), completes exactly once (one `run.completed`),
-/// is in a valid event order, and produced a resolved gate row for every gate the
-/// plan announced. A stream that fails any of these cannot rule out omitted or
-/// dropped gates, so neither the aggregate nor any per-reviewer check may report
-/// success off it. This is the shared trust gate both [`is_clean_pass`] and the
-/// per-reviewer checks build on.
+/// believed, the stream must prove itself a complete and self-consistent record: it
+/// announces its plan exactly once (one `run.started`), completes exactly once (one
+/// `run.completed`), is in a valid event order, produced a resolved gate row for
+/// every gate the plan announced, and carries a recorded gate tally that agrees with
+/// the rows. A stream that fails any of these cannot rule out omitted or dropped
+/// gates, or has a record that contradicts itself, so neither the aggregate nor any
+/// per-reviewer check may report success off it. This is the shared trust gate both
+/// [`is_clean_pass`] and the per-reviewer checks build on.
 fn is_well_formed_run(digest: &RunDigest) -> bool {
     if digest.malformed_order {
         return false;
@@ -229,6 +230,22 @@ fn is_well_formed_run(digest: &RunDigest) -> bool {
             return false;
         }
     }
+    // The recorded tally, when present, must agree with the rows on every field.
+    // Deriving `passed` from the rows (resolved gates minus blocked ones) and
+    // requiring all three of total/passed/blocked to match closes the gap where an
+    // internally inconsistent tally (say total=1, passed=0, blocked=0) would still
+    // be trusted; it also implies the `total == passed + blocked` invariant. This is
+    // a property of the record, not of the pass decision, so it lives here where both
+    // the aggregate and the per-reviewer checks honor it.
+    if let Some(gates) = digest.gates {
+        let resolved = u32::try_from(resolved_gates).unwrap_or(u32::MAX);
+        let blocked = u32::try_from(digest.rows.iter().filter(|r| gate_row_blocks(r)).count())
+            .unwrap_or(u32::MAX);
+        let passed = resolved.saturating_sub(blocked);
+        if gates.total != resolved || gates.blocked != blocked || gates.passed != passed {
+            return false;
+        }
+    }
     true
 }
 
@@ -236,10 +253,10 @@ fn is_well_formed_run(digest: &RunDigest) -> bool {
 /// `success`, computed fail-closed from the reviewer rows rather than by trusting
 /// the recorded `run.completed` verdict.
 ///
-/// Builds on [`is_well_formed_run`]: the run must first be a complete, well-ordered
-/// record, and then the rows must independently agree it passed: the recorded
-/// aggregate is `pass`, no gate row blocks or contradicts itself, and the recorded
-/// gate tally matches the rows. Any inconsistency fails closed.
+/// Builds on [`is_well_formed_run`]: the run must first be a complete, well-ordered,
+/// internally consistent record, and then the rows must independently agree it
+/// passed: the recorded aggregate is `pass` and no gate row blocks or contradicts
+/// itself. Any inconsistency fails closed.
 fn is_clean_pass(digest: &RunDigest) -> bool {
     if !is_well_formed_run(digest) {
         return false;
@@ -250,21 +267,6 @@ fn is_clean_pass(digest: &RunDigest) -> bool {
     // No gate row may block or contradict itself.
     if digest.rows.iter().any(gate_row_blocks) {
         return false;
-    }
-    // The recorded tally, when present, must agree with the rows on every field.
-    // Deriving `passed` from the rows (resolved gates minus blocked ones) and
-    // requiring all three of total/passed/blocked to match closes the gap where an
-    // internally inconsistent tally (say total=1, passed=0, blocked=0) would still
-    // be trusted; it also implies the `total == passed + blocked` invariant.
-    if let Some(gates) = digest.gates {
-        let resolved = u32::try_from(digest.rows.iter().filter(|r| r.mode == Mode::Gate).count())
-            .unwrap_or(u32::MAX);
-        let blocked = u32::try_from(digest.rows.iter().filter(|r| gate_row_blocks(r)).count())
-            .unwrap_or(u32::MAX);
-        let passed = resolved.saturating_sub(blocked);
-        if gates.total != resolved || gates.blocked != blocked || gates.passed != passed {
-            return false;
-        }
     }
     true
 }
@@ -1368,6 +1370,44 @@ mod tests {
             },
             gate_resolved("g1", Decision::Pass, vec![]),
         ];
+        let digest = digest(&events);
+        let checks = check_runs(&ctx(), &digest);
+        assert_eq!(
+            checks
+                .iter()
+                .find(|c| c.name == "bastion / g1")
+                .unwrap()
+                .conclusion,
+            Conclusion::Failure
+        );
+        assert_eq!(
+            checks
+                .iter()
+                .find(|c| c.name == "bastion")
+                .unwrap()
+                .conclusion,
+            Conclusion::Failure
+        );
+    }
+
+    #[test]
+    fn per_reviewer_gate_fails_closed_on_an_inconsistent_tally() {
+        // A clean passing gate row, structurally complete, but the recorded
+        // run.completed tally is internally impossible (total=1, blocked=0 implies
+        // passed=1, yet it claims 0). The record contradicts itself, so the
+        // per-reviewer gate check must fail closed too, not just the aggregate.
+        let events = forged_run(
+            &["g1"],
+            vec![gate_resolved("g1", Decision::Pass, vec![])],
+            (
+                Decision::Pass,
+                Gates {
+                    total: 1,
+                    passed: 0,
+                    blocked: 0,
+                },
+            ),
+        );
         let digest = digest(&events);
         let checks = check_runs(&ctx(), &digest);
         assert_eq!(
