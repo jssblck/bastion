@@ -41,7 +41,7 @@ GitHub surfaces, the same two a human reviewer uses:
 - **Findings become inline PR review comments.** Each finding is posted on its
   `path` and line range. `blocking` and `optional` render differently so a reader
   can tell at a glance which comments hold up the merge. These comments are the
-  surface an implementing agent reads: everything it needs to act is there.
+  surface an implementing agent reads, and they carry everything it needs to act.
 - **Each verdict becomes a check run** named after the reviewer
   (`bastion / tenant-isolation`). A blocking gate reports `failure`; a passing gate
   reports `success`; an advisor reports `success` with its findings attached.

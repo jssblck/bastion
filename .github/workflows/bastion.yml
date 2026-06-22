@@ -156,10 +156,11 @@ jobs:
         #
         # `github report` landed after v0.1.0, so until a release that includes it
         # becomes the latest, the installed binary will not have the subcommand.
-        # Self-skip when it is missing: that keeps this workflow safe on an older
-        # engine, and reporting turns on automatically once the latest release
-        # includes the command. The capability probe is the only tolerated failure;
-        # once supported, a real posting error fails the step.
+        # When the subcommand is missing the report step skips itself, which keeps
+        # this workflow safe on an older engine, and reporting turns on
+        # automatically once the latest release includes the command. The capability
+        # probe is the only tolerated failure; once supported, a real posting error
+        # fails the step.
         if: always()
         env:
           GITHUB_TOKEN: ${{ github.token }}

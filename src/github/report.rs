@@ -23,6 +23,12 @@
 //! run is a trusted artifact: Bastion's threat model is aligned contributors, not a
 //! forged run file (see `docs/user-guide/governance.md`).
 //!
+//! The one boundary check it keeps is gate-verdict consistency: a gate recorded as a
+//! `pass` that still carries a blocking finding contradicts itself, so the report
+//! fails it closed rather than publishing a green check off it. The backends already
+//! reject such a verdict upstream, so this is a fail-closed safeguard at the boundary,
+//! not a recomputation of the gate.
+//!
 //! All the event-to-markdown and event-to-payload mapping here is pure and unit
 //! tested; the only side effects are the [`GitHubApi`] calls in [`report`].
 
@@ -84,12 +90,24 @@ impl ReviewerRow {
         }
     }
 
-    /// Whether this row blocks the merge: a gate that decided to block. Advisors
-    /// never gate, so they never block. The runner already guarantees a gate's
-    /// recorded decision is consistent with its findings, so the decision alone is
-    /// authoritative here.
+    /// Whether this row blocks the merge. A gate blocks when it decided to block, or
+    /// when its recorded verdict contradicts itself: a `pass` that nonetheless carries
+    /// a blocking finding, which mirrors [`crate::verdict::Verdict::is_consistent`].
+    /// Such a verdict is not a coherent pass, so the report fails it closed rather than
+    /// publishing a green check off it. The backends reject an inconsistent verdict
+    /// upstream (see `claude_code.rs` and `codex.rs`), so this is a boundary safeguard,
+    /// not a recomputation of the gate.
+    ///
+    /// Advisors never gate, so they never block: the runner clamps an advisor to a
+    /// pass while keeping its findings, so an advisor pass carrying a blocking finding
+    /// is the normal clamped state, not a block.
     fn blocks(&self) -> bool {
-        self.mode == Mode::Gate && self.decision == Decision::Block
+        self.mode == Mode::Gate
+            && (self.decision == Decision::Block
+                || self
+                    .findings
+                    .iter()
+                    .any(|f| f.kind == FindingKind::Blocking))
     }
 }
 
@@ -182,14 +200,23 @@ fn digest(events: &[RunEvent]) -> RunDigest {
     digest
 }
 
-/// The aggregate check conclusion for a digest: the recorded `run.completed` verdict
-/// drawn onto a check. A recorded pass is a success; a recorded block is a failure; a
-/// run that never completed has no verdict to report, so it reads as a failure (an
-/// incomplete run is not a pass).
+/// Whether any gate row blocks the merge (a recorded block, or a self-contradictory
+/// gate pass). Used to fail the aggregate closed even when the recorded
+/// `run.completed` verdict claims a pass.
+fn any_gate_blocks(digest: &RunDigest) -> bool {
+    digest.rows.iter().any(ReviewerRow::blocks)
+}
+
+/// The aggregate check conclusion for a digest, drawn from the recorded
+/// `run.completed` verdict. A recorded pass is a success unless a gate row contradicts
+/// itself (then it fails closed); a recorded block is a failure; a run that never
+/// completed has no verdict to report, so it reads as a failure (an incomplete run is
+/// not a pass).
 fn aggregate_conclusion(digest: &RunDigest) -> Conclusion {
-    match digest.aggregate {
-        Some(Decision::Pass) => Conclusion::Success,
-        Some(Decision::Block) | None => Conclusion::Failure,
+    if digest.aggregate == Some(Decision::Pass) && !any_gate_blocks(digest) {
+        Conclusion::Success
+    } else {
+        Conclusion::Failure
     }
 }
 
@@ -248,6 +275,11 @@ fn status_line(digest: &RunDigest) -> String {
         .unwrap_or_default();
 
     let headline = match digest.aggregate {
+        Some(Decision::Pass) if any_gate_blocks(digest) => {
+            "**Blocked.** A gate verdict is internally inconsistent (a pass carrying a \
+             blocking finding); failing closed."
+                .to_string()
+        }
         Some(Decision::Pass) => {
             if total == 0 {
                 "**Passed.** No gates were triggered.".to_string()
@@ -403,6 +435,9 @@ fn aggregate_check(ctx: &PrContext, digest: &RunDigest) -> CheckRun {
     let conclusion = aggregate_conclusion(digest);
     let (passed, total) = digest.gates.map_or((0, 0), |g| (g.passed, g.total));
     let title = match digest.aggregate {
+        Some(Decision::Pass) if any_gate_blocks(digest) => {
+            "Blocked: a gate verdict is internally inconsistent".to_string()
+        }
         Some(Decision::Pass) => {
             if total == 0 {
                 "No gates triggered".to_string()
@@ -1064,6 +1099,45 @@ mod tests {
         );
         // The comment headline reflects the recorded block.
         assert!(comment_body(&digest).contains("**Blocked.** 0 of 1 gate(s) passed."));
+    }
+
+    #[test]
+    fn self_contradictory_gate_pass_fails_closed() {
+        // A gate recorded as `pass` that carries a blocking finding contradicts itself
+        // (the backends reject this upstream, but the report fails closed at the
+        // boundary regardless). Even though run.completed recorded a pass, the gate's
+        // own check and the aggregate both fail rather than publishing a green check.
+        let events = recorded_run(
+            &["g1"],
+            vec![gate_resolved(
+                "g1",
+                Decision::Pass,
+                vec![finding(FindingKind::Blocking, "src/a.rs", 1, 1, "leak")],
+            )],
+            (
+                Decision::Pass,
+                Gates {
+                    total: 1,
+                    passed: 1,
+                    blocked: 0,
+                },
+            ),
+        );
+        let digest = digest(&events);
+        let checks = check_runs(&ctx(), &digest);
+        assert_eq!(
+            checks
+                .iter()
+                .find(|c| c.name == "bastion / g1")
+                .unwrap()
+                .conclusion,
+            Conclusion::Failure
+        );
+        let aggregate = checks.iter().find(|c| c.name == "bastion").unwrap();
+        assert_eq!(aggregate.conclusion, Conclusion::Failure);
+        assert!(aggregate.title.contains("internally inconsistent"));
+        // The comment headline fails closed rather than claiming a pass.
+        assert!(comment_body(&digest).contains("internally inconsistent"));
     }
 
     #[test]
