@@ -121,7 +121,9 @@ and the [user-facing status](../user-guide/README.md#status).
    (it is `#[non_exhaustive]`; keep `as_str` and the kebab-case serde form in sync).
 2. Create `src/backend/<name>.rs` implementing the `Backend` trait, building its
    `CommandSpec` and parsing its CLI's structured-output envelope into a `Verdict`.
-   Reuse `changeset_preamble`, `interpolate`, and `money_from_dollars`.
+   Reuse `changeset_preamble`, `interpolate`, and `money_from_dollars`, and append
+   `EXHAUSTIVE_FINDINGS_INSTRUCTION` to the prompt so the new backend enumerates
+   every finding in one pass like the others.
 3. Wire the variant into `dispatch` in [`mod.rs`](../../src/backend/mod.rs).
 4. Test it against a fake `CommandRunner`, following `claude_code.rs` /
    `codex.rs`: assert the args and env you build, and the parsing of a representative
