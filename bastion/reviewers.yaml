@@ -483,6 +483,66 @@ reviewers:
       changes that stay within already-covered directories, are not violations, so
       approve them.
 
+  # Open Graph card sync. The social-preview image at site/public/og.png is not
+  # authored by hand: site/scripts/og-gen.mjs holds an HTML template with the
+  # card's headline, tag line, brand wordmark, and domain hard-coded as strings,
+  # and renders that template to the PNG. Those strings duplicate the site's own
+  # copy, which is single-sourced elsewhere: the hero headline in
+  # site/src/components/Hero.astro, the default title/og:title in
+  # site/src/layouts/Base.astro, and the footer tag line and domain in
+  # site/src/components/Footer.astro. When the site's copy changes but the
+  # generator template does not, the card advertises a headline the site no longer
+  # uses; when the template changes but the rendered PNG is not regenerated, the
+  # committed image drifts from the template it claims to come from. A gate,
+  # because a stale social card is a real, user-visible regression and the fix
+  # (edit the template, or rerun `node scripts/og-gen.mjs`) is mechanical.
+  - name: og-card-in-sync
+    trigger:
+      [
+        site/scripts/og-gen.mjs,
+        site/public/og.png,
+        site/src/components/Hero.astro,
+        site/src/layouts/Base.astro,
+        site/src/components/Footer.astro,
+      ]
+    mode: gate
+    backend: codex
+    prompt: |
+      The Open Graph card at site/public/og.png is the social-preview image for
+      bastion.jessica.black. It is generated, not hand-drawn: site/scripts/og-gen.mjs
+      holds an HTML template whose headline (its `<h1>`), tag line (its `.tag`), and
+      footer domain are hard-coded strings, rendered to the PNG by `node
+      scripts/og-gen.mjs`. Those strings restate copy the site already owns
+      elsewhere: the hero headline in site/src/components/Hero.astro, the default
+      `<title>` / og:title in site/src/layouts/Base.astro, and the footer tag line
+      and domain in site/src/components/Footer.astro. You are running in the
+      repository, so read the generator template and the site source directly.
+
+      This is a gate. Block the PR if either of the following is definitely true
+      after this change; otherwise approve it. When you cannot confirm a problem,
+      approve.
+
+      - CONTRADICTION: this change edits the site copy the card mirrors (the hero
+        headline in Hero.astro, the default title / og:title in Base.astro, or the
+        footer tag line or domain in Footer.astro) so that the matching hard-coded
+        string in site/scripts/og-gen.mjs (its `<h1>`, its `.tag`, or its footer
+        domain) now states something the site no longer says, and the generator
+        template was not updated to match.
+      - STALE RENDER: this change edits a hard-coded copy string in
+        site/scripts/og-gen.mjs (the `<h1>`, the `.tag`, or the footer text) but the
+        changeset does not also modify site/public/og.png, so the committed image
+        cannot reflect the edited template. Rerunning `node scripts/og-gen.mjs` to
+        regenerate the PNG is the fix.
+
+      Judge only whether the card's text is in sync with the site's copy. The card
+      need not reproduce the headline word for word: a deliberately shorter card
+      line that still states the same thing the site states is fine, so block only
+      on a real contradiction of fact, not a wording or emphasis difference. Styling,
+      layout, color, font, or grid-background changes to either file, and edits to
+      site copy the card does not mirror, are not violations, so approve them. When
+      you block, name the file and string that drifted and the generator string that
+      must change.
+
   # Unprovisioned capability opt-ins. A reviewer's execution profile must not opt
   # into an execution tier this build cannot provision. The schema models a
   # container `runner` and `network` / `mcp` / `skills` capabilities, but a reviewer

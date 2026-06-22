@@ -33,8 +33,8 @@ const html = `<!doctype html><html><head><meta charset="utf-8">
     color: #5a6473; border: 1px solid #c4ccd6; border-radius: 999px; padding: 8px 16px;
   }
   h1 {
-    font-size: 78px; font-weight: 700; line-height: 1.02; letter-spacing: -0.035em;
-    max-width: 15ch; color: #1f2229;
+    font-size: 74px; font-weight: 700; line-height: 1.04; letter-spacing: -0.035em;
+    max-width: 17ch; color: #1f2229;
   }
   h1 .em { color: #2f5fa8; }
   .pills { display: flex; gap: 14px; align-items: center; }
@@ -57,10 +57,10 @@ const html = `<!doctype html><html><head><meta charset="utf-8">
       <path fill="none" stroke="#3ba06a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M13.2 16.1l1.9 1.9 3.7-3.9"/>
     </svg>
     <span class="word">bastion</span>
-    <span class="tag">open source agentic code review</span>
+    <span class="tag">Open-source agentic code review</span>
   </div>
 
-  <h1>A merge gate you <span class="em">govern</span>, not a bot you tolerate.</h1>
+  <h1>A merge gate built from <span class="em">small reviewers</span> you write and own.</h1>
 
   <div class="pills">
     <span class="pill pass"><span class="dot"></span>pass</span>
