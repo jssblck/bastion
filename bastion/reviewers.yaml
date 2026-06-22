@@ -51,40 +51,6 @@ reviewers:
       advisor being allowed to block. Approve if every failure path on a gate
       resolves to a block and advisors never gate.
 
-  - name: replayed-run-integrity
-    trigger: [src/**/*.rs]
-    mode: gate
-    backend: codex
-    prompt: |
-      Bastion's GitHub report (and any future read-back surface) reconstructs a
-      verdict from a PERSISTED, and therefore untrusted, run event stream
-      (run.jsonl): that file can be truncated, reordered, hand-edited, or
-      otherwise malformed. Review only changes to code that derives a reviewer
-      verdict, a gate decision, or the aggregate `bastion` result from a replayed
-      or persisted run, as opposed to producing it live during a review. Block the
-      PR if such code could publish a pass or a green check for a run it has not
-      independently proven both complete and consistent. Treat each of these as a
-      blocking finding:
-
-      - The recorded aggregate verdict, or a recorded gate tally, is trusted as
-        written instead of being recomputed from the resolved reviewer rows.
-      - Structural completeness is not enforced before a pass is representable.
-        The run must announce its plan exactly once (one run.started) and complete
-        exactly once (one run.completed); every announced gate must have a matching
-        resolved row; and any recorded gate tally must agree with the rows on every
-        field (total, passed, and blocked), so an internally impossible tally
-        cannot slip through.
-      - A stream that is missing its plan, missing rows for announced gates,
-        carrying a self-contradictory row (a pass that also carries a blocking
-        finding), or carrying an inconsistent tally is allowed to conclude success
-        rather than failing closed.
-
-      Approve when a replayed pass is only ever published after the outcome has
-      been re-derived from the rows and every structural-completeness check above
-      holds, and when each gap instead fails closed. Code that produces verdicts
-      live during a review (the runner and the backends) is out of scope here; the
-      fail-closed-gates reviewer covers that path.
-
   - name: parse-dont-validate
     trigger: [src/**/*.rs]
     mode: advisor

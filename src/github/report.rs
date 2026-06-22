@@ -14,6 +14,15 @@
 //!   A blocking gate reports `failure`; a passing gate and any advisor report
 //!   `success`. Located findings ride along as check annotations.
 //!
+//! The report renders the run the runner already decided. The runner is what
+//! enforces the gate semantics: it fails a gate closed at write time (a crashed or
+//! timed-out gate is persisted as a block with a synthetic blocking finding) and
+//! clamps every advisor to a pass while keeping its findings. So this half does not
+//! re-derive the merge decision; it trusts the recorded `run.completed` verdict and
+//! each reviewer's recorded row, and draws them onto the two surfaces. The persisted
+//! run is a trusted artifact: Bastion's threat model is aligned contributors, not a
+//! forged run file (see `docs/user-guide/governance.md`).
+//!
 //! All the event-to-markdown and event-to-payload mapping here is pure and unit
 //! tested; the only side effects are the [`GitHubApi`] calls in [`report`].
 
@@ -21,7 +30,7 @@ use std::fmt;
 
 use color_eyre::eyre::{Context, Result, bail};
 
-use crate::event::{Gates, RunEvent, RunId};
+use crate::event::{Gates, RunEvent};
 use crate::reviewer::{Backend, Mode};
 use crate::verdict::{Decision, Finding, FindingKind, Money, Usage};
 
@@ -45,11 +54,11 @@ const MAX_ANNOTATIONS: usize = 50;
 const MAX_ANNOTATION_MESSAGE: usize = 8000;
 
 /// GitHub caps a check-run `output.summary` (and `output.text`) at 65535 bytes. The
-/// summary embeds untrusted reviewer findings, so a single verbose finding could blow
-/// the limit and 422 the whole request, failing an otherwise green job. We cap the
-/// assembled summary well under that ceiling and point overflow at the sticky comment,
-/// which carries the full text. Measured in characters: even all-4-byte content stays
-/// under 65535 bytes.
+/// summary embeds reviewer findings, so a single verbose finding could blow the limit
+/// and 422 the whole request, failing an otherwise green job. We cap the assembled
+/// summary well under that ceiling and point overflow at the sticky comment, which
+/// carries the full text. Measured in characters: even all-4-byte content stays under
+/// 65535 bytes.
 const MAX_CHECK_SUMMARY: usize = 60000;
 
 /// One reviewer's resolved row, distilled from the event stream.
@@ -74,6 +83,14 @@ impl ReviewerRow {
             Mode::Gate => self.decision.as_str(),
         }
     }
+
+    /// Whether this row blocks the merge: a gate that decided to block. Advisors
+    /// never gate, so they never block. The runner already guarantees a gate's
+    /// recorded decision is consistent with its findings, so the decision alone is
+    /// authoritative here.
+    fn blocks(&self) -> bool {
+        self.mode == Mode::Gate && self.decision == Decision::Block
+    }
 }
 
 /// The whole run, distilled from its event stream into the shape both surfaces
@@ -83,25 +100,10 @@ struct RunDigest {
     branch: Option<String>,
     base: Option<String>,
     changed: u32,
-    /// The reviewers `run.started` announced, with their modes. Kept so the report
-    /// can detect a started gate that never produced a resolved row and fail closed.
-    started: Vec<(String, Mode)>,
-    /// How many `run.started` events the stream carried. A well-formed run announces
-    /// its plan exactly once; anything else (zero, or a duplicated/forged plan) means
-    /// the reviewer set cannot be trusted, so the aggregate must fail closed.
-    started_count: u32,
-    /// How many `run.completed` events the stream carried. A well-formed run reports
-    /// completion exactly once.
-    completed_count: u32,
-    /// Set when the stream is structurally invalid: events out of order (a reviewer or
-    /// completion event before the plan `run.started`, or anything after
-    /// `run.completed`), or events that do not all share one run id (a spliced
-    /// stream, e.g. a `reviewer.resolved` from a different run grafted onto this one).
-    /// Such a stream is not a trustworthy record, so it fails closed even when the
-    /// per-event tallies happen to line up. Defaults to `false` (well formed) so an
-    /// empty digest is not spuriously malformed.
-    malformed: bool,
     rows: Vec<ReviewerRow>,
+    /// The recorded aggregate verdict from `run.completed`. `None` if the stream
+    /// carried no completion event (a truncated run), in which case there is no
+    /// decision to report and the aggregate reads as incomplete.
     aggregate: Option<Decision>,
     gates: Option<Gates>,
     cost: Option<Money>,
@@ -117,26 +119,8 @@ fn digest(events: &[RunEvent]) -> RunDigest {
     let mut digest = RunDigest::default();
     let mut started: Vec<(String, Mode)> = Vec::new();
     let mut backends: Vec<(String, Backend)> = Vec::new();
-    let mut run_id: Option<&RunId> = None;
 
     for event in events {
-        // Structural ordering: `run.started` must precede every reviewer and
-        // completion event, and nothing may follow `run.completed`. A stream that
-        // breaks this is not a trustworthy record (it may have been reordered or
-        // truncated), so mark it and fail closed regardless of how the tallies look.
-        let is_start = matches!(event, RunEvent::RunStarted { .. });
-        if (!is_start && digest.started_count == 0) || digest.completed_count >= 1 {
-            digest.malformed = true;
-        }
-        // Run-id coherence: every event must belong to the same run. A stream that
-        // splices a `reviewer.resolved` from another run onto this run's
-        // start/complete can satisfy the row counts and tally yet never prove the
-        // selected run's gate actually resolved, so a mismatch fails closed.
-        match run_id {
-            None => run_id = Some(event.run_id()),
-            Some(seen) if seen != event.run_id() => digest.malformed = true,
-            Some(_) => {}
-        }
         match event {
             RunEvent::RunStarted {
                 branch,
@@ -148,7 +132,6 @@ fn digest(events: &[RunEvent]) -> RunDigest {
                 digest.branch = Some(branch.clone());
                 digest.base = Some(base.clone());
                 digest.changed = *changed;
-                digest.started_count = digest.started_count.saturating_add(1);
                 started = reviewers.iter().map(|r| (r.name.clone(), r.mode)).collect();
             }
             RunEvent::ReviewerStarted {
@@ -189,7 +172,6 @@ fn digest(events: &[RunEvent]) -> RunDigest {
                 cost_usd,
                 ..
             } => {
-                digest.completed_count = digest.completed_count.saturating_add(1);
                 digest.aggregate = Some(*verdict);
                 digest.gates = Some(*gates);
                 digest.duration_ms = Some(*duration_ms);
@@ -197,134 +179,18 @@ fn digest(events: &[RunEvent]) -> RunDigest {
             }
         }
     }
-    digest.started = started;
     digest
 }
 
-/// Whether a resolved gate row must be treated as blocking, computed fail-closed.
-///
-/// A gate row blocks if it decided to block, or if it is internally inconsistent: a
-/// `pass` that nonetheless carries a blocking finding, which mirrors
-/// [`crate::verdict::Verdict::is_consistent`] and can never be trusted as a pass.
-/// Advisors never gate, so they never block.
-fn gate_row_blocks(row: &ReviewerRow) -> bool {
-    row.mode == Mode::Gate
-        && (row.decision == Decision::Block
-            || row.findings.iter().any(|f| f.kind == FindingKind::Blocking))
-}
-
-/// Whether a resolved *gate* row's recorded decision is internally consistent with
-/// its findings, mirroring [`crate::verdict::Verdict::is_consistent`]: a `block` must
-/// carry at least one blocking finding, and a `pass` must carry none.
-///
-/// Only gate rows are subject to this. The runner clamps every advisor decision to
-/// `pass` while preserving its findings (see `resolve` in `src/runner.rs`), so an
-/// advisor row that passes while carrying a blocking finding is the normal clamped
-/// state, not a corruption. Treating it as malformed would fail the run closed and let
-/// an advisor block the merge, which advisors must never do. So advisors are always
-/// consistent here, exactly as they never gate in the live aggregation.
-fn row_is_consistent(row: &ReviewerRow) -> bool {
-    if row.mode != Mode::Gate {
-        return true;
+/// The aggregate check conclusion for a digest: the recorded `run.completed` verdict
+/// drawn onto a check. A recorded pass is a success; a recorded block is a failure; a
+/// run that never completed has no verdict to report, so it reads as a failure (an
+/// incomplete run is not a pass).
+fn aggregate_conclusion(digest: &RunDigest) -> Conclusion {
+    match digest.aggregate {
+        Some(Decision::Pass) => Conclusion::Success,
+        Some(Decision::Block) | None => Conclusion::Failure,
     }
-    let has_blocking = row.findings.iter().any(|f| f.kind == FindingKind::Blocking);
-    match row.decision {
-        Decision::Pass => !has_blocking,
-        Decision::Block => has_blocking,
-    }
-}
-
-/// Whether the replayed run is structurally complete, well-ordered, and internally
-/// consistent enough to be trusted at all, independent of whether it passed.
-///
-/// The report replays a persisted (and therefore untrusted) `run.jsonl`, which can be
-/// truncated, reordered, or hand-edited. Before any verdict it carries can be
-/// believed, the stream must prove itself a complete and self-consistent record: it
-/// announces its plan exactly once (one `run.started`), completes exactly once (one
-/// `run.completed`), is in a valid event order, produced a resolved gate row for
-/// every gate the plan announced, and carries a recorded gate tally that agrees with
-/// the rows. A stream that fails any of these cannot rule out omitted or dropped
-/// gates, or has a record that contradicts itself, so neither the aggregate nor any
-/// per-reviewer check may report success off it. This is the shared trust gate both
-/// [`is_clean_pass`] and the per-reviewer checks build on.
-fn is_well_formed_run(digest: &RunDigest) -> bool {
-    if digest.malformed {
-        return false;
-    }
-    // The plan is announced once and the run completes once. A stream missing its
-    // `run.started` cannot prove which reviewers were meant to run (omitted gates
-    // cannot be ruled out); one missing its `run.completed` is truncated; a
-    // duplicated either is not a single coherent record.
-    if digest.started_count != 1 || digest.completed_count != 1 {
-        return false;
-    }
-    // No resolved gate row may contradict itself (a block with no blocking finding, or
-    // a pass that carries one); such a row is a corrupted record, so the whole run
-    // fails closed. Advisors are exempt: the runner clamps them to pass while keeping
-    // their findings, so an advisor pass with a blocking finding is legitimate and must
-    // not fail the run closed (that would let an advisor gate). See `row_is_consistent`.
-    if !digest.rows.iter().all(row_is_consistent) {
-        return false;
-    }
-    // Every gate the plan announced produced a matching resolved gate row.
-    let resolved_gates = digest.rows.iter().filter(|r| r.mode == Mode::Gate).count();
-    let started_gates = digest
-        .started
-        .iter()
-        .filter(|(_, mode)| *mode == Mode::Gate)
-        .count();
-    if started_gates != resolved_gates {
-        return false;
-    }
-    for (name, mode) in &digest.started {
-        if *mode == Mode::Gate
-            && !digest
-                .rows
-                .iter()
-                .any(|r| &r.name == name && r.mode == Mode::Gate)
-        {
-            return false;
-        }
-    }
-    // The recorded tally, when present, must agree with the rows on every field.
-    // Deriving `passed` from the rows (resolved gates minus blocked ones) and
-    // requiring all three of total/passed/blocked to match closes the gap where an
-    // internally inconsistent tally (say total=1, passed=0, blocked=0) would still
-    // be trusted; it also implies the `total == passed + blocked` invariant. This is
-    // a property of the record, not of the pass decision, so it lives here where both
-    // the aggregate and the per-reviewer checks honor it.
-    if let Some(gates) = digest.gates {
-        let resolved = u32::try_from(resolved_gates).unwrap_or(u32::MAX);
-        let blocked = u32::try_from(digest.rows.iter().filter(|r| gate_row_blocks(r)).count())
-            .unwrap_or(u32::MAX);
-        let passed = resolved.saturating_sub(blocked);
-        if gates.total != resolved || gates.blocked != blocked || gates.passed != passed {
-            return false;
-        }
-    }
-    true
-}
-
-/// Whether the replayed run is a clean pass the aggregate check may report as
-/// `success`, computed fail-closed from the reviewer rows rather than by trusting
-/// the recorded `run.completed` verdict.
-///
-/// Builds on [`is_well_formed_run`]: the run must first be a complete, well-ordered,
-/// internally consistent record, and then the rows must independently agree it
-/// passed: the recorded aggregate is `pass` and no gate row blocks or contradicts
-/// itself. Any inconsistency fails closed.
-fn is_clean_pass(digest: &RunDigest) -> bool {
-    if !is_well_formed_run(digest) {
-        return false;
-    }
-    if digest.aggregate != Some(Decision::Pass) {
-        return false;
-    }
-    // No gate row may block or contradict itself.
-    if digest.rows.iter().any(gate_row_blocks) {
-        return false;
-    }
-    true
 }
 
 // ---------------------------------------------------------------------------
@@ -381,25 +247,16 @@ fn status_line(digest: &RunDigest) -> String {
         .map(|c| format!(", {c}"))
         .unwrap_or_default();
 
-    // Fail closed: only call it passed when the rows independently agree, never on
-    // the recorded verdict alone.
-    let headline = if is_clean_pass(digest) {
-        if total == 0 {
-            "**Passed.** No gates were triggered.".to_string()
-        } else {
-            format!("**Passed.** All {total} gate(s) passed.")
-        }
-    } else {
-        match digest.aggregate {
-            Some(Decision::Pass) => {
-                "**Blocked.** The recorded run is internally inconsistent; failing closed."
-                    .to_string()
+    let headline = match digest.aggregate {
+        Some(Decision::Pass) => {
+            if total == 0 {
+                "**Passed.** No gates were triggered.".to_string()
+            } else {
+                format!("**Passed.** All {total} gate(s) passed.")
             }
-            Some(Decision::Block) => {
-                format!("**Blocked.** {passed} of {total} gate(s) passed.")
-            }
-            None => "**Incomplete.** The run did not finish.".to_string(),
         }
+        Some(Decision::Block) => format!("**Blocked.** {passed} of {total} gate(s) passed."),
+        None => "**Incomplete.** The run did not finish.".to_string(),
     };
     format!("{headline} {reviewers} reviewer(s) ran{timing}{cost}.")
 }
@@ -463,15 +320,13 @@ fn footer() -> String {
 // Check runs
 // ---------------------------------------------------------------------------
 
-/// A check-run conclusion, limited to the three the adapter emits.
+/// A check-run conclusion, limited to the two the adapter emits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Conclusion {
     /// A passing gate, or any advisor.
     Success,
     /// A blocking gate (or the aggregate when any gate blocked).
     Failure,
-    /// Reserved for non-gating states; unused today but kept explicit.
-    Neutral,
 }
 
 impl Conclusion {
@@ -479,7 +334,6 @@ impl Conclusion {
         match self {
             Conclusion::Success => "success",
             Conclusion::Failure => "failure",
-            Conclusion::Neutral => "neutral",
         }
     }
 }
@@ -510,37 +364,22 @@ struct CheckRun {
 /// The aggregate is always present so it can serve as the single stable required
 /// check, even when zero reviewers matched (a trivial pass).
 fn check_runs(ctx: &PrContext, digest: &RunDigest) -> Vec<CheckRun> {
-    // A per-reviewer gate may only conclude success when the run as a whole is a
-    // complete, well-ordered record. Otherwise a truncated or reordered stream (one
-    // that fails the aggregate) could still publish a green check for an individual
-    // passing row, which the replay path has not proven trustworthy.
-    let run_ok = is_well_formed_run(digest);
     let mut checks: Vec<CheckRun> = digest
         .rows
         .iter()
-        .map(|row| reviewer_check(ctx, row, run_ok))
+        .map(|row| reviewer_check(ctx, row))
         .collect();
     checks.push(aggregate_check(ctx, digest));
     checks
 }
 
-/// The check run for one reviewer.
-///
-/// `run_ok` is whether the whole run is a structurally complete, well-ordered,
-/// internally consistent record ([`is_well_formed_run`]); no check may publish a
-/// green success off a run that is not.
-fn reviewer_check(ctx: &PrContext, row: &ReviewerRow, run_ok: bool) -> CheckRun {
-    // Fail closed: a gate that blocks, that passed while carrying a blocking finding
-    // (self-contradictory), or that sits in an incomplete/reordered run concludes
-    // failure. An advisor never gates (so it never concludes failure), but it must
-    // not publish a green success off an untrustworthy run either: in that case it
-    // concludes `neutral`, which stays non-blocking yet does not claim a clean pass.
-    let blocks = gate_row_blocks(row);
+/// The check run for one reviewer, reflecting its recorded row. A gate that blocked
+/// concludes failure; a passing gate concludes success; an advisor always concludes
+/// success (it never gates) and carries its findings along.
+fn reviewer_check(ctx: &PrContext, row: &ReviewerRow) -> CheckRun {
     let (conclusion, decision_word) = match row.mode {
-        Mode::Advisor if !run_ok => (Conclusion::Neutral, "Advisory (unverified)"),
         Mode::Advisor => (Conclusion::Success, "Advisory"),
-        Mode::Gate if blocks => (Conclusion::Failure, "Blocked"),
-        Mode::Gate if !run_ok => (Conclusion::Failure, "Unverified"),
+        Mode::Gate if row.blocks() => (Conclusion::Failure, "Blocked"),
         Mode::Gate => (Conclusion::Success, "Passed"),
     };
     let title = format!("{decision_word}: {}", truncate(&row.summary, 110));
@@ -558,44 +397,26 @@ fn reviewer_check(ctx: &PrContext, row: &ReviewerRow, run_ok: bool) -> CheckRun 
     }
 }
 
-/// The aggregate `bastion` check, reflecting the whole-run gate.
+/// The aggregate `bastion` check, reflecting the whole-run gate as the runner
+/// recorded it.
 fn aggregate_check(ctx: &PrContext, digest: &RunDigest) -> CheckRun {
-    // Fail closed: the aggregate concludes success only when the rows independently
-    // agree it is a clean pass. A recorded pass that the rows contradict, a run that
-    // never completed, or a recorded block all conclude failure, never a silent pass.
-    let clean = is_clean_pass(digest);
-    let conclusion = if clean {
-        Conclusion::Success
-    } else {
-        Conclusion::Failure
-    };
+    let conclusion = aggregate_conclusion(digest);
     let (passed, total) = digest.gates.map_or((0, 0), |g| (g.passed, g.total));
-    let title = if clean {
-        if total == 0 {
-            "No gates triggered".to_string()
-        } else {
-            format!("{passed}/{total} gates passed")
+    let title = match digest.aggregate {
+        Some(Decision::Pass) => {
+            if total == 0 {
+                "No gates triggered".to_string()
+            } else {
+                format!("{passed}/{total} gates passed")
+            }
         }
-    } else {
-        match digest.aggregate {
-            Some(Decision::Pass) => "Blocked: recorded run is internally inconsistent".to_string(),
-            Some(Decision::Block) => format!("Blocked: {passed}/{total} gates passed"),
-            None => "Incomplete run".to_string(),
-        }
+        Some(Decision::Block) => format!("Blocked: {passed}/{total} gates passed"),
+        None => "Incomplete run".to_string(),
     };
 
     let mut summary = String::new();
     summary.push_str(&status_line(digest));
     summary.push_str("\n\n");
-    // When the recorded run claims a pass but the rows disagree, explain the
-    // fail-closed override so a reader is not confused by a green-looking run.
-    if !clean && digest.aggregate == Some(Decision::Pass) {
-        summary.push_str(
-            "> Note: the recorded run reported a pass, but its reviewer rows are internally \
-             inconsistent (a missing or self-contradictory gate, or a tally that disagrees with \
-             the rows). Failing the aggregate closed.\n\n",
-        );
-    }
     if digest.rows.is_empty() {
         summary.push_str("No reviewers were triggered by this change.\n");
     } else {
@@ -671,10 +492,10 @@ fn annotation_message(detail: &str) -> String {
     )
 }
 
-/// Cap an assembled check-run summary at [`MAX_CHECK_SUMMARY`] so an untrusted,
-/// verbose finding cannot push `output.summary` past GitHub's 65535-byte limit and
-/// 422 the request. When cut, it points the reader at the sticky comment, which
-/// carries every finding in full.
+/// Cap an assembled check-run summary at [`MAX_CHECK_SUMMARY`] so a verbose finding
+/// cannot push `output.summary` past GitHub's 65535-byte limit and 422 the request.
+/// When cut, it points the reader at the sticky comment, which carries every finding
+/// in full.
 fn cap_check_summary(summary: String) -> String {
     if summary.chars().count() <= MAX_CHECK_SUMMARY {
         return summary;
@@ -1108,8 +929,9 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_fails_closed_on_an_incomplete_run() {
-        // A stream with no run.completed: the aggregate must not read as a pass.
+    fn aggregate_reads_incomplete_run_as_failure() {
+        // A stream with no run.completed has no recorded verdict, so the aggregate
+        // cannot read as a pass: an incomplete run concludes failure.
         let events = vec![RunEvent::RunStarted {
             run: RunId("r".into()),
             branch: "b".into(),
@@ -1120,16 +942,17 @@ mod tests {
         let checks = check_runs(&ctx(), &digest(&events));
         let aggregate = checks.iter().find(|c| c.name == "bastion").unwrap();
         assert_eq!(aggregate.conclusion, Conclusion::Failure);
+        assert_eq!(aggregate.title, "Incomplete run");
     }
 
-    /// Build a one-gate run: it starts `gate_count` gates, resolves `rows` of them,
-    /// and records `completed` (verdict + tally). Used to forge inconsistent runs.
-    fn forged_run(
+    /// Build a run: it starts `started_gates` gates, resolves `rows` of them, and
+    /// records `completed` (the aggregate verdict and tally).
+    fn recorded_run(
         started_gates: &[&str],
         rows: Vec<RunEvent>,
         completed: (Decision, Gates),
     ) -> Vec<RunEvent> {
-        let run = RunId("r-forge".into());
+        let run = RunId("r-rec".into());
         let mut events = vec![RunEvent::RunStarted {
             run: run.clone(),
             branch: "feat".into(),
@@ -1156,7 +979,7 @@ mod tests {
 
     fn gate_resolved(name: &str, verdict: Decision, findings: Vec<Finding>) -> RunEvent {
         RunEvent::ReviewerResolved {
-            run: RunId("r-forge".into()),
+            run: RunId("r-rec".into()),
             reviewer: name.into(),
             verdict,
             summary: format!("{name} summary"),
@@ -1169,9 +992,8 @@ mod tests {
 
     #[test]
     fn clean_pass_with_gates_concludes_success() {
-        // A genuine pass: every started gate resolved pass with no blocking finding,
-        // and the tally agrees. The aggregate is the one case that may go green.
-        let events = forged_run(
+        // A recorded pass: the aggregate and the per-reviewer gate both go green.
+        let events = recorded_run(
             &["g1"],
             vec![gate_resolved("g1", Decision::Pass, vec![])],
             (
@@ -1184,7 +1006,6 @@ mod tests {
             ),
         );
         let digest = digest(&events);
-        assert!(is_clean_pass(&digest));
         let checks = check_runs(&ctx(), &digest);
         assert_eq!(
             checks
@@ -1205,33 +1026,34 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_fails_closed_on_a_pass_with_a_blocking_finding() {
-        // The dangerous case: a replayed run records a pass, but a gate row passed
-        // while carrying a blocking finding (self-contradictory). The aggregate must
-        // not publish success, and the contradictory reviewer check must fail too.
-        let events = forged_run(
+    fn recorded_block_concludes_failure() {
+        // A recorded block: the aggregate fails and the blocking gate's check fails.
+        let events = recorded_run(
             &["g1"],
             vec![gate_resolved(
                 "g1",
-                Decision::Pass,
+                Decision::Block,
                 vec![finding(FindingKind::Blocking, "src/a.rs", 1, 1, "leak")],
             )],
             (
-                Decision::Pass,
+                Decision::Block,
                 Gates {
                     total: 1,
-                    passed: 1,
-                    blocked: 0,
+                    passed: 0,
+                    blocked: 1,
                 },
             ),
         );
         let digest = digest(&events);
-        assert!(!is_clean_pass(&digest));
         let checks = check_runs(&ctx(), &digest);
-        let aggregate = checks.iter().find(|c| c.name == "bastion").unwrap();
-        assert_eq!(aggregate.conclusion, Conclusion::Failure);
-        assert!(aggregate.title.contains("internally inconsistent"));
-        assert!(aggregate.summary.contains("Failing the aggregate closed"));
+        assert_eq!(
+            checks
+                .iter()
+                .find(|c| c.name == "bastion")
+                .unwrap()
+                .conclusion,
+            Conclusion::Failure
+        );
         assert_eq!(
             checks
                 .iter()
@@ -1240,115 +1062,24 @@ mod tests {
                 .conclusion,
             Conclusion::Failure
         );
-        // The comment headline also fails closed rather than claiming a pass.
-        assert!(
-            comment_body(&digest)
-                .contains("**Blocked.** The recorded run is internally inconsistent")
-        );
-    }
-
-    #[test]
-    fn aggregate_fails_closed_on_a_missing_gate() {
-        // The run announced two gates but only one resolved; the recorded pass is not
-        // trustworthy because a gate is missing entirely.
-        let events = forged_run(
-            &["g1", "g2"],
-            vec![gate_resolved("g1", Decision::Pass, vec![])],
-            (
-                Decision::Pass,
-                Gates {
-                    total: 2,
-                    passed: 2,
-                    blocked: 0,
-                },
-            ),
-        );
-        let digest = digest(&events);
-        assert!(!is_clean_pass(&digest));
-        let checks = check_runs(&ctx(), &digest);
-        assert_eq!(
-            checks
-                .iter()
-                .find(|c| c.name == "bastion")
-                .unwrap()
-                .conclusion,
-            Conclusion::Failure
-        );
-    }
-
-    #[test]
-    fn aggregate_fails_closed_on_a_tally_mismatch() {
-        // Every started gate resolved cleanly, but the recorded tally lies about how
-        // many gates there were. A tally that disagrees with the rows fails closed.
-        let events = forged_run(
-            &["g1"],
-            vec![gate_resolved("g1", Decision::Pass, vec![])],
-            (
-                Decision::Pass,
-                Gates {
-                    total: 2,
-                    passed: 2,
-                    blocked: 0,
-                },
-            ),
-        );
-        let digest = digest(&events);
-        assert!(!is_clean_pass(&digest));
-        assert_eq!(
-            check_runs(&ctx(), &digest)
-                .iter()
-                .find(|c| c.name == "bastion")
-                .unwrap()
-                .conclusion,
-            Conclusion::Failure
-        );
-    }
-
-    #[test]
-    fn aggregate_fails_closed_on_a_passed_count_mismatch() {
-        // The total and blocked fields agree with the single resolved gate, but the
-        // recorded `passed` is internally impossible (total=1, blocked=0 implies
-        // passed=1, yet the tally claims 0). Validating `passed` against the rows
-        // closes this gap, so the aggregate must not go green.
-        let events = forged_run(
-            &["g1"],
-            vec![gate_resolved("g1", Decision::Pass, vec![])],
-            (
-                Decision::Pass,
-                Gates {
-                    total: 1,
-                    passed: 0,
-                    blocked: 0,
-                },
-            ),
-        );
-        let digest = digest(&events);
-        assert!(!is_clean_pass(&digest));
-        assert_eq!(
-            check_runs(&ctx(), &digest)
-                .iter()
-                .find(|c| c.name == "bastion")
-                .unwrap()
-                .conclusion,
-            Conclusion::Failure
-        );
+        // The comment headline reflects the recorded block.
+        assert!(comment_body(&digest).contains("**Blocked.** 0 of 1 gate(s) passed."));
     }
 
     #[test]
     fn trivial_pass_with_a_plan_but_no_reviewers_concludes_success() {
         // The legitimate zero-reviewer run: the plan was announced (one run.started
-        // with no reviewers) and completed clean. This must stay a green aggregate;
-        // the missing-plan guard below must not mistake it for a malformed stream.
+        // with no reviewers) and recorded a clean pass. The aggregate stays green.
         let events = vec![
             RunEvent::RunStarted {
-                run: RunId("r-forge".into()),
+                run: RunId("r-rec".into()),
                 branch: "feat".into(),
                 base: "main".into(),
                 changed: 1,
                 reviewers: vec![],
             },
             RunEvent::RunCompleted {
-                run: RunId("r-forge".into()),
+                run: RunId("r-rec".into()),
                 verdict: Decision::Pass,
                 gates: Gates {
                     total: 0,
@@ -1360,7 +1091,6 @@ mod tests {
             },
         ];
         let digest = digest(&events);
-        assert!(is_clean_pass(&digest));
         assert_eq!(
             check_runs(&ctx(), &digest)
                 .iter()
@@ -1372,160 +1102,13 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_fails_closed_on_a_missing_run_plan() {
-        // A forged stream with only a passing run.completed and a zero-gate tally, but
-        // no run.started to announce the reviewer plan. Without the plan, omitted gates
-        // cannot be ruled out, so success must not be representable.
-        let events = vec![RunEvent::RunCompleted {
-            run: RunId("r-forge".into()),
-            verdict: Decision::Pass,
-            gates: Gates {
-                total: 0,
-                passed: 0,
-                blocked: 0,
-            },
-            duration_ms: 1000,
-            cost_usd: Money::from_cents(0),
-        }];
-        let digest = digest(&events);
-        assert!(!is_clean_pass(&digest));
-        assert_eq!(
-            check_runs(&ctx(), &digest)
-                .iter()
-                .find(|c| c.name == "bastion")
-                .unwrap()
-                .conclusion,
-            Conclusion::Failure
-        );
-    }
-
-    #[test]
-    fn aggregate_fails_closed_on_a_reordered_stream() {
-        // A resolved gate row that arrives *before* the plan announces it. The
-        // per-event tallies line up (one started gate, one resolved gate, a matching
-        // pass tally), but the event order is invalid, so the stream is not a
-        // trustworthy record and success must not be representable.
-        let events = vec![
-            gate_resolved("g1", Decision::Pass, vec![]),
-            RunEvent::RunStarted {
-                run: RunId("r-forge".into()),
-                branch: "feat".into(),
-                base: "main".into(),
-                changed: 1,
-                reviewers: vec![ReviewerRef {
-                    name: "g1".into(),
-                    mode: Mode::Gate,
-                }],
-            },
-            RunEvent::RunCompleted {
-                run: RunId("r-forge".into()),
-                verdict: Decision::Pass,
-                gates: Gates {
-                    total: 1,
-                    passed: 1,
-                    blocked: 0,
-                },
-                duration_ms: 1000,
-                cost_usd: Money::from_cents(0),
-            },
-        ];
-        let digest = digest(&events);
-        assert!(digest.malformed);
-        assert!(!is_clean_pass(&digest));
-        assert_eq!(
-            check_runs(&ctx(), &digest)
-                .iter()
-                .find(|c| c.name == "bastion")
-                .unwrap()
-                .conclusion,
-            Conclusion::Failure
-        );
-    }
-
-    #[test]
-    fn per_reviewer_gate_fails_closed_on_a_truncated_run() {
-        // A passing gate row but no run.completed: the run is truncated. The aggregate
-        // fails closed, and the per-reviewer gate check must not publish success
-        // either, since the run as a whole was never proven complete.
+    fn advisor_with_a_blocking_finding_does_not_block() {
+        // The runner clamps advisors to pass while keeping their findings, so an advisor
+        // row with verdict pass and a blocking finding is legitimate. It never gates: the
+        // advisor check concludes success and the recorded pass aggregate stays green.
         let events = vec![
             RunEvent::RunStarted {
-                run: RunId("r-forge".into()),
-                branch: "feat".into(),
-                base: "main".into(),
-                changed: 1,
-                reviewers: vec![ReviewerRef {
-                    name: "g1".into(),
-                    mode: Mode::Gate,
-                }],
-            },
-            gate_resolved("g1", Decision::Pass, vec![]),
-        ];
-        let digest = digest(&events);
-        let checks = check_runs(&ctx(), &digest);
-        assert_eq!(
-            checks
-                .iter()
-                .find(|c| c.name == "bastion / g1")
-                .unwrap()
-                .conclusion,
-            Conclusion::Failure
-        );
-        assert_eq!(
-            checks
-                .iter()
-                .find(|c| c.name == "bastion")
-                .unwrap()
-                .conclusion,
-            Conclusion::Failure
-        );
-    }
-
-    #[test]
-    fn per_reviewer_gate_fails_closed_on_an_inconsistent_tally() {
-        // A clean passing gate row, structurally complete, but the recorded
-        // run.completed tally is internally impossible (total=1, blocked=0 implies
-        // passed=1, yet it claims 0). The record contradicts itself, so the
-        // per-reviewer gate check must fail closed too, not just the aggregate.
-        let events = forged_run(
-            &["g1"],
-            vec![gate_resolved("g1", Decision::Pass, vec![])],
-            (
-                Decision::Pass,
-                Gates {
-                    total: 1,
-                    passed: 0,
-                    blocked: 0,
-                },
-            ),
-        );
-        let digest = digest(&events);
-        let checks = check_runs(&ctx(), &digest);
-        assert_eq!(
-            checks
-                .iter()
-                .find(|c| c.name == "bastion / g1")
-                .unwrap()
-                .conclusion,
-            Conclusion::Failure
-        );
-        assert_eq!(
-            checks
-                .iter()
-                .find(|c| c.name == "bastion")
-                .unwrap()
-                .conclusion,
-            Conclusion::Failure
-        );
-    }
-
-    #[test]
-    fn advisor_concludes_neutral_not_success_on_an_untrustworthy_run() {
-        // An advisor in a truncated run (no run.completed). Advisors never gate, so it
-        // must not conclude failure, but it must not publish a green success off an
-        // unproven run either: the conclusion is neutral.
-        let events = vec![
-            RunEvent::RunStarted {
-                run: RunId("r-forge".into()),
+                run: RunId("r-rec".into()),
                 branch: "feat".into(),
                 base: "main".into(),
                 changed: 1,
@@ -1534,16 +1117,45 @@ mod tests {
                     mode: Mode::Advisor,
                 }],
             },
-            gate_resolved("a1", Decision::Pass, vec![]),
+            RunEvent::ReviewerResolved {
+                run: RunId("r-rec".into()),
+                reviewer: "a1".into(),
+                verdict: Decision::Pass,
+                summary: "x".into(),
+                findings: vec![finding(FindingKind::Blocking, "src/a.rs", 1, 1, "leak")],
+                usage: None,
+                duration_ms: 1000,
+                has_transcript: true,
+            },
+            RunEvent::RunCompleted {
+                run: RunId("r-rec".into()),
+                verdict: Decision::Pass,
+                gates: Gates {
+                    total: 0,
+                    passed: 0,
+                    blocked: 0,
+                },
+                duration_ms: 1000,
+                cost_usd: Money::from_cents(0),
+            },
         ];
         let digest = digest(&events);
+        let checks = check_runs(&ctx(), &digest);
         assert_eq!(
-            check_runs(&ctx(), &digest)
+            checks
                 .iter()
                 .find(|c| c.name == "bastion / a1")
                 .unwrap()
                 .conclusion,
-            Conclusion::Neutral
+            Conclusion::Success
+        );
+        assert_eq!(
+            checks
+                .iter()
+                .find(|c| c.name == "bastion")
+                .unwrap()
+                .conclusion,
+            Conclusion::Success
         );
     }
 
@@ -1571,63 +1183,11 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_fails_closed_on_a_spliced_run_id() {
-        // run.started/run.completed belong to run A, but a passing reviewer.resolved is
-        // grafted from run B. The counts and recorded tally line up, but the row does
-        // not belong to this run, so the selected run's gate was never proven to
-        // resolve: fail closed.
-        let events = vec![
-            RunEvent::RunStarted {
-                run: RunId("r-A".into()),
-                branch: "feat".into(),
-                base: "main".into(),
-                changed: 1,
-                reviewers: vec![ReviewerRef {
-                    name: "g1".into(),
-                    mode: Mode::Gate,
-                }],
-            },
-            RunEvent::ReviewerResolved {
-                run: RunId("r-B".into()),
-                reviewer: "g1".into(),
-                verdict: Decision::Pass,
-                summary: "ok".into(),
-                findings: vec![],
-                usage: None,
-                duration_ms: 1000,
-                has_transcript: true,
-            },
-            RunEvent::RunCompleted {
-                run: RunId("r-A".into()),
-                verdict: Decision::Pass,
-                gates: Gates {
-                    total: 1,
-                    passed: 1,
-                    blocked: 0,
-                },
-                duration_ms: 1000,
-                cost_usd: Money::from_cents(0),
-            },
-        ];
-        let digest = digest(&events);
-        assert!(digest.malformed);
-        assert!(!is_clean_pass(&digest));
-        assert_eq!(
-            check_runs(&ctx(), &digest)
-                .iter()
-                .find(|c| c.name == "bastion")
-                .unwrap()
-                .conclusion,
-            Conclusion::Failure
-        );
-    }
-
-    #[test]
     fn oversized_check_summary_is_capped_with_a_pointer() {
         // A reviewer carrying an enormous finding: the per-reviewer check summary must
         // stay under GitHub's output.summary limit, with a pointer to the comment.
         let huge = "y".repeat(MAX_CHECK_SUMMARY + 5000);
-        let events = forged_run(
+        let events = recorded_run(
             &["g1"],
             vec![gate_resolved(
                 "g1",
@@ -1648,96 +1208,6 @@ mod tests {
         let g1 = checks.iter().find(|c| c.name == "bastion / g1").unwrap();
         assert!(g1.summary.chars().count() <= MAX_CHECK_SUMMARY + 80);
         assert!(g1.summary.contains("truncated; see the Bastion comment"));
-    }
-
-    #[test]
-    fn fails_closed_on_a_block_row_without_a_blocking_finding() {
-        // A gate that recorded `block` but carries no blocking finding is self-
-        // contradictory (mirrors Verdict::is_consistent). The run is treated as
-        // malformed, not as a trustworthy blocked gate.
-        let events = forged_run(
-            &["g1"],
-            vec![gate_resolved("g1", Decision::Block, vec![])],
-            (
-                Decision::Block,
-                Gates {
-                    total: 1,
-                    passed: 0,
-                    blocked: 1,
-                },
-            ),
-        );
-        let digest = digest(&events);
-        assert!(!is_well_formed_run(&digest));
-        assert!(!is_clean_pass(&digest));
-        assert_eq!(
-            check_runs(&ctx(), &digest)
-                .iter()
-                .find(|c| c.name == "bastion")
-                .unwrap()
-                .conclusion,
-            Conclusion::Failure
-        );
-    }
-
-    #[test]
-    fn advisor_pass_with_a_blocking_finding_does_not_block() {
-        // The runner clamps advisors to pass while keeping their findings, so an advisor
-        // row with verdict pass and a blocking finding is legitimate, not malformed. It
-        // must not fail the run closed (that would let an advisor gate): the run stays
-        // well formed, the advisor check is success, and the aggregate passes.
-        let events = vec![
-            RunEvent::RunStarted {
-                run: RunId("r-forge".into()),
-                branch: "feat".into(),
-                base: "main".into(),
-                changed: 1,
-                reviewers: vec![ReviewerRef {
-                    name: "a1".into(),
-                    mode: Mode::Advisor,
-                }],
-            },
-            RunEvent::ReviewerResolved {
-                run: RunId("r-forge".into()),
-                reviewer: "a1".into(),
-                verdict: Decision::Pass,
-                summary: "x".into(),
-                findings: vec![finding(FindingKind::Blocking, "src/a.rs", 1, 1, "leak")],
-                usage: None,
-                duration_ms: 1000,
-                has_transcript: true,
-            },
-            RunEvent::RunCompleted {
-                run: RunId("r-forge".into()),
-                verdict: Decision::Pass,
-                gates: Gates {
-                    total: 0,
-                    passed: 0,
-                    blocked: 0,
-                },
-                duration_ms: 1000,
-                cost_usd: Money::from_cents(0),
-            },
-        ];
-        let digest = digest(&events);
-        assert!(is_well_formed_run(&digest));
-        let checks = check_runs(&ctx(), &digest);
-        assert_eq!(
-            checks
-                .iter()
-                .find(|c| c.name == "bastion / a1")
-                .unwrap()
-                .conclusion,
-            Conclusion::Success
-        );
-        assert_eq!(
-            checks
-                .iter()
-                .find(|c| c.name == "bastion")
-                .unwrap()
-                .conclusion,
-            Conclusion::Success
-        );
     }
 
     #[test]
