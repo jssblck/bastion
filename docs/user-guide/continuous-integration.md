@@ -12,7 +12,7 @@ order: 6
 The local loop gets you to green before you open a PR. CI is the authoritative
 confirmation: it runs the *same* reviewers from the *same* `bastion/reviewers.yaml`
 and reports one merge gate. Because routing and aggregation are shared, CI rarely
-surprises an author who looped locally. This chapter covers the GitHub adapter --
+surprises an author who looped locally. This chapter covers the GitHub adapter,
 the one forge Bastion targets.
 
 > Bastion does not own CI; it plugs into yours. The workflow, the secrets, the
@@ -23,7 +23,7 @@ the one forge Bastion targets.
 > comments, live aggregate table, and packaged action described below are the
 > adapter Bastion is converging toward. What ships *today* is a self-hosted
 > workflow that runs `bastion review` and gates on its exit code, uploading the
-> full run as an artifact -- it does not yet post per-reviewer checks or PR
+> full run as an artifact. It does not yet post per-reviewer checks or PR
 > comments, and `bastion/review-action@v1` is not yet published. Jump to
 > [What ships today](#what-ships-today) for a workflow you can use now; the rest of
 > the chapter describes the target shape.
@@ -33,25 +33,25 @@ the one forge Bastion targets.
 When fully wired, on each pull-request event (`opened`, `synchronize`, `reopened`)
 the adapter computes the changed files, routes to the matching reviewers, runs them
 in parallel with per-reviewer timeouts, and reports back. A verdict maps onto two
-GitHub surfaces -- the same two a human reviewer uses:
+GitHub surfaces, the same two a human reviewer uses:
 
 - **Findings become inline PR review comments.** Each finding is posted on its
   `path` and line range. `blocking` and `optional` render differently so a reader
   can tell at a glance which comments hold up the merge. These comments are the
-  surface an implementing agent reads -- everything it needs to act is there.
+  surface an implementing agent reads; everything it needs to act is there.
 - **Each verdict becomes a check run** named after the reviewer
   (`bastion / tenant-isolation`). A blocking gate reports `failure`; a passing gate
   reports `success`; an advisor always reports `success` with its findings
   attached.
 
-The local-to-GitHub mapping is one-to-one -- the JSONL events you read locally are
+The local-to-GitHub mapping is one-to-one: the JSONL events you read locally are
 the same decisions GitHub renders as checks and comments. The full parity table is
 in the [local surface reference](../developer-guide/local-surface.md#parity-with-github).
 
 ## The one required check
 
 Branch protection needs you to name the checks that must pass, but Bastion's set of
-reviewers *varies per PR* -- a docs-only PR and a server PR trigger different
+reviewers *varies per PR*: a docs-only PR and a server PR trigger different
 reviewers, so there is no fixed list of names to require.
 
 The fix is a single always-present check, **`bastion`**, and it is the only one
@@ -70,7 +70,7 @@ adapter leans on GitHub's native check-run status:
   moment it is dispatched, so a 15-minute end-to-end reviewer shows a live spinner
   rather than reading as a stall, then flips to its conclusion when it resolves.
 - **A live aggregate table.** The `bastion` check stays `in_progress` until every
-  reviewer resolves, and its output is rewritten as each one finishes -- a table of
+  reviewer resolves, and its output is rewritten as each one finishes: a table of
   every triggered reviewer with its mode, status, and elapsed time. One place to
   see what is running, what passed, and what blocked.
 - **A permanent run summary.** A rendered report is written to the run summary page
@@ -78,7 +78,7 @@ adapter leans on GitHub's native check-run status:
 
 Each reviewer's "Details" page carries its metadata, its verdict, the collapsed
 session transcript, and a tokens/cost table when the backend reports usage. That
-page is for humans and the occasional surprising decision -- not part of the
+page is for humans and the occasional surprising decision, not part of the
 implementing agent's normal loop, which lives entirely in the comments.
 
 ## What ships today
@@ -107,7 +107,7 @@ jobs:
 
       # 1. Install a pinned, published bastion release (not built from the PR).
       # 2. Install and authenticate your backend CLI (e.g. claude or codex),
-      #    ideally billed to the PR author -- see the auth pattern referenced below.
+      #    ideally billed to the PR author; see the auth pattern referenced below.
       # 3. Stand up anything your reviewers consume (a preview env, a database).
 
       - name: Review
@@ -116,13 +116,13 @@ jobs:
         # today. Upload the run dir as an artifact if you want the full detail.
 ```
 
-For a complete, working example -- pinned-release install, per-author backend
-credentials, and fork-PR safety -- see this repository's own
+For a complete, working example (pinned-release install, per-author backend
+credentials, and fork-PR safety), see this repository's own
 [`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml) and the
 [GitHub adapter reference](../developer-guide/github-adapter.md).
 
 Configure branch protection on your default branch to require this job (and to
-require review of the reviewer-policy paths -- see [Governance](./governance.md)).
+require review of the reviewer-policy paths; see [Governance](./governance.md)).
 Merging stays GitHub-native: an author enables auto-merge, and once the required
 job is green GitHub merges. A push re-triggers the workflow and it resolves again.
 
@@ -159,8 +159,8 @@ fail closed. Under heavy volume, a throttled subscription reads as a blocked mer
 (gates fail closed), so some teams use API billing in CI and keep subscriptions for
 the local loop.
 
-The full mechanics -- per-author secret naming, the rehydration step, fork-PR
-safety -- are in the
+The full mechanics (per-author secret naming, the rehydration step, fork-PR
+safety) are in the
 [GitHub adapter reference](../developer-guide/github-adapter.md#authentication--billing),
 including the worked example of Bastion reviewing its own PRs.
 
@@ -182,11 +182,11 @@ Bastion's job starts once it exists. (See
 This repository dogfoods the adapter through
 [`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml), running a
 pinned, published `bastion` release rather than a binary built from the PR's own
-sources -- so a change can never edit the engine that judges it. That workflow is
+sources, so a change can never edit the engine that judges it. That workflow is
 the concrete, self-hosted MVP described in the
 [GitHub adapter reference](../developer-guide/github-adapter.md).
 
 ---
 
-Next: [Governance](./governance.md) -- keeping humans at the policy layer with
+Next: [Governance](./governance.md). Keeping humans at the policy layer with
 CODEOWNERS and branch protection, and the escape-to-improvement loop.

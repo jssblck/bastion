@@ -13,7 +13,7 @@ source, with provenance in [`.agents/skills/readme.md`](../../.agents/skills/rea
 
 ## The core invariants
 
-These are not style preferences -- breaking one is a correctness bug.
+These are not style preferences; breaking one is a correctness bug.
 
 - **Gates fail closed; advisors fail open.** A gate that crashes, times out, or
   cannot produce a valid, consistent verdict resolves to `block`, never a silent
@@ -30,8 +30,8 @@ These are not style preferences -- breaking one is a correctness bug.
 
 ## Parse, don't validate
 
-Data crossing a boundary -- the YAML registry, CLI arguments, git output,
-subprocess output, agent responses -- is parsed *once*, at the edge, into a precise
+Data crossing a boundary (the YAML registry, CLI arguments, git output,
+subprocess output, agent responses) is parsed *once*, at the edge, into a precise
 type that makes invalid states unrepresentable, rather than carried around
 stringly-typed and re-checked at each use. Examples in the codebase:
 
@@ -50,7 +50,7 @@ findings.
 Prefer a newtype or enum to a bare `String`/`int` when the value has meaning:
 `RunId`, `Money` (cents inside, dollars on the wire), `Decision`, `Mode`, and
 `Backend` rather than strings and bools floating around. This is the
-`names-are-not-type-safety` skill -- a descriptive variable name is not a substitute
+`names-are-not-type-safety` skill: a descriptive variable name is not a substitute
 for a type the compiler checks.
 
 ## Error handling
@@ -60,7 +60,7 @@ context, not a `thiserror` library-error taxonomy:
 
 - No `.unwrap()` / `.expect()` on recoverable errors in non-test code. Propagate
   with `?` and add context (`.wrap_err(...)`).
-- `expect` is for genuine, documented invariants only -- "this cannot fail because
+- `expect` is for genuine, documented invariants only: "this cannot fail because
   ...", not laziness.
 - The `error-handling` reviewer in the registry gates this.
 
@@ -80,7 +80,7 @@ The test suite is hermetic and uses real fixtures, not mocking frameworks:
 - **The one deliberate double is the backend boundary.** `MockBackend` is a
   deterministic always-pass double for exercising the runner without an agent, and
   the fake `CommandRunner` lets the real backends run against a fake executable.
-  These are the agent/subprocess seam specifically -- not a general pattern to reach
+  These are the agent/subprocess seam specifically, not a general pattern to reach
   for elsewhere.
 - **Inline `#[cfg(test)] mod tests`** while the crate is small; the runner,
   backends, routing, config, and reviewer modules all keep their tests beside the

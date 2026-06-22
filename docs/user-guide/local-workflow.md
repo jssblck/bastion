@@ -26,8 +26,8 @@ bastion review --base main
 uncommitted and untracked files), selects the reviewers whose triggers match, runs
 them in parallel with per-reviewer timeouts, and renders progress and verdicts.
 
-- `--base <branch>` -- the branch to diff against. Defaults to `main`.
-- `--format <human|jsonl>` -- output format. Defaults to `human`.
+- `--base <branch>`: the branch to diff against. Defaults to `main`.
+- `--format <human|jsonl>`: output format. Defaults to `human`.
 
 ### Exit codes
 
@@ -46,8 +46,8 @@ until bastion review --base main; do
 done
 ```
 
-A blocked review is an *expected* outcome, not a crash -- Bastion still exits
-cleanly with structured output; only the code signals the gate.
+A blocked review is an *expected* outcome, not a crash: Bastion still exits
+cleanly with structured output, and only the code signals the gate.
 
 ## Two audiences, two formats
 
@@ -81,7 +81,7 @@ How an agent should consume it:
 - **Only need the outcome?** Ignore everything until `run.completed` and read its
   `verdict`.
 - **Want to react as you go?** Read each `reviewer.resolved` as it lands and act on
-  its `findings` -- a `path`, a `line_start`/`line_end`, and a `detail` telling you
+  its `findings`: a `path`, a `line_start`/`line_end`, and a `detail` telling you
   what to change. The findings are everything you need to fix the code.
 
 ### For agents: the consumption contract
@@ -91,7 +91,7 @@ If you are an agent driving the loop, this is the whole contract:
 1. Run `bastion review --base <branch> --format jsonl`.
 2. Parse stdout one line at a time as JSON; each line has a `type`.
 3. Act on every `reviewer.resolved` with `verdict: "block"` using its `findings`
-   (`path` + `line_start`/`line_end` + `detail`). Do not open transcripts -- the
+   (`path` + `line_start`/`line_end` + `detail`). Do not open transcripts; the
    findings already say what to change.
 4. The aggregate decision is `run.completed.verdict`. The process also exits
    non-zero on `block`, so you can branch on the exit code alone if you only need
@@ -114,9 +114,9 @@ The stream deliberately leaves out the verbose detail. A transcript is mostly no
 to an agent that just wants to know what to fix; streaming thousands of lines on
 every run would bury the findings and burn the agent's own context.
 
-- **Streamed:** the decisions and the things you act on immediately -- the reviewer
+- **Streamed:** the decisions and the things you act on immediately: the reviewer
   set, start and resolve events, verdicts, summaries, findings, per-reviewer usage.
-- **Saved, not streamed:** the verbose detail -- full session transcripts, raw
+- **Saved, not streamed:** the verbose detail: full session transcripts, raw
   verdict payloads, per-reviewer metadata. Written to disk, read on demand.
 
 That is why `reviewer.resolved` carries `has_transcript: true` rather than the
@@ -138,7 +138,7 @@ bastion clean [--keep N | --older-than <dur>]   # prune saved runs
 ```
 
 - **`runs`** is the index: what ran recently and how each landed.
-- **`show`** re-emits a past run's verdicts and findings -- the same content as the
+- **`show`** re-emits a past run's verdicts and findings, the same content as the
   stream's resolve and complete events, on demand. Accepts `--format human|jsonl`.
 - **`transcript`** prints the saved session for one reviewer. This is the explicit,
   opt-in way to see what was kept off the stream; reach for it when a verdict is
@@ -158,7 +158,7 @@ convention:
 - Windows: `%APPDATA%\bastion`
 
 Override it with `--data-dir <path>` or the `BASTION_DATA_DIR` environment
-variable -- handy for scratch runs you do not want in your real history. The layout:
+variable, handy for scratch runs you do not want in your real history. The layout:
 
 ```text
 <data-dir>/
@@ -183,7 +183,7 @@ which keeps the most recent 20 when given no arguments (or use `--keep N` /
 
 Bastion does not own your environment; it plugs into it. The reviewer process
 inherits Bastion's own environment, so anything your shell or a `precommit` script
-has exported -- a service on `http://localhost:3000`, say -- is visible to the
+has exported (a service on `http://localhost:3000`, say) is visible to the
 agent; a reviewer's `env` and `inputs` values are literal text set in the YAML, not
 shell-expanded. The reviewer neither knows nor cares that the value is local rather
 than a formal preview deploy. This is the same boundary CI honors, which keeps the
@@ -198,5 +198,5 @@ stream/save split, the event-to-GitHub parity table, and the deferred features
 
 ---
 
-Next: [Continuous integration](./continuous-integration.md) -- promoting these same
+Next: [Continuous integration](./continuous-integration.md). Promoting these same
 reviewers into GitHub Actions as a required merge check.

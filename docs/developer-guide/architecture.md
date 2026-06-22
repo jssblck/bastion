@@ -7,7 +7,7 @@
 ---
 
 Bastion is a small, flat crate: a thin binary over a library, with one module per
-concern. This chapter is the map -- where each thing lives, and how a review flows
+concern. This chapter is the map: where each thing lives, and how a review flows
 through it.
 
 ## The module map
@@ -46,8 +46,8 @@ structure exists to keep them honest.
   [Backends](./backends.md).
 - **The parse-don't-validate boundary** (`config.rs` -> `reviewer.rs` ->
   `routing.rs`). Untrusted text (the YAML registry, git output, CLI args) is parsed
-  *once* at the edge into precise types -- a `Reviewer`, a compiled glob matcher, a
-  `RunId` -- rather than carried around stringly-typed and re-checked. Covered in
+  *once* at the edge into precise types (a `Reviewer`, a compiled glob matcher, a
+  `RunId`) rather than carried around stringly-typed and re-checked. Covered in
   [Conventions](./conventions.md).
 
 ## The life of a `bastion review`
@@ -61,7 +61,7 @@ Following one review top to bottom touches most of the crate:
    cwd for `bastion/reviewers.yaml`, parsed into `Config`, and validated (unique
    reviewer names). Malformed input fails here, before any agent runs.
 3. **Compute the changeset** (`git.rs`). Bastion asks git for the files that differ
-   from `--base` -- tracked edits *and* untracked files, committed or not -- plus the
+   from `--base` (tracked edits *and* untracked files, committed or not) plus the
    current branch and repo root.
 4. **Route** (`routing.rs`). Each reviewer's trigger globs are compiled and matched
    against the changed files; the matched reviewers are the ones that will run.
@@ -90,8 +90,8 @@ has to render the stream and map the aggregate to an exit code. This is delibera
 it keeps the `run.jsonl` on disk identical to the live stream (it even reconstructs
 the authoritative `run.started` and prepends the retained `reviewer.started` events
 so a replay sees the exact sequence the live run emitted), and it means there is
-one place -- not two -- that decides what a run records.
+one place, not two, that decides what a run records.
 
 ---
 
-Next: [Backends](./backends.md) -- the agent execution boundary in detail.
+Next: [Backends](./backends.md). The agent execution boundary in detail.

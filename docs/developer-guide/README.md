@@ -1,6 +1,6 @@
 # Bastion developer guide
 
-> For people working on Bastion itself -- the codebase, not the review policy.
+> For people working on Bastion itself: the codebase, not the review policy.
 
 This guide is for contributors changing Bastion's own source. If you want to *use*
 Bastion on your project, you are in the wrong place: read the
@@ -18,12 +18,12 @@ backend must never claim to have reviewed anything, and gates must fail closed.
 
 ## Contents
 
-1. **[Architecture](./architecture.md)** -- the module-by-module map and the data
+1. **[Architecture](./architecture.md)**: the module-by-module map and the data
    flow of a single `bastion review`. Read this first to find your way around.
-2. **[Backends](./backends.md)** -- the agent execution boundary: the `Backend`
+2. **[Backends](./backends.md)**: the agent execution boundary: the `Backend`
    trait, the `CommandRunner` subprocess seam, dispatch, `MockBackend`, and how to
    add a new backend.
-3. **[Conventions](./conventions.md)** -- the repo-local Rust skills,
+3. **[Conventions](./conventions.md)**: the repo-local Rust skills,
    parse-don't-validate at boundaries, newtypes over stringly-typed data, the
    clippy lint groups, fail-closed discipline, and the testing approach (real
    fixtures, not mocks).
@@ -33,15 +33,15 @@ backend must never claim to have reviewed anything, and gates must fail closed.
 The authoritative specifications live alongside this guide. They describe intended
 behavior and the rationale behind it; the code implements them, and where the two
 disagree the design docs are the spec the code should converge to (or the docs
-should be updated -- they are meant to stay in sync). Read
+should be updated; they are meant to stay in sync). Read
 [`architecture.md`](./architecture.md) first to orient; reach for these references
 when a chapter points you into one.
 
-- **[Core design](./design.md)** -- reviewers, the verdict contract, the merge
+- **[Core design](./design.md)**: reviewers, the verdict contract, the merge
   gate, and the threat model. The authoritative design reference.
-- **[GitHub adapter](./github-adapter.md)** -- the CI adapter: Actions, checks,
+- **[GitHub adapter](./github-adapter.md)**: the CI adapter: Actions, checks,
   governance, authentication, and billing.
-- **[Local surface](./local-surface.md)** -- the local CLI surface this crate
+- **[Local surface](./local-surface.md)**: the local CLI surface this crate
   implements, including the on-disk run store.
 
 ## Build, test, and run
@@ -88,5 +88,5 @@ Run these in addition to the core checks above when relevant:
 The contribution workflow, AI-assisted-contribution policy, and the release process
 (tagging, the release matrix, version derivation, and bumping the self-review pin)
 live in [`CONTRIBUTING.md`](../../CONTRIBUTING.md) at the repository root. Agent
-guidance -- the same rules in the form coding agents consume -- is in
+guidance (the same rules in the form coding agents consume) is in
 [`AGENTS.md`](../../AGENTS.md).

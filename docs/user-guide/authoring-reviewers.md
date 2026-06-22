@@ -35,7 +35,7 @@ reviewers:
 
 Reviewer **names must be unique** within the file; a duplicate name is a load
 error. Because this file *is* the review policy, changes to it should require human
-review -- see [Governance](./governance.md) and `bastion github codeowners`.
+review; see [Governance](./governance.md) and `bastion github codeowners`.
 
 ## The required fields
 
@@ -78,10 +78,10 @@ The instruction handed to the reviewing agent. This is where the craft lives; se
 The remaining fields tune *how* a reviewer runs. All have defaults; omit them
 until you need them.
 
-### `backend` -- choosing a backend
+### `backend`
 
 Which agent harness runs the reviewer. Default `any` (resolves to Claude Code
-today). Pin `claude-code`, `codex`, or `pi` to force a specific harness -- usually
+today). Pin `claude-code`, `codex`, or `pi` to force a specific harness, usually
 because a subscription's terms require it.
 
 ```yaml
@@ -105,14 +105,14 @@ timeout: 15m
 
 Environment variables injected into the reviewer's process, so the agent and any
 tool it runs can see them. Use this to hand a reviewer a value your environment
-already provides -- a preview URL, say:
+already provides, say a preview URL:
 
 ```yaml
 env:
   PREVIEW_URL: http://localhost:3000
 ```
 
-Values are **literal** -- Bastion does not perform shell `$VAR` expansion, so write
+Values are **literal**: Bastion does not perform shell `$VAR` expansion, so write
 the actual value, not `${SOMETHING}`. The reviewer process also inherits Bastion's
 own environment, so a variable your shell or CI has already exported is visible to
 the agent even without listing it here; the `env` block is for setting additional
@@ -136,8 +136,8 @@ prompt: |
 ```
 
 `env` puts a value in the *process*; `inputs` puts a value in the *prompt text*.
-They are independent -- use `env` for tools the agent invokes, `inputs` for values
-the agent should read in its instructions. Input values are literal too: a
+They are independent: use `env` for tools the agent invokes, `inputs` for values
+the agent should read in its instructions. Input values are literal as well: a
 `${name}` in the prompt is substituted only from this `inputs` map, never from your
 shell environment.
 
@@ -166,7 +166,7 @@ reviewers:
     backend: claude-code
     timeout: 15m
     env:
-      PREVIEW_URL: http://localhost:3000     # literal value -- no shell expansion
+      PREVIEW_URL: http://localhost:3000     # literal value, no shell expansion
     inputs:
       preview_url: http://localhost:3000     # substituted into the prompt as ${preview_url}
     runner:                                  # not yet provisioned in this build
@@ -189,7 +189,7 @@ The prompt is the reviewer. A few habits keep recall high:
   check...", that "also" is a second reviewer. Split it.
 - **Carve out the false positives you can predict.** "A single large but cohesive
   module is not a violation." "Panics in `#[cfg(test)]` code are acceptable."
-  Pre-empting the obvious wrong flags is what makes a reviewer trustworthy.
+  Pre-empting the obvious wrong flags keeps false positives down.
 - **Match the mode to the language.** A gate's prompt should be decisive; an
   advisor's should say "report as optional findings... do not block," so its
   output stays advisory even if the model is tempted to be firm.
@@ -231,5 +231,5 @@ duplicate name, or a reviewer missing a required field with a clear error.
 
 ---
 
-Next: [The local workflow](./local-workflow.md) -- running `bastion review` in
+Next: [The local workflow](./local-workflow.md). Running `bastion review` in
 depth, the JSONL agent stream, and inspecting saved runs.
