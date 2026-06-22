@@ -201,12 +201,17 @@ fn is_clean_pass(digest: &RunDigest) -> bool {
     if digest.rows.iter().any(gate_row_blocks) {
         return false;
     }
-    // The recorded tally, when present, must agree with the rows.
+    // The recorded tally, when present, must agree with the rows on every field.
+    // Deriving `passed` from the rows (resolved gates minus blocked ones) and
+    // requiring all three of total/passed/blocked to match closes the gap where an
+    // internally inconsistent tally (say total=1, passed=0, blocked=0) would still
+    // be trusted; it also implies the `total == passed + blocked` invariant.
     if let Some(gates) = digest.gates {
-        let blocked = digest.rows.iter().filter(|r| gate_row_blocks(r)).count();
-        if u32::try_from(resolved_gates).unwrap_or(u32::MAX) != gates.total
-            || u32::try_from(blocked).unwrap_or(u32::MAX) != gates.blocked
-        {
+        let resolved = u32::try_from(resolved_gates).unwrap_or(u32::MAX);
+        let blocked = u32::try_from(digest.rows.iter().filter(|r| gate_row_blocks(r)).count())
+            .unwrap_or(u32::MAX);
+        let passed = resolved.saturating_sub(blocked);
+        if gates.total != resolved || gates.blocked != blocked || gates.passed != passed {
             return false;
         }
     }
@@ -1147,6 +1152,36 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_fails_closed_on_a_passed_count_mismatch() {
+        // The total and blocked fields agree with the single resolved gate, but the
+        // recorded `passed` is internally impossible (total=1, blocked=0 implies
+        // passed=1, yet the tally claims 0). Validating `passed` against the rows
+        // closes this gap, so the aggregate must not go green.
+        let events = forged_run(
+            &["g1"],
+            vec![gate_resolved("g1", Decision::Pass, vec![])],
+            (
+                Decision::Pass,
+                Gates {
+                    total: 1,
+                    passed: 0,
+                    blocked: 0,
+                },
+            ),
+        );
+        let digest = digest(&events);
+        assert!(!is_clean_pass(&digest));
+        assert_eq!(
+            check_runs(&ctx(), &digest)
+                .iter()
+                .find(|c| c.name == "bastion")
+                .unwrap()
+                .conclusion,
+            Conclusion::Failure
+        );
+    }
+
+    #[test]
     fn synthetic_crash_finding_is_not_annotated() {
         // The runner's fail-closed marker has an empty path and line 0; it must be
         // rendered in prose but never sent as an annotation (GitHub rejects line 0).
@@ -1160,6 +1195,38 @@ mod tests {
         assert!(!is_locatable(&crash));
         assert!(annotations_for(std::slice::from_ref(&crash)).is_empty());
         assert!(finding_bullet(&crash).contains("- **blocking**: reviewer failed to complete"));
+    }
+
+    #[test]
+    fn annotations_cap_at_the_limit_and_the_summary_notes_the_overflow() {
+        // GitHub accepts at most MAX_ANNOTATIONS annotations per request. With more
+        // locatable findings than the cap, annotations_for must stop at the cap and
+        // the reviewer-check summary must say how many located findings went unpinned.
+        let overflow = 5;
+        let findings: Vec<Finding> = (0..MAX_ANNOTATIONS + overflow)
+            .map(|i| {
+                let line = u32::try_from(i + 1).unwrap();
+                finding(FindingKind::Optional, "src/big.rs", line, line, "nit")
+            })
+            .collect();
+
+        let annotations = annotations_for(&findings);
+        assert_eq!(annotations.len(), MAX_ANNOTATIONS);
+
+        let row = ReviewerRow {
+            name: "style".into(),
+            mode: Mode::Advisor,
+            backend: Some(Backend::Codex),
+            decision: Decision::Pass,
+            summary: "many nits".into(),
+            findings,
+            duration_ms: 1000,
+            usage: None,
+        };
+        let summary = reviewer_check_summary(&row, &annotations);
+        assert!(summary.contains(&format!(
+            "{overflow} more located finding(s) are listed above but not pinned to the diff"
+        )));
     }
 
     #[test]

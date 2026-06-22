@@ -113,6 +113,7 @@ jobs:
           AUTHOR: ${{ github.event.pull_request.user.login }}
           CODEX_AUTH_JSSBLCK: ${{ secrets.CODEX_AUTH_JSSBLCK }}
         run: |
+          set -euo pipefail
           author="$(printf '%s' "$AUTHOR" | tr '[:upper:]' '[:lower:]')"
           # Quote bracketed bot logins; unquoted, case reads [bot] as a glob class.
           case "$author" in

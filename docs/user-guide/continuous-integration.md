@@ -151,13 +151,13 @@ The report step reads the run that `bastion review` just persisted (under
 bastion github report --repo <OWNER/NAME> --pr <N> --sha <SHA> [RUN]
 ```
 
-- `--repo <OWNER/NAME>` -- the repository to post to. Defaults to the
+- `--repo <OWNER/NAME>`: the repository to post to. Defaults to the
   `GITHUB_REPOSITORY` environment variable that Actions sets, so you can usually
   omit it.
-- `--pr <N>` -- the pull request number (required).
-- `--sha <SHA>` -- the head commit the check runs attach to (required); pass the
+- `--pr <N>`: the pull request number (required).
+- `--sha <SHA>`: the head commit the check runs attach to (required); pass the
   PR's `head.sha`, not the merge commit.
-- `RUN` -- an optional positional run id to report; defaults to the latest recorded
+- `RUN`: an optional positional run id to report; defaults to the latest recorded
   run, which is what you want right after `bastion review`.
 
 It needs a token with `pull-requests: write` and `checks: write` in `GITHUB_TOKEN`,
@@ -168,8 +168,8 @@ found (an earlier failure persisted nothing), it prints a notice and exits 0 rat
 than failing the step a second time. The command is CI-facing and has no local
 mirror: locally you read findings straight from `bastion review --format jsonl`.
 
-For a complete, working example -- latest-release install, per-author backend
-credentials, and fork-PR safety -- see this repository's own
+For a complete, working example (latest-release install, per-author backend
+credentials, and fork-PR safety), see this repository's own
 [`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml) and the
 [GitHub adapter reference](../developer-guide/github-adapter.md).
 
