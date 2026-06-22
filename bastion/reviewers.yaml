@@ -41,15 +41,43 @@ reviewers:
     backend: codex
     prompt: |
       Bastion's core safety invariant is that gates fail closed, advisors fail
-      open, and every verdict is internally consistent. Review only changes to how
-      a reviewer verdict, a gate decision, or the aggregate merge result is
-      produced or aggregated. Block the PR if any path could let a gate (or the
-      aggregate `bastion` gate) pass when it cannot produce a valid, consistent
-      verdict -- for example a missing, errored, or timed-out reviewer counted as a
-      pass instead of a block; a `pass` that carries blocking findings, or a
-      `block` with no blocking finding, being trusted rather than rejected; or an
-      advisor being allowed to block. Approve if every failure path on a gate
-      resolves to a block and advisors never gate.
+      open, and every verdict is internally consistent. That invariant is
+      established where a verdict is PRODUCED LIVE during a review: the backends
+      that parse a reviewer's output, the runner that applies fail-closed (gate)
+      and fail-open (advisor) policy to each result, and the aggregation that folds
+      the resolved rows into the one merge decision the runner persists. That live
+      path is the trust boundary, and it is the scope of this reviewer.
+
+      Review only changes to that live-decision path. Block the PR if any of these
+      could happen there:
+
+      - A gate (or the aggregate `bastion` gate) is allowed to pass when it cannot
+        produce a valid, consistent verdict: a missing, errored, timed-out, or
+        crashed reviewer counted as a pass instead of resolving to a block.
+      - An inconsistent verdict is trusted rather than rejected where it is
+        produced: a `pass` that carries blocking findings, or a `block` with no
+        blocking finding.
+      - An advisor is allowed to block, or a gate is allowed to fail open.
+
+      Bastion's threat model is aligned contributors, not a forged run file (see
+      docs/user-guide/governance.md, "It is not an adversarial security boundary").
+      So a surface that REPLAYS or RENDERS a run the runner already decided and
+      persisted (for example `bastion github report` or the read-back commands)
+      is trusted to reflect that recorded run, and is out of scope here. Do NOT
+      require such a surface to re-derive the merge decision from the raw rows, nor
+      to prove a persisted run structurally complete, correctly ordered,
+      single-sourced, or tally-consistent before it renders the recorded outcome:
+      treating the persisted run as untrusted input is explicitly not the model,
+      and a missing or extra row in a replayed stream is a runner bug to catch on
+      the live path above, not a case a renderer must defend against. The one thing
+      a rendering surface must still not do is launder a recorded block, or a
+      self-contradictory recorded verdict (a `pass` carrying a blocking finding),
+      into a green result, since that is honoring the recorded gate rather than
+      re-validating the file.
+
+      Approve when every failure path on the live-decision path resolves to a
+      block, advisors never gate, and any rendering surface faithfully reflects the
+      recorded decision without turning a block into a pass.
 
   - name: parse-dont-validate
     trigger: [src/**/*.rs]
