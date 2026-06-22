@@ -135,6 +135,41 @@ reviewers:
       - Reliance on interactive-only behavior (prompts, paging, a TTY) in a
         non-interactive CI shell.
 
+  - name: embedded-asset-line-endings
+    trigger: [skills/**, src/skills.rs, .gitattributes]
+    mode: gate
+    backend: codex
+    prompt: |
+      Bastion embeds text assets into the binary with `include_str!` (the bundled
+      skills under skills/<slug>/SKILL.md) and then compares an installed copy
+      against the embedded source byte for byte to drive the `bastion skills check`
+      drift guard. Line endings are the footgun: git's `core.autocrlf` checks these
+      assets out as CRLF on Windows, so an embedded asset that is parsed by exact
+      bytes, or a byte-for-byte comparison that does not normalize newlines, breaks
+      on Windows while passing in Linux CI. You are running in the repository, so
+      inspect the changed assets, the embedding/compare code, and .gitattributes
+      directly.
+
+      This is a gate. Block the PR if any of the following is definitely true for
+      the change; otherwise approve it. When you cannot confirm a problem, approve.
+
+      - A newly embedded text asset (a new `include_str!` of a file under skills/
+        or similar) whose exact bytes are parsed or compared has no LF pin: there
+        is no matching `text eol=lf` entry in .gitattributes covering it, AND the
+        code does not normalize CRLF to LF before parsing or comparing. At least
+        one of the two defenses must be present.
+      - A `.gitattributes` change removes or weakens the `eol=lf` pin on an
+        embedded, byte-compared asset (for example deleting the skills/**/SKILL.md
+        rule or broadening it back to a native-eol default).
+      - A byte-for-byte equality check against embedded asset content (the install
+        idempotence check or the drift `check`) is introduced or changed so that it
+        compares raw bytes without normalizing newlines, which would report a CRLF
+        checkout of identical content as drift.
+
+      Judge only line-ending stability of embedded, byte-compared assets. Ordinary
+      source edits, prose-only asset wording changes, or comparisons that already
+      normalize newlines are not violations, so approve them.
+
   - name: user-guide-integrity
     trigger: [docs/user-guide/**]
     mode: gate
