@@ -1,7 +1,7 @@
 //! The reviewer schema: the declarative definition of a single-concern reviewer.
 //!
 //! A reviewer is a bundle of *prompt + trigger + mode + backend + capabilities +
-//! (optional) environment* — its execution profile. Reviewers are declarative and
+//! (optional) environment*: its execution profile. Reviewers are declarative and
 //! static so they stay reviewable and produce a stable trigger set; see
 //! `docs/developer-guide/design.md`.
 

@@ -4,7 +4,7 @@
 //! events are streamed to stdout as JSONL (`docs/developer-guide/local-surface.md`) and persisted to the
 //! run's `run.jsonl`; the GitHub surfaces (`docs/developer-guide/github-adapter.md`) mirror them one to
 //! one. Verbose detail (transcripts) is deliberately kept *off* the stream and
-//! saved to disk instead — hence [`ReviewerResolved::has_transcript`] rather than
+//! saved to disk instead, hence [`ReviewerResolved::has_transcript`] rather than
 //! the transcript itself.
 
 use std::fmt;
@@ -61,7 +61,7 @@ pub struct Gates {
 #[serde(tag = "type")]
 #[non_exhaustive]
 pub enum RunEvent {
-    /// The set of reviewers a run will execute — the locally-rendered equivalent
+    /// The set of reviewers a run will execute: the locally-rendered equivalent
     /// of a PR's pending checks appearing.
     #[serde(rename = "run.started")]
     RunStarted {
@@ -111,7 +111,7 @@ pub enum RunEvent {
         /// Whether a transcript was saved to disk for this reviewer.
         has_transcript: bool,
     },
-    /// The aggregate outcome — the local equivalent of the `bastion` check.
+    /// The aggregate outcome: the local equivalent of the `bastion` check.
     #[serde(rename = "run.completed")]
     RunCompleted {
         /// The run id.

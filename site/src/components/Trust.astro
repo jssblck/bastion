@@ -19,11 +19,10 @@ const points = [
 
 <section class="section trust" id="open">
   <div class="container">
-    <SectionHeading title="Inspectable, not just trusted.">
-      The closed reviewers sell you a SOC 2 badge and a vanity counter, and bill
-      you for the privilege. Bastion offers something you can verify yourself:
-      read every reviewer, run it on your own infrastructure through the model
-      provider and billing you already use, and own the gate outright.
+    <SectionHeading title="Open source and self-hostable.">
+      Read every reviewer, run them on your own infrastructure through the model
+      provider and billing you already use, and own the gate outright. The
+      reviewers, the verdicts, and the aggregation are all in the open.
     </SectionHeading>
 
     <div class="trust-grid">
@@ -45,13 +44,13 @@ const points = [
         </svg>
       </div>
       <div class="honest-body">
-        <h3>We'd rather block than pretend.</h3>
+        <h3>Early software, fails closed.</h3>
         <p>
-          Bastion is early software and evolving fast. The runner, the gate, and
-          the Claude Code and Codex backends execute reviewers for real, and
-          anything not yet wired <strong>fails closed</strong> rather than
-          pretending. An unimplemented reviewer never claims to have reviewed
-          anything. That honesty is the whole point of a gate.
+          Bastion is early and moving fast. The runner, the gate, and the Claude
+          Code and Codex backends run reviewers for real. Anything not yet
+          implemented <strong>returns block instead of pass</strong>, so an
+          unfinished backend can't wave code through by claiming a review it
+          never ran.
         </p>
       </div>
     </div>

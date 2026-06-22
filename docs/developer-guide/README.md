@@ -50,11 +50,14 @@ when a chapter points you into one.
 cargo fmt --check
 cargo test
 cargo clippy --all-targets -- -D warnings
+nudge check
 ```
 
-`just check` runs all three; it is the gate to pass before opening a PR. The test
-suite is hermetic -- no external services -- using `tempfile` for filesystem
-fixtures and throwaway `git init` repositories.
+`just check` runs all four; it is the gate to pass before opening a PR. `nudge
+check` enforces the mechanical conventions in `.nudge.yaml` (today: no Unicode
+dashes in authored text); install [`nudge`](https://github.com/attunehq/nudge)
+first (see CONTRIBUTING.md). The test suite is hermetic (no external services),
+using `tempfile` for filesystem fixtures and throwaway `git init` repositories.
 
 Common commands while developing:
 
@@ -68,7 +71,7 @@ just version
 
 ## Targeted checks
 
-Run these in addition to the core three when relevant:
+Run these in addition to the core checks above when relevant:
 
 - **Versioning changes:** `bastion --version` (the string is derived at build time
   by `build.rs` from `git describe --always --tags --dirty=-dirty`, overridable via

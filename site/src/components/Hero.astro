@@ -28,18 +28,21 @@ const policyHtml = [
       <p class="hero-kicker" data-reveal>
         <span class="hero-kicker-mark" aria-hidden="true"></span>
         <span class="hero-kicker-text"
-          >Agentic code review for a world where agents write the code</span
+          >Open-source agentic code review</span
         >
       </p>
 
       <h1 class="hero-title" data-reveal style="--reveal-delay:60ms">
-        A merge gate you govern, not a bot you tolerate.
+        A merge gate built from small reviewers you write and own.
       </h1>
 
       <p class="hero-lede prose" data-reveal style="--reveal-delay:120ms">
-        Most AI reviewers are one opaque model you hope behaves. Bastion is a
-        registry of small, single-concern reviewers you author and govern, and a
-        gate that <strong>blocks when it can't be sure</strong>.
+        Most AI reviewers hand the whole diff to one model. Bastion splits review
+        into many narrow reviewers, each checking exactly one concern. They run
+        in parallel and aggregate into one verdict; the gate
+        <strong>blocks whenever any reviewer can't return a clean pass</strong>.
+        You author them, version them in your repo, and run them on your own
+        infrastructure.
       </p>
 
       <div class="hero-cta" data-reveal style="--reveal-delay:180ms">

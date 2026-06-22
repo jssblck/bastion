@@ -17,10 +17,10 @@ Matklad's durable points:
 - Avoid sleep-based concurrency tests. Preserve causality with join handles, receivers, or observable side channels.
 - Use tests as automation for project invariants.
 
-Homeport decisions:
+Decisions for a small project:
 
-- Prefer Matklad on test layout. Homeport does not use mocks.
-- Prefer real executable doctests from `rust-skills` because Homeport is not currently large enough for doctest build cost to dominate.
-- Use real `sqlx::test` databases for client/server behavior, fixture
-  directories under `tests/testdata` for backup inputs, and `tempfile` for
-  restore targets.
+- Prefer Matklad on test layout. Do not use mocks.
+- Prefer real executable doctests from `rust-skills` while the project is not large enough for doctest build cost to dominate.
+- Use real pure functions, deterministic fixture directories under
+  `tests/testdata`, and `tempfile` filesystem fixtures. Where the code has a
+  real external dependency, prefer a real instance in tests over a fake.

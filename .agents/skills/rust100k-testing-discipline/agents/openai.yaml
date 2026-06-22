@@ -1,4 +1,4 @@
 interface:
   display_name: "Rust100k Testing Discipline"
   short_description: "Data-driven Rust tests without mocks"
-  default_prompt: "Use $rust100k-testing-discipline to design fast boundary tests for a Homeport change."
+  default_prompt: "Use $rust100k-testing-discipline to design fast boundary tests for a Rust change."

@@ -1,4 +1,4 @@
 interface:
   display_name: "Rust100k Build Performance"
   short_description: "Rust build, inline, and generic-boundary checks"
-  default_prompt: "Use $rust100k-build-performance to review compile-time and hot-path tradeoffs in Homeport."
+  default_prompt: "Use $rust100k-build-performance to review compile-time and hot-path tradeoffs in a Rust change."

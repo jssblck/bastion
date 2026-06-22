@@ -1,4 +1,4 @@
 interface:
   display_name: "Rust100k Architecture Docs"
   short_description: "Architecture codemap and invariant discipline"
-  default_prompt: "Use $rust100k-architecture-docs to update Homeport architecture docs after a Rust structural change."
+  default_prompt: "Use $rust100k-architecture-docs to update architecture docs after a Rust structural change."

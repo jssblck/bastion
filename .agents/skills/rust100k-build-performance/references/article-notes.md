@@ -17,8 +17,8 @@ Matklad's durable points:
 - CI duration is a useful standardized build-time benchmark.
 - Cache dependencies in CI more readily than project crates, which change often.
 
-Homeport decisions:
+Decisions for a small project:
 
-- Homeport is still a single-crate project, so do not force large-workspace ceremony.
-- Prefer `rust-skills` runtime-oriented generic and `impl Trait` advice for current Homeport unless compile-time evidence says otherwise.
+- A single-crate project should not force large-workspace ceremony.
+- Prefer the `rust-skills` runtime-oriented generic and `impl Trait` advice while the project is small, unless compile-time evidence says otherwise.
 - Keep build/perf changes evidence-driven through cargo checks, clippy, targeted command smoke runs, and CI duration when available.

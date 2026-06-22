@@ -7,8 +7,8 @@ interface Props {
 }
 
 const {
-  title = "Bastion -- a merge gate you govern, not a bot you tolerate",
-  description = "Bastion runs code review as single-concern reviewers: declarative, human-authored fitness functions over every changeset. They aggregate into one merge gate that fails closed. No black-box super-reviewer, no silent passes, no lock-in.",
+  title = "Bastion: a merge gate built from small reviewers you write and own",
+  description = "Bastion splits code review into many small reviewers, each checking one concern. Declarative, human-authored, and run on your own infrastructure. They aggregate into one merge gate that blocks whenever a reviewer can't return a clean pass.",
 } = Astro.props;
 
 const canonical = new URL(Astro.url.pathname, Astro.site).href.replace(/\/$/, "");

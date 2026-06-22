@@ -30,3 +30,43 @@ jobs:
       # pinned release): this is a deterministic, content-only lint, not a review.
       - name: Bundled skills are in sync
         run: cargo run --locked --quiet -- skills check
+
+  nudge:
+    name: Nudge rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Deterministic, agent-independent enforcement of the mechanical conventions
+      # in .nudge.yaml (today: no Unicode dashes in authored text). This is what
+      # makes the rules a gate rather than a suggestion to agents: `nudge check`
+      # runs the same file rules over the whole tree with no agent in the loop.
+      - name: Install Nudge
+        # Intentionally tracks the latest published nudge, not a pinned version.
+        # The rule today is a pure-lexical dash ban, so we want upstream fixes and
+        # any new mechanical rules to apply as soon as they ship. If a nudge change
+        # ever altered behavior, it would surface here as a failing check we would
+        # then reconcile, which is the signal we want. Pin a version only if
+        # nudge's check semantics ever need to be frozen for reproducibility.
+        run: |
+          set -euo pipefail
+          curl -sSfL https://raw.githubusercontent.com/attunehq/nudge/main/scripts/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Validate rule configuration
+        run: nudge validate
+      - name: Check mechanical conventions
+        run: nudge check
+      # Prove the rule actually behaves: it must catch a Unicode dash in an
+      # included file and pass it through in a vendored, excluded path. `nudge
+      # test` always exits 0, so assert on its reported result instead.
+      - name: Rule catches dashes and respects exclusions
+        run: |
+          set -euo pipefail
+          em="$(printf '\xe2\x80\x94')"
+          included="$(nudge test --rule no-unicode-dashes --tool Write \
+            --file README.md --content "clause ${em} clause")"
+          echo "$included"
+          echo "$included" | grep -q "Result: Interrupt"
+          excluded="$(nudge test --rule no-unicode-dashes --tool Write \
+            --file ".agents/skills/rust-skills/x.md" --content "clause ${em} clause")"
+          echo "$excluded"
+          echo "$excluded" | grep -q "Result: Passthrough"
