@@ -155,9 +155,17 @@ mod tests {
 
         for prose in [
             "site/src/components/Hero.astro",
+            "site/DESIGN.md",
             "docs/user-guide/concepts.md",
+            "docs/developer-guide/architecture.md",
+            "skills/using-bastion/SKILL.md",
+            ".github/PULL_REQUEST_TEMPLATE.md",
             "README.md",
             "CONTRIBUTING.md",
+            "SECURITY.md",
+            "CODE_OF_CONDUCT.md",
+            "AGENTS.md",
+            "CLAUDE.md",
         ] {
             let names = matched_names(&router, prose);
             assert!(
@@ -166,11 +174,21 @@ mod tests {
             );
         }
 
-        for code in ["src/main.rs", "Cargo.toml", "bastion/reviewers.yaml"] {
-            let names = matched_names(&router, code);
+        // Code never routes to the prose gate; neither do the vendored skill trees
+        // or the stop-slop skill's own reference files, which carry intentional
+        // "before" slop the gate must not flag.
+        for excluded in [
+            "src/main.rs",
+            "Cargo.toml",
+            "bastion/reviewers.yaml",
+            ".agents/skills/parse-dont-validate/SKILL.md",
+            ".agents/skills/readme.md",
+            ".claude/skills/stop-slop/references/examples.md",
+        ] {
+            let names = matched_names(&router, excluded);
             assert!(
                 !names.iter().any(|n| n == "prose-anti-slop"),
-                "non-prose path {code} must not route to prose-anti-slop, got {names:?}"
+                "excluded path {excluded} must not route to prose-anti-slop, got {names:?}"
             );
         }
     }

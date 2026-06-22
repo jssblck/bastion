@@ -1,6 +1,6 @@
 # Bastion locally
 
-> The local surface: the same review data as GitHub, streamed out of the CLI for an agent, with the noisy parts kept on disk for on demand.
+> The local surface: the same review data as GitHub, streamed out of the CLI for an agent, with the noisy parts kept on disk and read on demand.
 
 The core design ([`design.md`](./design.md)) describes `bastion review` in a single section; this doc is the detail of the local surface, the way the GitHub adapter ([`github-adapter.md`](./github-adapter.md)) is the detail of the CI surface. The two are mirror images: the same reviewers, verdicts, and findings, presented through whatever the surface makes natural. On GitHub that is check runs and PR comments; locally it is a stream on stdout and a few files on disk.
 

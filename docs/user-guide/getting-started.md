@@ -12,7 +12,7 @@ This chapter gets you from nothing to a working review loop. It assumes you have
 git repository and one of the supported agent backends installed (the Claude Code
 or Codex CLI).
 
-A little vocabulary shows up here in passing -- *reviewer*, *gate*, *advisor*,
+A little vocabulary shows up here in passing: *reviewer*, *gate*, *advisor*,
 *verdict*, *findings*. The inline comments are enough to follow along; the next
 chapter, [Concepts](./concepts.md), defines each precisely.
 
@@ -66,12 +66,12 @@ short commit SHA, with a `-dirty` suffix when the tree has uncommitted changes.
 ## 2. Make sure the backend is ready
 
 Bastion does not run its own agent loop. It shells out to an existing coding-agent
-CLI and reuses whatever you already have configured locally -- so your billing and
+CLI and reuses whatever you already have configured locally, so your billing and
 auth come along for free. Install and sign in to one of:
 
-- **[Claude Code](https://docs.claude.com/en/docs/claude-code)** (`claude`) -- the
+- **[Claude Code](https://docs.claude.com/en/docs/claude-code)** (`claude`): the
   default when a reviewer does not pin a backend.
-- **[Codex](https://github.com/openai/codex)** (`codex`) -- pin it with
+- **[Codex](https://github.com/openai/codex)** (`codex`): pin it with
   `backend: codex` on a reviewer.
 
 (The `pi` backend is named in the schema but not wired in this build; selecting it
@@ -120,7 +120,7 @@ schema.
 
 ## 4. Run a review
 
-Make a change in your working tree (you do not need to commit it -- Bastion reviews
+Make a change in your working tree (you do not need to commit it; Bastion reviews
 the working tree, including uncommitted and untracked files), then:
 
 ```sh
@@ -130,7 +130,7 @@ bastion review --base main
 Bastion computes the files that differ from `main`, selects the reviewers whose
 triggers match, runs them in parallel, and renders progress and verdicts. A blocked
 review exits non-zero; a clean one exits zero. That exit code is what lets an agent
--- or a shell loop -- know whether to keep working:
+(or a shell loop) know whether to keep working:
 
 ```sh
 while ! bastion review --base main; do
@@ -141,7 +141,7 @@ done
 ## 5. Read it as a machine stream
 
 An agent driving the loop wants structured events, not rendered text. Ask for
-JSONL -- one JSON object per line, emitted as each thing happens:
+JSONL: one JSON object per line, emitted as each thing happens:
 
 ```sh
 bastion review --base main --format jsonl
@@ -164,7 +164,7 @@ bastion transcript <reviewer>     # the full agent session for one reviewer
 
 These are the on-demand detail; the common loop never needs them, but they are one
 command away when a verdict surprises you. (`show` and `transcript` default to the
-latest run; pass a run id for an older one -- the full forms are in
+latest run; pass a run id for an older one, and the full forms are in
 [the local workflow](./local-workflow.md).)
 
 ## 7. Teach your agents to use Bastion
@@ -214,12 +214,12 @@ bastion --data-dir /tmp/bastion-scratch review --base main
 
 The same override is available as the `BASTION_DATA_DIR` environment variable.
 
-Note that `bastion review` always runs your reviewers on a real backend -- there is
+Note that `bastion review` always runs your reviewers on a real backend: there is
 no built-in mode that fabricates verdicts without an agent, so a review still costs
 a model call. To keep cost down while iterating, start with one cheap, fast
 reviewer and a tight `timeout`. (The internal subprocess seam that lets the test
-suite run reviewers against a fake executable -- via `BASTION_CLAUDE_BIN` /
-`BASTION_CODEX_BIN` -- is documented for contributors in
+suite run reviewers against a fake executable, via `BASTION_CLAUDE_BIN` /
+`BASTION_CODEX_BIN`, is documented for contributors in
 [the developer guide](../developer-guide/backends.md#the-subprocess-seam), not as an
 end-user feature.)
 
@@ -227,13 +227,13 @@ end-user feature.)
 
 The most common first-run snags and what they mean:
 
-- **"no reviewer registry found ..."** -- there is no `bastion/reviewers.yaml` in
+- **"no reviewer registry found ..."**: there is no `bastion/reviewers.yaml` in
   this repo or any ancestor. Create one (step 3).
 - **A reviewer registry error (malformed YAML, duplicate name, missing field).**
   The registry is validated before any agent runs, so these fail fast with a clear
   message. Fix the file and re-run; see [Authoring reviewers](./authoring-reviewers.md).
 - **The review blocks immediately with "did not produce a verdict".** A gate failed
-  closed -- usually the backend binary is missing or unauthenticated. Re-check
+  closed, usually because the backend binary is missing or unauthenticated. Re-check
   `claude --version` / `codex --version` and that you are signed in (step 2).
 - **No reviewers ran (a trivial pass).** Nothing in your changeset matched any
   reviewer's `trigger`. Confirm you actually changed a file the globs cover, and
@@ -244,5 +244,5 @@ The most common first-run snags and what they mean:
 ---
 
 You now have a working reviewer and a review loop. Next:
-[Concepts](./concepts.md) -- the vocabulary (triggers, modes, verdicts, the gate)
+[Concepts](./concepts.md). The vocabulary (triggers, modes, verdicts, the gate)
 the rest of the guide builds on.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Names Are Not Type Safety"
+  short_description: "Use wrapper types only when they enforce meaning"
+  default_prompt: "Use $names-are-not-type-safety to review a Rust newtype or wrapper design."

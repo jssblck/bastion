@@ -1,0 +1,4 @@
+interface:
+  display_name: "Parse, Don't Validate"
+  short_description: "Parse weak inputs into proof-carrying types"
+  default_prompt: "Use $parse-dont-validate to design boundary parsing and eliminate validator-shaped Rust APIs."

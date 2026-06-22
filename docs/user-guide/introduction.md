@@ -26,16 +26,17 @@ code*. They read the whole diff at once and write comments designed for a person
 to act on, and they do not scale in the dimension that matters. As you ask one
 generic reviewer to check more things, its recall on any single one degrades. A
 one-item checklist agent works great; at ten items it is weaker; at a hundred it
-is not effective at all. Attention is scarce -- for humans, and still for agents.
+is not effective at all, because an agent's attention is finite just as a person's
+is.
 
 ## The core idea
 
-In Bastion, a reviewer is a **focused fitness function** -- an automated check that
-continuously asserts one property holds as the system evolves -- and review is the
+In Bastion, a reviewer is a **focused fitness function** (an automated check that
+continuously asserts one property holds as the system evolves), and review is the
 **author agent's loop taken to its conclusion**.
 
 An authoring agent already loops against the compiler, the linter, and the tests.
-Bastion adds loops whose oracle is *another agent* -- one that encodes judgment a
+Bastion adds loops whose oracle is *another agent*, one that encodes judgment a
 compiler or a test cannot. The whole system follows from five principles:
 
 1. **One concern per reviewer.** Single-responsibility reviewers stay at high
@@ -55,27 +56,27 @@ compiler or a test cannot. The whole system follows from five principles:
    this and makes it *visible* and *easy to correct* by adjusting reviewers,
    rather than trying to make gaming impossible (which would give up the benefits
    of agentic development entirely).
-5. **Convergence beats up-front perfection.** A reviewer that is "good enough"
-   and then improved from real escapes beats one you tried to design perfectly.
-   The escape-to-improvement loop is the heart of the system.
+5. **Reviewers converge through use.** Ship a reviewer that is good enough, then
+   improve it from the escapes you actually hit, rather than trying to design a
+   perfect one up front. The escape-to-improvement loop is where that happens.
 
 ## The mental model
 
 Picture the way a good team did code review before agents:
 
-> An author opens a PR. A reviewer reads it, leaves feedback -- some blocking, some
-> optional -- and withholds approval until satisfied. The author addresses the
+> An author opens a PR. A reviewer reads it, leaves feedback (some blocking, some
+> optional) and withholds approval until satisfied. The author addresses the
 > blocking items (by changing the code, or by convincing the reviewer the code is
 > already right) and requests re-review. Repeat until approved.
 
-Bastion brings *that* process to the agent era. Reviewers are the trusted
-colleagues; their verdicts are the feedback; the author agent resolves the
-blocking items and re-runs. The human is still in charge -- but of the reviewers,
-not of every line.
+Bastion brings *that* process to the agent era. The reviewers play the colleague's
+role, their verdicts are the feedback, and the author agent resolves the blocking
+items and re-runs. The human is still in charge, but of the reviewers, not of
+every line.
 
 ## What Bastion is not
 
-Two non-guarantees are deliberate, and worth internalizing before you adopt it:
+Two non-guarantees are deliberate. Keep them in mind before you adopt it:
 
 - **No guarantee of correctness.** Bastion does not prove your code is free of
   bugs or vulnerabilities. It is code review without the human in the small loop;
