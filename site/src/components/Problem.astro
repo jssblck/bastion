@@ -127,8 +127,11 @@ const generic = [
     align-items: center;
   }
   @media (min-width: 420px) {
+    /* Fixed label and note columns so the 1fr bar tracks share one width and
+       their right edges line up across rows; an auto note column would size to
+       each row's text ("works" vs "useless") and stagger the tracks. */
     .bar-row {
-      grid-template-columns: 11rem 1fr auto;
+      grid-template-columns: 11rem 1fr 4rem;
     }
   }
   .bar-label {
