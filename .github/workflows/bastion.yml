@@ -165,6 +165,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
         run: |
+          set -euo pipefail
           if ! bastion github report --help >/dev/null 2>&1; then
             echo "::notice::bastion engine ${BASTION_ENGINE_VERSION:-unknown} has no 'github report'; skipping PR comment and checks until the latest release includes it."
             exit 0

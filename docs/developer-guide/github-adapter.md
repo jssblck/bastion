@@ -45,6 +45,8 @@ The summary and the full finding list also go into each check run's output, so e
 
 The PR comments are the surface the implementing agent is meant to read. A reviewer's actionable feedback is its findings, and findings are inline comments; an agent fixing the PR gets everything it needs to act from the comments alone, without opening a single check. The check runs carry status and the gate, for humans watching and for the merge logic; the detail page, transcript included, is there for the occasional surprising decision worth investigating. None of it is required reading to act on a review. An agent should never have to open a check and read a transcript just to learn what to change; the comment already says it.
 
+> **Shipped today.** `bastion github report` surfaces findings two ways: every finding (blocking and optional) is rendered into a single *sticky* PR comment, and each located finding is also attached to its reviewer's check run as an annotation on its `path` and line range. True *inline diff review comments* (the first bullet above) are still future; until then the sticky comment is the surface an implementing agent reads, and it carries the same findings. The per-reviewer and aggregate check runs described here ship as written, and the aggregate fails closed (see below): the report recomputes the gate outcome from the recorded reviewer rows and refuses to publish a green aggregate for a run whose rows are internally inconsistent, rather than trusting the recorded verdict alone.
+
 ### The aggregate check
 
 There's a wrinkle GitHub forces on us. Branch protection requires you to name the checks that must pass, but Bastion's set of reviewers varies per PR; a docs-only PR and a server PR trigger different reviewers, so there is no fixed list of check names to require.
@@ -52,6 +54,8 @@ There's a wrinkle GitHub forces on us. Branch protection requires you to name th
 The fix is a single always-present check, `bastion`, and it is the only one branch protection requires. It always runs, even when zero reviewers match (a trivial pass in that case), so it is a stable required check. Internally it reflects the aggregate: `success` only when every triggered gate passed, and `failure` if any gate blocked, errored, or timed out (fail-closed, per the core design). The per-reviewer check runs stay informational; `bastion` is the gate.
 
 ### Live progress
+
+> **Shipped today.** None of the live progress below ships yet. `bastion github report` runs *after* `bastion review` has finished, so it creates each check run already `completed` with its final conclusion: there are no `in_progress` spinners, and the aggregate `bastion` check is posted once, completed, never PATCHed mid-run. Live progress needs the engine to talk to the API while reviewers are still running (a packaged action or GitHub App); the rest of this section describes that target.
 
 Reviewers can take anywhere from seconds to many minutes, so a PR must never look like it hung. GitHub gives us live status for free through check runs, and we lean on that rather than building anything external.
 

@@ -1841,3 +1841,34 @@ fn github_report_posts_a_comment_and_checks_for_a_blocked_run() {
         "the aggregate bastion check is missing: {checks:?}"
     );
 }
+
+#[test]
+fn github_report_with_no_recorded_run_exits_zero_with_a_notice() {
+    let Some(fake) = tooling() else { return };
+
+    // A repo whose private data dir holds no runs: we never ran `bastion review`.
+    let repo = TestRepo::new(&registry(&[
+        Reviewer::new("unused", "claude-code", "gate").behavior("pass")
+    ]));
+
+    // Reporting with nothing persisted must not fail the step (it would pile a second
+    // error on top of whatever upstream failure left no run). It prints a notice and
+    // exits 0. No GitHub is contacted, so no fake server is needed.
+    let output = repo.run(
+        fake,
+        &[
+            "github", "report", "--repo", "acme/app", "--pr", "7", "--sha", "deadcafe",
+        ],
+        &[("GITHUB_TOKEN", "ghs-fake-token")],
+    );
+    assert!(
+        output.status.success(),
+        "missing-run report should exit 0; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("nothing to report"),
+        "expected a 'nothing to report' notice; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

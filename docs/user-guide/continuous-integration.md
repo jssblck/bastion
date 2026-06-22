@@ -142,6 +142,32 @@ jobs:
             --sha "${{ github.event.pull_request.head.sha }}"
 ```
 
+### `bastion github report`
+
+The report step reads the run that `bastion review` just persisted (under
+`BASTION_DATA_DIR`) and posts it to the pull request. Its full surface:
+
+```
+bastion github report --repo <OWNER/NAME> --pr <N> --sha <SHA> [RUN]
+```
+
+- `--repo <OWNER/NAME>` -- the repository to post to. Defaults to the
+  `GITHUB_REPOSITORY` environment variable that Actions sets, so you can usually
+  omit it.
+- `--pr <N>` -- the pull request number (required).
+- `--sha <SHA>` -- the head commit the check runs attach to (required); pass the
+  PR's `head.sha`, not the merge commit.
+- `RUN` -- an optional positional run id to report; defaults to the latest recorded
+  run, which is what you want right after `bastion review`.
+
+It needs a token with `pull-requests: write` and `checks: write` in `GITHUB_TOKEN`,
+and reads `GITHUB_API_URL` (Actions sets it; also the hook for GitHub Enterprise).
+Creating check runs requires a GitHub App installation token, which the Actions
+`GITHUB_TOKEN` is; a classic personal access token cannot. If the run cannot be
+found (an earlier failure persisted nothing), it prints a notice and exits 0 rather
+than failing the step a second time. The command is CI-facing and has no local
+mirror: locally you read findings straight from `bastion review --format jsonl`.
+
 For a complete, working example -- latest-release install, per-author backend
 credentials, and fork-PR safety -- see this repository's own
 [`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml) and the
