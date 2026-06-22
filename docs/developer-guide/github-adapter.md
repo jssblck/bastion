@@ -4,15 +4,18 @@
 
 The core design ([`design.md`](./design.md)) is deliberately CI-agnostic; it describes reviewers, verdicts, and the merge gate without saying how any of it touches a real forge. This doc is the GitHub adapter: the concrete answer to "where does the workflow live, how does a verdict become a check, and how is the policy layer enforced" when the forge is GitHub. Everything here is one implementation of the plugin-style CI interface the core design refers to; another forge would get its own doc and reuse the same core.
 
-> **Implementation status.** This document describes the *target* adapter. What
-> ships today is the self-hosted MVP in
-> [`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml): it runs
-> `bastion review` and gates on the job's exit code, uploading the full run as an
-> artifact. It does **not** yet post per-reviewer check runs or inline PR comments,
-> and the aggregate `bastion` check and packaged `review-action`/GitHub App below
-> are not yet published. The CLI's only GitHub helper today is `bastion github
-> codeowners`. Treat the check-run, comment, and action surfaces here as the design
-> they are converging toward.
+> **Implementation status.** This document describes the *target* adapter, and most
+> of it now ships. The self-hosted workflow in
+> [`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml) runs
+> `bastion review`, gates on the job's exit code, and then runs `bastion github
+> report` to post the results: a sticky PR comment carrying every reviewer's verdict
+> and findings (optional ones included), one check run per reviewer, and the
+> always-present aggregate `bastion` check. The full run is still uploaded as an
+> artifact too. What remains future: findings as *inline* diff comments (today they
+> ride the sticky comment and check annotations), live mid-run progress (spinners and
+> the rewritten aggregate table, which need the engine to talk to the API during the
+> run), and the packaged `review-action`/GitHub App. Bastion's GitHub helpers today
+> are `bastion github codeowners` and `bastion github report`.
 
 The guiding rule is the same as the core: Bastion does not own CI, it plugs into yours. The workflow, the secrets, the preview environments, and the branch protection rules are GitHub's; Bastion reads and writes them through a thin adapter and otherwise stays out of the way.
 
@@ -128,14 +131,14 @@ One operational note carried over from the core design: under heavy volume a sub
 
 ### Self-hosted example: Bastion reviewing Bastion
 
-This repository dogfoods the adapter through [`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml). The job runs a pinned, published `bastion` release rather than a binary built from the PR's own sources, so a change can never edit the engine that judges it; reviewer policy in [`bastion/reviewers.yaml`](../../bastion/reviewers.yaml) is still read from the checkout, and both that file and the workflow are CODEOWNERS-protected paths. Every reviewer in `reviewers.yaml` pins `backend: codex`, so each review runs on the Codex CLI billed to the PR author's own subscription. The workflow wires that up by mapping the author's GitHub login to a per-author credential:
+This repository dogfoods the adapter through [`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml). The job runs a published `bastion` release rather than a binary built from the PR's own sources, so a change can never edit the engine that judges it. It downloads the *latest* published release (resolved with `gh release view`, which excludes prereleases), so engine improvements land without a per-PR pin bump while the engine remains a maintainer-published release rather than the PR's sources. Reviewer policy in [`bastion/reviewers.yaml`](../../bastion/reviewers.yaml) is still read from the checkout, and both that file and the workflow are CODEOWNERS-protected paths. Every reviewer in `reviewers.yaml` pins `backend: codex`, so each review runs on the Codex CLI billed to the PR author's own subscription. The workflow wires that up by mapping the author's GitHub login to a per-author credential:
 
 1. **Capture the credential once, locally.** Each contributor runs `codex login` on a machine signed in to their billed ChatGPT/Codex subscription. Codex writes an OAuth credential (an access token plus a refresh token) to `~/.codex/auth.json`.
 2. **Store it as a per-author secret.** Copy the contents of that `auth.json` into a repository secret named `CODEX_AUTH_<LOGIN>` — the login uppercased, e.g. `CODEX_AUTH_JSSBLCK` for `jssblck`. Bastion never stores credentials; the secret lives in GitHub Actions.
 3. **Map the login to the secret.** The `Authenticate Codex as the PR author` step resolves `github.event.pull_request.user.login` to the matching secret through a `case` arm, so reviewing `jssblck`'s PR bills `jssblck`'s subscription. Onboarding a contributor is two reviewed lines: their secret and a `case` arm. Because the mapping lives in the workflow, which is a CODEOWNERS-protected path, changing who may spend a subscription is itself a human-reviewed change.
 4. **The job rehydrates it at run time.** Before running `bastion review`, the step writes the resolved credential back to `$HOME/.codex/auth.json`; Codex refreshes the short-lived access token from the stored refresh token on each run, so the secret does not need rotating every time the access token expires.
 
-An author with no mapped secret fails closed: the step errors and the gate blocks, rather than silently billing someone else's subscription. Two further boundaries keep this safe: GitHub does not expose secrets to workflows triggered by fork pull requests, and the job additionally guards on `head.repo.full_name == github.repository`, so an agentic backend never runs over untrusted code with a live credential; a fork contribution is reviewed by a maintainer re-running it from a trusted branch. The job's pass/fail is the gate (a blocked review exits non-zero), and the full run is uploaded as an artifact rather than posted as per-reviewer checks, which is the MVP standing in for the packaged action below.
+An author with no mapped secret fails closed: the step errors and the gate blocks, rather than silently billing someone else's subscription. Two further boundaries keep this safe: GitHub does not expose secrets to workflows triggered by fork pull requests, and the job additionally guards on `head.repo.full_name == github.repository`, so an agentic backend never runs over untrusted code with a live credential; a fork contribution is reviewed by a maintainer re-running it from a trusted branch. The job's pass/fail is the gate (a blocked review exits non-zero); a following `bastion github report` step then posts the sticky comment and the per-reviewer and aggregate check runs, and the full run is also uploaded as an artifact. That report step runs with `if: always()` so the PR is updated even when the review blocked and failed the job; it needs `pull-requests: write` and `checks: write`, and it relies on the default `GITHUB_TOKEN` being a GitHub App installation token (a classic personal access token cannot create check runs).
 
 Bot authors are the one wrinkle. A bot like `dependabot[bot]` opens same-repo PRs (so they clear the `head.repo` guard and want reviewing) but has no subscription of its own, so its `case` arm points at a maintainer's credential — billing the bot's PRs to whoever opted in to sponsor them. Two GitHub-specific gotchas come with that. First, the bot login is literally `dependabot[bot]`; the `[bot]` brackets are a glob character class in a shell `case` pattern, so the arm must quote them (`'dependabot[bot]')`) to match literally. Second, GitHub serves secrets to Dependabot-triggered runs from a *separate Dependabot secret store*, not the Actions store — so the same `CODEX_AUTH_<LOGIN>` must be set in both places (`gh secret set CODEX_AUTH_JSSBLCK --app dependabot`), or the secret arrives empty on Dependabot PRs and the gate blocks with a misleading "mapped but empty" error.
 

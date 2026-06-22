@@ -126,6 +126,22 @@ pub enum GithubCommand {
         #[arg(long = "owner", value_name = "OWNER", required = true)]
         owners: Vec<String>,
     },
+    /// Post a finished run's results to its pull request (sticky comment plus a
+    /// check run per reviewer and the aggregate `bastion` check).
+    Report {
+        /// The `owner/name` repository. Defaults to `$GITHUB_REPOSITORY`.
+        #[arg(long, value_name = "OWNER/NAME", env = "GITHUB_REPOSITORY")]
+        repo: String,
+        /// The pull request number.
+        #[arg(long, value_name = "N")]
+        pr: u64,
+        /// The head commit SHA the check runs attach to.
+        #[arg(long, value_name = "SHA")]
+        sha: String,
+        /// The run to report; defaults to the latest recorded run.
+        #[arg(value_name = "RUN")]
+        run: Option<String>,
+    },
 }
 
 /// Parse arguments and dispatch to the matching command handler.
@@ -177,6 +193,11 @@ pub async fn run() -> Result<ExitCode> {
         Command::Github { command } => match command {
             GithubCommand::Codeowners { owners } => {
                 crate::commands::codeowners(&owners).map(|()| ExitCode::SUCCESS)
+            }
+            GithubCommand::Report { repo, pr, sha, run } => {
+                crate::commands::github_report(&layout, &repo, pr, &sha, run.as_deref())
+                    .await
+                    .map(|()| ExitCode::SUCCESS)
             }
         },
         Command::Skills { command } => match command {

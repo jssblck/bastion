@@ -19,12 +19,15 @@ the one forge Bastion targets.
 > preview environments, and the branch-protection rules are GitHub's. Bastion
 > reads and writes them through a thin adapter and otherwise stays out of the way.
 
-> **What ships today vs. the target.** The per-reviewer check runs, inline PR
-> comments, live aggregate table, and packaged action described below are the
-> adapter Bastion is converging toward. What ships *today* is a self-hosted
-> workflow that runs `bastion review` and gates on its exit code, uploading the
-> full run as an artifact -- it does not yet post per-reviewer checks or PR
-> comments, and `bastion/review-action@v1` is not yet published. Jump to
+> **What ships today vs. the target.** Most of the adapter below now ships. The
+> self-hosted workflow runs `bastion review`, gates on its exit code, and then runs
+> `bastion github report` to post the results back: a sticky PR comment with every
+> reviewer's verdict and findings (optional ones included), one check run per
+> reviewer, and the always-present aggregate `bastion` check. The full run is also
+> uploaded as an artifact. Still on the target list: findings as *inline* diff
+> comments (today they ride the sticky comment and check annotations), the live
+> aggregate table and per-reviewer spinners (which need the engine to talk to the API
+> mid-run), and the packaged `bastion/review-action@v1`. Jump to
 > [What ships today](#what-ships-today) for a workflow you can use now; the rest of
 > the chapter describes the target shape.
 
@@ -83,16 +86,24 @@ implementing agent's normal loop, which lives entirely in the comments.
 
 ## What ships today
 
-The working approach is a self-hosted workflow that installs a pinned `bastion`
-release plus your backend CLI, authenticates the backend, and runs `bastion
-review`. The CLI exits non-zero if any gate blocks, so the job's pass/fail *is* your
-merge gate until the richer adapter lands:
+The working approach is a self-hosted workflow that installs a published `bastion`
+release plus your backend CLI, authenticates the backend, runs `bastion review`, and
+then runs `bastion github report` to post the results to the PR. The CLI exits
+non-zero if any gate blocks, so the job's pass/fail *is* your merge gate; the report
+step adds the sticky comment and the per-reviewer and aggregate check runs:
 
 ```yaml
 name: bastion
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+
+# The report step writes the PR comment and the check runs, so the job needs more
+# than read access.
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
 
 jobs:
   review:
@@ -105,18 +116,33 @@ jobs:
         with:
           fetch-depth: 0          # full history; reviewers diff against the base
 
-      # 1. Install a pinned, published bastion release (not built from the PR).
+      # 1. Install a published bastion release (not built from the PR).
       # 2. Install and authenticate your backend CLI (e.g. claude or codex),
       #    ideally billed to the PR author -- see the auth pattern referenced below.
       # 3. Stand up anything your reviewers consume (a preview env, a database).
 
       - name: Review
+        env:
+          BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
+        # Non-zero exit on a blocked gate fails the job; that is the merge gate.
         run: bastion review --base "origin/${{ github.base_ref }}"
-        # Non-zero exit on a blocked gate fails the job; that is the merge gate
-        # today. Upload the run dir as an artifact if you want the full detail.
+
+      - name: Report to the PR
+        # Runs even when the review blocked and failed the job, so the comment and
+        # checks always land. The default GITHUB_TOKEN is a GitHub App token, so it
+        # can create check runs (a classic PAT cannot).
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
+        run: |
+          bastion github report \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --sha "${{ github.event.pull_request.head.sha }}"
 ```
 
-For a complete, working example -- pinned-release install, per-author backend
+For a complete, working example -- latest-release install, per-author backend
 credentials, and fork-PR safety -- see this repository's own
 [`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml) and the
 [GitHub adapter reference](../developer-guide/github-adapter.md).
@@ -180,10 +206,10 @@ Bastion's job starts once it exists. (See
 ## Self-hosting note
 
 This repository dogfoods the adapter through
-[`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml), running a
-pinned, published `bastion` release rather than a binary built from the PR's own
+[`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml), running the
+latest published `bastion` release rather than a binary built from the PR's own
 sources -- so a change can never edit the engine that judges it. That workflow is
-the concrete, self-hosted MVP described in the
+the concrete, self-hosted adapter described in the
 [GitHub adapter reference](../developer-guide/github-adapter.md).
 
 ---

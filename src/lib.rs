@@ -32,6 +32,7 @@ pub mod commands;
 pub mod config;
 pub mod event;
 pub mod git;
+pub mod github;
 pub mod paths;
 pub mod render;
 pub mod reviewer;
