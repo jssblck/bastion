@@ -74,10 +74,10 @@ is a human governance loop:
    the missed property, or fix the reviewer's environment.
 4. **Merge** the policy change (through the CODEOWNERS-gated human review above).
 
-This is why Bastion expects reviewers to improve over time. A reviewer that is
-"good enough" and then sharpened from real escapes beats one you tried to perfect on
-paper. Treat escapes as expected feedback, not failures. A steady triage habit is
-the difference between a policy that gets sharper over time and one that rots.
+This is why Bastion expects reviewers to improve over time. Start with a reviewer
+that is good enough and sharpen it from real escapes instead of perfecting it on
+paper. Treat escapes as expected feedback rather than failures, and triage them
+regularly so the policy keeps improving.
 
 ## What Bastion does not guarantee
 

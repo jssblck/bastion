@@ -56,9 +56,9 @@ compiler or a test cannot. The whole system follows from five principles:
    this and makes it *visible* and *easy to correct* by adjusting reviewers,
    rather than trying to make gaming impossible (which would give up the benefits
    of agentic development entirely).
-5. **Reviewers converge through use.** A reviewer that is "good enough" and then
-   improved from real escapes beats one you tried to design perfectly on paper.
-   The escape-to-improvement loop is where that happens.
+5. **Reviewers converge through use.** Ship a reviewer that is good enough, then
+   improve it from the escapes you actually hit, rather than trying to design a
+   perfect one up front. The escape-to-improvement loop is where that happens.
 
 ## The mental model
 
