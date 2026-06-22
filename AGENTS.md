@@ -150,8 +150,8 @@ version:
 - Keep user-facing prose (the marketing site, the guides, the README) free of
   AI-register slop: state mechanisms, not the product's character. Follow the
   `stop-slop` skill under `.claude/skills/stop-slop/`, which catches the
-  structural tells. The `prose-anti-slop` advisor in `bastion/reviewers.yaml`
-  flags them on changed prose.
+  structural tells. The `prose-anti-slop` gate in `bastion/reviewers.yaml`
+  blocks the merge on slop in changed prose.
 - Use plain ASCII quotes in docs, comments, and generated text. No em dashes or
   en dashes, and no literal `--` used as a dash in prose; recast with a comma, a
   colon, or parentheses.
@@ -188,7 +188,7 @@ nudge check
 
 `nudge check` enforces the mechanical conventions in `.nudge.yaml` (today: no
 Unicode dashes in authored text). It runs in CI and as an agent-time hook, and
-gates the same way locally; the `prose-anti-slop` advisor in
+gates the same way locally; the `prose-anti-slop` gate in
 `bastion/reviewers.yaml` covers the prose-voice judgment a regex cannot.
 
 Also run targeted checks when relevant:

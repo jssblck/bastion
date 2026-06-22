@@ -41,6 +41,12 @@ jobs:
       # makes the rules a gate rather than a suggestion to agents: `nudge check`
       # runs the same file rules over the whole tree with no agent in the loop.
       - name: Install Nudge
+        # Intentionally tracks the latest published nudge, not a pinned version.
+        # The rule today is a pure-lexical dash ban, so we want upstream fixes and
+        # any new mechanical rules to apply as soon as they ship. If a nudge change
+        # ever altered behavior, it would surface here as a failing check we would
+        # then reconcile, which is the signal we want. Pin a version only if
+        # nudge's check semantics ever need to be frozen for reproducibility.
         run: |
           set -euo pipefail
           curl -sSfL https://raw.githubusercontent.com/attunehq/nudge/main/scripts/install.sh | bash

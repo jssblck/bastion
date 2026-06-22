@@ -3,7 +3,7 @@
 #
 # Layering (see AGENTS.md and the code-craft new-project-defaults skill): a rule
 # lives at the lowest layer that can express it faithfully. clippy owns the Rust
-# lints; the `prose-anti-slop` bastion advisor owns prose-voice judgment; nudge
+# lints; the `prose-anti-slop` bastion gate owns prose-voice judgment; nudge
 # owns the rules that are purely mechanical yet have no native linter. The em/en
 # dash ban is exactly that: a pure-lexical rule with zero ambiguity. It is wired
 # into CI via `nudge check` (see .github/workflows/ci.yml and the `just check`
@@ -14,7 +14,7 @@
 # token (`cargo run -- review`, `cargo clippy --all-targets -- -D warnings`,
 # `bash -s -- -b`), which appears throughout the install and CI command examples,
 # and Nudge has no Markdown tree-sitter grammar to scope a query to prose. So
-# that one stays at the judgment layer: the `prose-anti-slop` advisor in
+# that one stays at the judgment layer: the `prose-anti-slop` gate in
 # bastion/reviewers.yaml flags it, since it can tell a separator from a dash.
 
 version: 1

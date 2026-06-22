@@ -246,17 +246,27 @@ reviewers:
   # because prose voice is a judgment call that should inform, not block a merge.
   - name: prose-anti-slop
     trigger: [site/src/**/*.astro, docs/**/*.md, README.md, CONTRIBUTING.md]
-    mode: advisor
+    mode: gate
     backend: codex
     capabilities:
       skills: [stop-slop]
     prompt: |
-      As an advisor, review only the user-facing PROSE in the changed files for
+      As a gate, review only the user-facing PROSE in the changed files for
       AI-register "slop": the structural tics that make copy read as machine-
-      written. Report each as an optional finding that names the file, the line or
-      sentence, which tell it is, and a shorter rewrite that keeps every fact.
-      Never block. The tells are structural, not vocabulary, so do not just hunt
-      for buzzwords.
+      written. The tells are structural, not vocabulary, so do not just hunt for
+      buzzwords.
+
+      Decision:
+
+      - If the changed prose carries one or more slop tells from the list below,
+        return verdict: block with one blocking finding per instance that names
+        the file, the line or sentence, which tell it is, and a shorter rewrite
+        that keeps every fact.
+      - If the changed prose is clean, return verdict: pass.
+      - Bias toward catching slop. A missed tell is worse than a false block: a
+        false block is cheap to override, but slop that merges becomes the house
+        style. Still respect the discipline below so the gate stays signal, not
+        noise: flag slop, not every stylistic choice.
 
       Flag these:
 
@@ -288,7 +298,7 @@ reviewers:
       - Touch only prose. Leave code blocks, YAML, CLI examples, command flags,
         tables, and quoted or third-party material exactly as they are.
       - Do not over-correct. Flat, fragment-phobic, antithesis-phobic prose is its
-        own tell; one beat of personality per section is fine. Flag slop, not
+        own tell; one beat of personality per section is fine. Block slop, not
         every stylistic choice.
       - Apply the test: if a fact survives the rewrite and the copy got shorter,
         the cut was slop. If a rewrite would drop information, do not suggest it.
