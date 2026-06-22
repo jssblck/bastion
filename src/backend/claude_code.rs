@@ -105,14 +105,15 @@ impl<R: CommandRunner> ClaudeCodeBackend<R> {
             .arg("--permission-mode")
             .arg("bypassPermissions");
 
-        // Capability opt-ins (`network`, `mcp`, `skills`) and a container `runner`
-        // are not provisioned in this build. `dispatch` fails such a reviewer
-        // closed (`ensure_provisionable`) before any backend runs, so every
-        // reviewer that reaches this native path is least-privilege: there is
-        // nothing capability-specific to translate into the `claude` invocation
-        // yet. When a tier is wired it is provisioned at the container boundary, not
-        // here. Only the reviewer's declared environment is injected, into the child
-        // process so the agent (and any tools it runs) sees it.
+        // The `mcp` and `skills` capability opt-ins are not provisioned in this
+        // build, and a native `network: true` fails closed: `dispatch` rejects such a
+        // reviewer up front when it resolves the `ExecutionPlan`
+        // (`ExecutionPlan::resolve`), so nothing capability-specific reaches this
+        // `claude` invocation. A container `runner` *is* provisioned, but it is
+        // applied at the container boundary (the `ContainerRunner` decorator wraps
+        // this same spec into a `docker run`); the backend builds the identical spec
+        // either way. Only the reviewer's declared environment is injected, into the
+        // child process so the agent (and any tools it runs) sees it.
         for (key, value) in &reviewer.env {
             spec.env.insert(key.clone(), value.clone());
         }
@@ -820,10 +821,10 @@ mod tests {
         let mut r = reviewer();
         r.env
             .insert("PREVIEW_URL".into(), "http://localhost:3000".into());
-        // The native `claude` invocation must never emit an MCP flag: MCP is a
-        // container-provisioned capability, and a reviewer that declares it fails
-        // closed upstream in `dispatch` (`ensure_provisionable`) rather than
-        // reaching this path. This drives `review` directly, bypassing that
+        // The native `claude` invocation must never emit an MCP flag: MCP is not
+        // provisioned, and a reviewer that declares it fails closed upstream when
+        // `dispatch` resolves the `ExecutionPlan` (`ExecutionPlan::resolve`) rather
+        // than reaching this path. This drives `review` directly, bypassing that
         // preflight, to pin that the native arg-building stays MCP-free regardless.
         r.capabilities.mcp = vec!["playwright".into()];
 

@@ -181,13 +181,23 @@ which keeps the most recent 20 when given no arguments (or use `--keep N` /
 
 ## Providing environments locally
 
-Bastion does not own your environment; it plugs into it. The reviewer process
-inherits Bastion's own environment, so anything your shell or a `precommit` script
-has exported (a service on `http://localhost:3000`, say) is visible to the
-agent; a reviewer's `env` and `inputs` values are literal text set in the YAML, not
-shell-expanded. The reviewer neither knows nor cares that the value is local rather
-than a formal preview deploy. This is the same boundary CI honors, which keeps the
-local and CI surfaces in agreement.
+For a **native** reviewer, the reviewer process inherits Bastion's own environment,
+so anything your shell or a `precommit` script has exported (a service on
+`http://localhost:3000`, say) is visible to the agent; a reviewer's `env` and
+`inputs` values are literal text set in the YAML, not shell-expanded. Bastion only
+reads values your shell or CI already exported; it does not stand them up. This is
+the same boundary CI honors, which keeps the local and CI surfaces in agreement.
+
+A **containerized** reviewer (one with a
+[`runner`](./authoring-reviewers.md#runner-and-capabilities)) does not inherit your
+shell environment, since it runs in a container. Into it go the reviewer's literal
+`env` pairs plus a fixed provider-credential set, and nothing else. (If the reviewer's
+`env` sets one of those credential names, its value wins and the host's is not also
+forwarded.) So an exported `PREVIEW_URL` that a native reviewer would see for free
+reaches a containerized one only if you write its literal value into that reviewer's
+`env`, and a containerized
+reviewer typically reaches a host service over the container network rather than
+`localhost`.
 
 ## Reference: the full local surface
 

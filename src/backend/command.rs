@@ -170,7 +170,12 @@ impl CommandRunner for SystemCommandRunner {
 /// search each `PATH` entry for the name plus each `PATHEXT` extension and return
 /// the first hit. Path-like programs, and every program on other platforms (where
 /// `execvp` already searches `PATH`), are returned unchanged.
-fn resolve_executable(program: &OsStr) -> OsString {
+///
+/// [`SystemCommandRunner`] applies this before every spawn; anything that spawns a
+/// program outside that runner (the container teardown guard, which runs in a `Drop`
+/// and so cannot route through the async seam) must apply it too, or a bare engine
+/// name that builds and runs would fail to spawn at teardown on Windows.
+pub(crate) fn resolve_executable(program: &OsStr) -> OsString {
     if !cfg!(windows) {
         return program.to_os_string();
     }

@@ -30,7 +30,7 @@ Bastion runs as a GitHub Actions workflow triggered on pull request events: `ope
 3. Runs each selected reviewer through its backend, in parallel, with per-reviewer timeouts (see the core design's _Aggregation & the merge gate_).
 4. Reports each verdict back to the PR.
 
-Native reviewers run directly on the Actions runner. A reviewer that declares a container `runner` is not provisioned in this build: it fails closed (see the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today)), and container execution on the Actions runner is the intended model once the runner lands. None of routing or aggregation is GitHub-specific; only the steps that read the PR and write results go through the adapter.
+Native reviewers run directly on the Actions runner. A reviewer that declares a container `runner` runs its backend inside that container on the Actions runner (the engine is already present on GitHub-hosted runners); see [Containers](./containers.md). None of routing or aggregation is GitHub-specific; only the steps that read the PR and write results go through the adapter.
 
 ---
 
@@ -131,6 +131,8 @@ The PR author is the requester. Bastion runs the reviewers for a PR under creden
 
 Bastion does not store any credentials; the team stores them as Actions secrets and tells Bastion the mapping. If no subscription is configured for an author, Bastion can fall back to a shared metered API key, so a new contributor is never blocked from review; whether to allow that fallback is the team's call.
 
+This author-mapped flow works by placing the credential in the runner environment that the backend CLI reads (the subscription `auth.json` flow below writes `~/.codex/auth.json` on the runner). A native reviewer reads that host config directly. A containerized reviewer (one with a `runner`) does not see the runner's home directory: it receives only the reviewer's literal `env` plus a fixed set of provider-credential variable *names* forwarded into the container, so it authenticates from an env-based provider credential (for example `CODEX_API_KEY` / `ANTHROPIC_API_KEY`) or from auth baked into the image, not from a host `auth.json`. See [Containers](./containers.md).
+
 One operational note carried over from the core design: under heavy volume a subscription's rate limits can throttle reviewers, and because gates fail closed a throttled reviewer reads as a blocked merge. Bastion can optionally support API key fallback for this sort of situation as well, or teams may decide to simply use API billing and keep subscriptions for the local loop. That is a tradeoff to make per org and repo.
 
 ### Self-hosted example: Bastion reviewing Bastion
@@ -154,9 +156,9 @@ For API-key billing instead of a subscription, store an `OPENAI_API_KEY` secret 
 
 Bastion consumes environments, it does not provision them. A reviewer that needs a preview URL, a database, or any other running dependency expects the workflow to have stood it up and exposed it; the reviewer just reads it.
 
-On GitHub that means the workflow owns whatever a reviewer's `env` and `inputs` reference. A typical setup deploys a preview environment for the PR in an earlier job, or a separate workflow, and passes its URL into the Bastion job as an environment variable; Bastion injects it into the reviewer per the `env` block and may interpolate it into the prompt per `inputs`. A secret a reviewer needs comes from Actions secrets the same way author credentials do.
+On GitHub that means the workflow owns whatever a reviewer's `env` and `inputs` reference. A typical setup deploys a preview environment for the PR in an earlier job, or a separate workflow, and passes its URL into the Bastion job as an environment variable. How it reaches the agent depends on where the reviewer runs. A native reviewer inherits the job environment, so a variable exported into the Bastion job is visible to the agent, and `env`/`inputs` add literal values on top. A containerized reviewer (one with a `runner`) inherits none of the arbitrary job environment; only its literal `env` pairs and the fixed provider-credential set cross into the container, so a per-PR value must be written into the reviewer's `env`, usually by templating the registry before the job runs. A secret a reviewer needs comes from Actions secrets the same way author credentials do.
 
-This keeps the boundary clean: standing up a preview environment is a deploy concern, and the deploy system already knows how. Bastion's job starts once the environment exists.
+Standing up a preview environment is a deploy concern, and the deploy system already knows how. Bastion's job starts once the environment exists.
 
 ---
 

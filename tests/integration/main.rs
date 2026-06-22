@@ -8,9 +8,9 @@
 //! a compiled fake agent standing in for the heavyweight Claude Code / Codex
 //! subprocesses the real backends shell out to.
 //!
-//! The fake agent ([`FAKE_AGENT_SRC`]) is compiled once with `rustc` and pointed
-//! at through `BASTION_CLAUDE_BIN` / `BASTION_CODEX_BIN`, so the binary takes the
-//! genuine subprocess path: real spawn, real stdin/argv, real stdout capture, real
+//! The fake agent ([`fakes::FAKE_AGENT_SRC`]) is compiled once with `rustc` and
+//! pointed at through `BASTION_CLAUDE_BIN` / `BASTION_CODEX_BIN`, so the binary takes
+//! the genuine subprocess path: real spawn, real stdin/argv, real stdout capture, real
 //! parse, real fail-closed/fail-open aggregation, real persistence. The fake reads
 //! per-reviewer `env` (which Bastion propagates into the child) to choose how to
 //! behave -- pass, block, return malformed output, crash, or hang.
@@ -27,682 +27,19 @@
 //! in CI (where `CI` is set) the tools must be present so the suite cannot silently
 //! become a no-op.
 
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
-use std::sync::OnceLock;
+mod fakes;
+mod fixtures;
+mod github;
+
 use std::time::{Duration, Instant};
 
-use bastion::event::{Gates, RunEvent};
-use bastion::paths::Layout;
+use bastion::event::RunEvent;
 use bastion::store::{self, RunSummary};
-use bastion::verdict::{Decision, Finding, FindingKind, Money, Usage, Verdict};
-
-// ---------------------------------------------------------------------------
-// The fake agent: a deterministic, contract-checking stand-in for claude/codex.
-// ---------------------------------------------------------------------------
-
-/// Source for a tiny native program that emulates both agent CLIs.
-///
-/// It detects which protocol it is being driven as from its argv (Codex is
-/// invoked with an `exec` subcommand; Claude with `--output-format`), detects a
-/// reprompt turn (Codex `resume` / Claude `--resume`), validates the invocation
-/// against the contract each backend promises, and then chooses its output from
-/// the `FAKE_BEHAVIOR` environment variable Bastion propagates from the reviewer:
-///
-/// - `pass`             -- a consistent passing verdict (the default).
-/// - `block`            -- a consistent blocking verdict with one blocking finding.
-/// - `inconsistent`     -- a `block` with no blocking finding (an internally
-///   inconsistent verdict the backend must reject, then reprompt, then fail closed).
-/// - `malformed`        -- output with no parseable verdict, on every turn (drives
-///   the backend's single reprompt, then a fail-closed block for a gate).
-/// - `reprompt-recover` -- malformed on the first turn, valid on the resumed turn
-///   (exercises the reprompt-and-recover path through the real subprocess).
-/// - `crash`            -- exit non-zero (an execution failure -> fail closed).
-/// - `slow`             -- sleep `FAKE_SLEEP_MS` then pass (pair with a short
-///   reviewer `timeout` to force a timeout; or a generous one to test concurrency).
-///
-/// Extra knobs, all read from the propagated environment: `FAKE_COST_CENTS`
-/// (default 5), `FAKE_TOKENS_IN`/`FAKE_TOKENS_OUT`, `FAKE_SUMMARY`,
-/// `FAKE_EXPECT_PROMPT_CONTAINS` (assert the delivered prompt contains a marker --
-/// used to verify `${...}` interpolation end to end), and `FAKE_MARKER_FILE`
-/// (written only *after* the sleep, so a killed-on-timeout child never writes it).
-const FAKE_AGENT_SRC: &str = r##"
-use std::io::Read;
-
-fn env_or(key: &str, default: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| default.to_string())
-}
-
-fn has(args: &[String], flag: &str) -> bool {
-    args.iter().any(|a| a.as_str() == flag)
-}
-
-fn fail(reason: &str) -> ! {
-    eprintln!("fake agent contract violation: {reason}");
-    std::process::exit(3);
-}
-
-fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let is_codex = has(&args, "exec");
-    let is_reprompt = has(&args, "resume") || has(&args, "--resume");
-
-    // Drain stdin so a parent piping a prompt over it never blocks on a full pipe.
-    let mut stdin = String::new();
-    let _ = std::io::stdin().read_to_string(&mut stdin);
-
-    // The prompt is delivered over stdin by Codex (the trailing `-`) and over argv
-    // by Claude (`-p <prompt>`). Recover whichever applies so the contract checks
-    // can confirm it actually arrived.
-    let prompt = if is_codex {
-        stdin.clone()
-    } else {
-        let mut found = String::new();
-        let mut iter = args.iter();
-        while let Some(arg) = iter.next() {
-            if arg == "-p" {
-                if let Some(value) = iter.next() {
-                    found = value.clone();
-                }
-                break;
-            }
-        }
-        found
-    };
-
-    // --- contract checks: the invocation must match what the backend promises ---
-    if is_codex {
-        // `exec` is already implied by is_codex; assert the rest of the contract.
-        if !has(&args, "--json") {
-            fail("codex: missing `--json`");
-        }
-        if !has(&args, "--dangerously-bypass-approvals-and-sandbox") {
-            fail("codex: missing `--dangerously-bypass-approvals-and-sandbox` (unattended mode)");
-        }
-        if args.last().map(String::as_str) != Some("-") {
-            fail("codex: prompt is not read from stdin (last arg is not `-`)");
-        }
-        if stdin.trim().is_empty() {
-            fail("codex: no prompt was piped over stdin");
-        }
-        if is_reprompt && !has(&args, "th-fake") {
-            fail("codex: reprompt did not resume the reported thread id `th-fake`");
-        }
-    } else {
-        for flag in ["--output-format", "--json-schema", "--permission-mode", "bypassPermissions", "-p"] {
-            if !has(&args, flag) {
-                fail(&format!("claude: missing `{flag}`"));
-            }
-        }
-        if is_reprompt && !has(&args, "s-fake") {
-            fail("claude: reprompt did not resume the reported session id `s-fake`");
-        }
-    }
-
-    // Every turn carries the verdict schema instruction; the first turn also
-    // carries the changeset preamble. (A reprompt re-sends only the schema ask.)
-    if !prompt.contains("verdict") {
-        fail("prompt did not carry the verdict schema instruction");
-    }
-    if !is_reprompt {
-        if !prompt.contains("changeset") {
-            fail("first-turn prompt did not carry the changeset preamble");
-        }
-        if let Ok(expected) = std::env::var("FAKE_EXPECT_PROMPT_CONTAINS") {
-            if !expected.is_empty() && !prompt.contains(&expected) {
-                fail(&format!("prompt did not contain expected marker `{expected}` (interpolation?)"));
-            }
-        }
-    }
-
-    let behavior = env_or("FAKE_BEHAVIOR", "pass");
-
-    let sleep_ms: u64 = env_or("FAKE_SLEEP_MS", "0").parse().unwrap_or(0);
-    if sleep_ms > 0 {
-        std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
-    }
-
-    // Written only after the sleep: a child killed on timeout never reaches here,
-    // which is how the timeout test proves `kill_on_drop` actually fires.
-    if let Ok(marker) = std::env::var("FAKE_MARKER_FILE") {
-        if !marker.is_empty() {
-            let _ = std::fs::write(&marker, "alive");
-        }
-    }
-
-    if behavior == "crash" {
-        eprintln!("fake agent: simulated crash");
-        std::process::exit(7);
-    }
-
-    // reprompt-recover is malformed on the first turn and valid once resumed.
-    let effective = if behavior == "reprompt-recover" {
-        if is_reprompt { "pass" } else { "malformed" }
-    } else {
-        behavior.as_str()
-    };
-
-    let cost_cents: u64 = env_or("FAKE_COST_CENTS", "5").parse().unwrap_or(5);
-    let tin: u64 = env_or("FAKE_TOKENS_IN", "100").parse().unwrap_or(100);
-    let tout: u64 = env_or("FAKE_TOKENS_OUT", "10").parse().unwrap_or(10);
-    let dollars = format!("{}.{:02}", cost_cents / 100, cost_cents % 100);
-    let summary = env_or("FAKE_SUMMARY", "fake reviewer verdict");
-
-    if is_codex {
-        emit_codex(effective, &summary, &dollars, tin, tout);
-    } else {
-        emit_claude(effective, &summary, &dollars, tin, tout);
-    }
-}
-
-fn emit_codex(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64) {
-    // The verdict travels inside a JSON-lines `agent_message` as a fenced YAML
-    // block. The `\n` below are JSON string escapes: serde_json decodes them into
-    // real newlines when the backend parses each event line, so the fenced block
-    // splits correctly. (Emitting literal newlines here would be invalid JSON.)
-    println!("{}", r#"{"type":"thread.started","thread_id":"th-fake"}"#);
-
-    let mut text = String::new();
-    match behavior {
-        "block" => {
-            text.push_str(r#"```yaml\nverdict: block\nsummary: "#);
-            text.push_str(summary);
-            text.push_str(r#"\nfindings:\n  - kind: blocking\n    path: src/extra.rs\n    line_start: 1\n    line_end: 1\n    detail: simulated blocking finding\n```"#);
-        }
-        "inconsistent" => {
-            // A `block` with no blocking finding: internally inconsistent.
-            text.push_str(r#"```yaml\nverdict: block\nsummary: "#);
-            text.push_str(summary);
-            text.push_str(r#"\nfindings: []\n```"#);
-        }
-        "malformed" => {
-            text.push_str("I looked at the changeset but I will not give a verdict.");
-        }
-        _ => {
-            text.push_str(r#"```yaml\nverdict: pass\nsummary: "#);
-            text.push_str(summary);
-            text.push_str(r#"\nfindings: []\n```"#);
-        }
-    }
-
-    let mut line = String::new();
-    line.push_str(r#"{"type":"item.completed","item":{"type":"agent_message","text":""#);
-    line.push_str(&text);
-    line.push_str(r#""}}"#);
-    println!("{}", line);
-
-    let mut usage = String::new();
-    usage.push_str(r#"{"type":"turn.completed","usage":{"input_tokens":"#);
-    usage.push_str(&tin.to_string());
-    usage.push_str(r#","output_tokens":"#);
-    usage.push_str(&tout.to_string());
-    usage.push_str(r#","cost_usd":"#);
-    usage.push_str(dollars);
-    usage.push_str(r#"}}"#);
-    println!("{}", usage);
-}
-
-fn emit_claude(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64) {
-    let mut body = String::new();
-    match behavior {
-        "malformed" => {
-            body.push_str(r#"{"session_id":"s-fake","result":"I reviewed it but I forgot the schema."}"#);
-        }
-        "block" => {
-            body.push_str(r#"{"session_id":"s-fake","total_cost_usd":"#);
-            body.push_str(dollars);
-            body.push_str(r#","usage":{"input_tokens":"#);
-            body.push_str(&tin.to_string());
-            body.push_str(r#","output_tokens":"#);
-            body.push_str(&tout.to_string());
-            body.push_str(r#"},"structured_output":{"verdict":"block","summary":""#);
-            body.push_str(summary);
-            body.push_str(r#"","findings":[{"kind":"blocking","path":"src/extra.rs","line_start":1,"line_end":1,"detail":"simulated blocking finding"}]}}"#);
-        }
-        "inconsistent" => {
-            body.push_str(r#"{"session_id":"s-fake","structured_output":{"verdict":"block","summary":""#);
-            body.push_str(summary);
-            body.push_str(r#"","findings":[]}}"#);
-        }
-        _ => {
-            body.push_str(r#"{"session_id":"s-fake","total_cost_usd":"#);
-            body.push_str(dollars);
-            body.push_str(r#","usage":{"input_tokens":"#);
-            body.push_str(&tin.to_string());
-            body.push_str(r#","output_tokens":"#);
-            body.push_str(&tout.to_string());
-            body.push_str(r#"},"structured_output":{"verdict":"pass","summary":""#);
-            body.push_str(summary);
-            body.push_str(r#"","findings":[]}}"#);
-        }
-    }
-    print!("{}", body);
-}
-"##;
-
-/// Compile the fake agent once per test process and cache its path.
-///
-/// The executable lives in a leaked temp directory so it survives for the whole
-/// process (all scenarios share the one binary). Returns `None` -- so callers
-/// detect-and-skip -- when no usable `rustc` is on `PATH`.
-fn fake_agent() -> Option<&'static Path> {
-    static FAKE: OnceLock<Option<PathBuf>> = OnceLock::new();
-    FAKE.get_or_init(build_fake_agent).as_deref()
-}
-
-fn build_fake_agent() -> Option<PathBuf> {
-    let dir = tempfile::tempdir().ok()?;
-    // Leak the handle so the compiled binary outlives this call for the process.
-    let dir: &'static tempfile::TempDir = Box::leak(Box::new(dir));
-
-    let src = dir.path().join("fake_agent.rs");
-    std::fs::write(&src, FAKE_AGENT_SRC).ok()?;
-
-    let exe = dir.path().join(if cfg!(windows) {
-        "fake-agent.exe"
-    } else {
-        "fake-agent"
-    });
-
-    let output = Command::new("rustc")
-        .arg(&src)
-        .arg("--edition")
-        .arg("2021")
-        .arg("-O")
-        .arg("-o")
-        .arg(&exe)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .ok()?;
-
-    if output.status.success() && exe.exists() {
-        Some(exe)
-    } else {
-        eprintln!(
-            "could not build the fake agent with rustc:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        None
-    }
-}
-
-/// Whether `git` is on `PATH` (scenarios stand up throwaway repos with it).
-fn git_available() -> bool {
-    static OK: OnceLock<bool> = OnceLock::new();
-    *OK.get_or_init(|| {
-        Command::new("git")
-            .arg("--version")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    })
-}
-
-/// The set of tools a scenario needs; `None` means skip this run.
-///
-/// In CI (where `CI` is set) the tools must be present: a silently-skipped suite
-/// is worse than a red one, because it would let the whole end-to-end layer rot
-/// undetected. Locally, missing tools just skip.
-fn tooling() -> Option<&'static Path> {
-    let in_ci = std::env::var_os("CI").is_some();
-    if !git_available() {
-        assert!(
-            !in_ci,
-            "git must be available to run the integration suite in CI"
-        );
-        eprintln!("skipping integration scenario: git is not available");
-        return None;
-    }
-    match fake_agent() {
-        Some(path) => Some(path),
-        None => {
-            assert!(
-                !in_ci,
-                "rustc must be available to build the fake agent for the integration suite in CI"
-            );
-            eprintln!("skipping integration scenario: no usable rustc to build the fake agent");
-            None
-        }
-    }
-}
-
-/// `git` settings that make a throwaway repo deterministic regardless of the
-/// developer's global configuration (identity, signing, default branch).
-const GIT_ISOLATE: &[&str] = &[
-    "-c",
-    "user.email=test@bastion.dev",
-    "-c",
-    "user.name=Bastion Test",
-    "-c",
-    "commit.gpgsign=false",
-    "-c",
-    "init.defaultBranch=main",
-];
-
-fn git(dir: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .args(GIT_ISOLATE)
-        .args(args)
-        .current_dir(dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .unwrap_or_else(|e| panic!("git {args:?} failed to launch: {e}"));
-    assert!(status.success(), "git {args:?} exited unsuccessfully");
-}
-
-// ---------------------------------------------------------------------------
-// Building a reviewer registry.
-// ---------------------------------------------------------------------------
-
-/// A reviewer to write into a scenario's `reviewers.yaml`. All reviewers trigger
-/// on `src/**/*.rs`, which the test repo always dirties, so each one runs.
-struct Reviewer {
-    name: &'static str,
-    backend: &'static str,
-    mode: &'static str,
-    /// `FAKE_BEHAVIOR` and any other env the fake (or test) wants propagated.
-    env: Vec<(&'static str, &'static str)>,
-    /// `${name}` inputs interpolated into the prompt before the agent sees it.
-    inputs: Vec<(&'static str, &'static str)>,
-    /// A human-form `timeout` (e.g. `"500ms"`), when the reviewer needs one.
-    timeout: Option<&'static str>,
-    /// The prompt body (defaults to a generic instruction).
-    prompt: Option<&'static str>,
-}
-
-impl Reviewer {
-    fn new(name: &'static str, backend: &'static str, mode: &'static str) -> Self {
-        Self {
-            name,
-            backend,
-            mode,
-            env: Vec::new(),
-            inputs: Vec::new(),
-            timeout: None,
-            prompt: None,
-        }
-    }
-
-    fn behavior(mut self, behavior: &'static str) -> Self {
-        self.env.push(("FAKE_BEHAVIOR", behavior));
-        self
-    }
-
-    fn env(mut self, key: &'static str, value: &'static str) -> Self {
-        self.env.push((key, value));
-        self
-    }
-
-    fn input(mut self, key: &'static str, value: &'static str) -> Self {
-        self.inputs.push((key, value));
-        self
-    }
-
-    fn prompt(mut self, prompt: &'static str) -> Self {
-        self.prompt = Some(prompt);
-        self
-    }
-
-    fn timeout(mut self, timeout: &'static str) -> Self {
-        self.timeout = Some(timeout);
-        self
-    }
-
-    fn to_yaml(&self) -> String {
-        let mut s = String::new();
-        s.push_str(&format!("  - name: {}\n", self.name));
-        s.push_str("    trigger: [src/**/*.rs]\n");
-        s.push_str(&format!("    mode: {}\n", self.mode));
-        s.push_str(&format!("    backend: {}\n", self.backend));
-        if let Some(timeout) = self.timeout {
-            s.push_str(&format!("    timeout: {timeout}\n"));
-        }
-        if !self.env.is_empty() {
-            s.push_str("    env:\n");
-            for (key, value) in &self.env {
-                // Single-quote so values with path separators or spaces stay literal.
-                s.push_str(&format!("      {key}: '{value}'\n"));
-            }
-        }
-        if !self.inputs.is_empty() {
-            s.push_str("    inputs:\n");
-            for (key, value) in &self.inputs {
-                s.push_str(&format!("      {key}: '{value}'\n"));
-            }
-        }
-        let prompt = self.prompt.unwrap_or("review the changeset");
-        s.push_str(&format!("    prompt: '{prompt}'\n"));
-        s
-    }
-}
-
-fn registry(reviewers: &[Reviewer]) -> String {
-    let mut yaml = String::from("reviewers:\n");
-    for reviewer in reviewers {
-        yaml.push_str(&reviewer.to_yaml());
-    }
-    yaml
-}
-
-// ---------------------------------------------------------------------------
-// An isolated repo + data directory, and the binary under test.
-// ---------------------------------------------------------------------------
-
-/// The compiled `bastion` binary Cargo built for this test.
-fn bastion_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_bastion")
-}
-
-/// One throwaway environment: a git repo with a committed base and a dirty working
-/// tree, plus a private data directory for run history.
-struct TestRepo {
-    repo: tempfile::TempDir,
-    data: tempfile::TempDir,
-}
-
-impl TestRepo {
-    /// Stand up a repo whose `bastion/reviewers.yaml` is `registry_yaml`, with a
-    /// committed `src/lib.rs` base and an uncommitted changeset on top (an edit
-    /// plus a new file), so a `review --base main` always has files to route.
-    fn new(registry_yaml: &str) -> Self {
-        Self::build(Some(registry_yaml))
-    }
-
-    /// A repo with no reviewer registry at all (for the discovery error path).
-    fn without_registry() -> Self {
-        Self::build(None)
-    }
-
-    fn build(registry_yaml: Option<&str>) -> Self {
-        let repo = tempfile::tempdir().expect("repo tempdir");
-        let dir = repo.path();
-
-        std::fs::create_dir_all(dir.join("src")).unwrap();
-        std::fs::write(dir.join("src/lib.rs"), "pub fn base() {}\n").unwrap();
-        std::fs::write(dir.join("README.md"), "scenario repo\n").unwrap();
-        if let Some(yaml) = registry_yaml {
-            std::fs::create_dir_all(dir.join("bastion")).unwrap();
-            std::fs::write(dir.join("bastion/reviewers.yaml"), yaml).unwrap();
-        }
-
-        git(dir, &["init"]);
-        git(dir, &["add", "."]);
-        git(dir, &["commit", "-m", "base"]);
-
-        // Dirty the tree: edit a tracked source file and add an untracked one. Both
-        // match `src/**/*.rs`, so every reviewer in the registry triggers.
-        Self::dirty(dir);
-
-        let data = tempfile::tempdir().expect("data tempdir");
-        Self { repo, data }
-    }
-
-    /// Re-dirty the working tree (used between runs to keep a changeset present).
-    fn dirty(dir: &Path) {
-        std::fs::write(
-            dir.join("src/lib.rs"),
-            "pub fn base() {}\npub fn added() {}\n",
-        )
-        .unwrap();
-        std::fs::write(dir.join("src/extra.rs"), "pub fn extra() {}\n").unwrap();
-    }
-
-    fn path(&self) -> &Path {
-        self.repo.path()
-    }
-
-    /// Commit the current working tree, advancing HEAD (and the run id).
-    fn commit_all(&self, message: &str) {
-        git(self.path(), &["add", "."]);
-        git(self.path(), &["commit", "-m", message]);
-    }
-
-    /// Run `bastion <args>` in this repo with the fake agent wired in for both
-    /// backends, this repo's private data directory, and any `extra_env` (which
-    /// Bastion inherits and propagates to the agent child).
-    fn run(&self, fake: &Path, args: &[&str], extra_env: &[(&str, &str)]) -> Output {
-        let mut command = Command::new(bastion_bin());
-        command
-            .args(args)
-            .current_dir(self.repo.path())
-            .env("BASTION_DATA_DIR", self.data.path())
-            .env("BASTION_CLAUDE_BIN", fake)
-            .env("BASTION_CODEX_BIN", fake)
-            // Keep stdout pure JSONL; route library logging away from the stream.
-            .env("RUST_LOG", "error")
-            .stdin(Stdio::null());
-        for (key, value) in extra_env {
-            command.env(key, value);
-        }
-        command.output().expect("bastion binary runs")
-    }
-
-    /// Run `bastion review --base <base> --format jsonl` and parse the stream.
-    fn review_base(&self, fake: &Path, base: &str, extra_env: &[(&str, &str)]) -> ReviewRun {
-        let output = self.run(
-            fake,
-            &["review", "--base", base, "--format", "jsonl"],
-            extra_env,
-        );
-        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        let events = parse_events(&stdout, &stderr);
-        ReviewRun {
-            code: output.status.code(),
-            events,
-            stderr,
-        }
-    }
-
-    fn review(&self, fake: &Path) -> ReviewRun {
-        self.review_base(fake, "main", &[])
-    }
-
-    /// A [`Layout`] over this repo's data directory, for asserting on what was
-    /// persisted using the crate's real store API.
-    fn layout(&self) -> Layout {
-        Layout::with_root(self.data.path().to_path_buf())
-    }
-}
-
-/// Parse a JSONL event stream into typed [`RunEvent`]s, failing loudly (with the
-/// process's stderr) if any line is not a valid event -- a stray write to stdout
-/// would corrupt the contract this whole system depends on.
-fn parse_events(stdout: &str, stderr: &str) -> Vec<RunEvent> {
-    stdout
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(|line| {
-            serde_json::from_str::<RunEvent>(line).unwrap_or_else(|e| {
-                panic!("stdout line is not a valid run event: {e}\nline: {line}\nstderr:\n{stderr}")
-            })
-        })
-        .collect()
-}
-
-/// The dotted wire name of a run event, for asserting on stream ordering.
-fn event_kind(event: &RunEvent) -> &'static str {
-    match event {
-        RunEvent::RunStarted { .. } => "run.started",
-        RunEvent::ReviewerStarted { .. } => "reviewer.started",
-        RunEvent::ReviewerResolved { .. } => "reviewer.resolved",
-        RunEvent::RunCompleted { .. } => "run.completed",
-        // `RunEvent` is `#[non_exhaustive]`; a new variant should surface here.
-        _ => "unknown",
-    }
-}
-
-/// The parsed result of one `bastion review`.
-struct ReviewRun {
-    code: Option<i32>,
-    events: Vec<RunEvent>,
-    stderr: String,
-}
-
-impl ReviewRun {
-    fn exited_zero(&self) -> bool {
-        self.code == Some(0)
-    }
-
-    /// The aggregate decision and gate tally from the closing `run.completed`.
-    fn completed(&self) -> (Decision, Gates, Money) {
-        for event in &self.events {
-            if let RunEvent::RunCompleted {
-                verdict,
-                gates,
-                cost_usd,
-                ..
-            } = event
-            {
-                return (*verdict, *gates, *cost_usd);
-            }
-        }
-        panic!("no run.completed in stream; stderr:\n{}", self.stderr);
-    }
-
-    /// The resolved verdict, summary, findings, and usage for one reviewer.
-    fn resolved(&self, name: &str) -> (Decision, String, Vec<Finding>, Option<Usage>) {
-        for event in &self.events {
-            if let RunEvent::ReviewerResolved {
-                reviewer,
-                verdict,
-                summary,
-                findings,
-                usage,
-                ..
-            } = event
-                && reviewer == name
-            {
-                return (*verdict, summary.clone(), findings.clone(), *usage);
-            }
-        }
-        panic!(
-            "no reviewer.resolved for '{name}'; stderr:\n{}",
-            self.stderr
-        );
-    }
-
-    fn resolved_count(&self) -> usize {
-        self.events
-            .iter()
-            .filter(|e| matches!(e, RunEvent::ReviewerResolved { .. }))
-            .count()
-    }
-
-    fn started_count(&self) -> usize {
-        self.events
-            .iter()
-            .filter(|e| matches!(e, RunEvent::ReviewerStarted { .. }))
-            .count()
-    }
-}
+use bastion::verdict::{Decision, FindingKind, Money, Verdict};
+
+use fakes::{container_tooling, tooling};
+use fixtures::{Reviewer, TestRepo, event_kind, parse_events, registry};
+use github::{CapturedRequest, FakeGitHub};
 
 // ---------------------------------------------------------------------------
 // Core aggregation scenarios (jsonl).
@@ -952,6 +289,317 @@ fn the_unwired_pi_backend_fails_closed() {
     assert!(
         findings.iter().any(|f| f.detail.contains("pi backend")),
         "expected the pi-not-wired reason to surface; findings: {findings:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Containerized reviewers (the `runner` block).
+// ---------------------------------------------------------------------------
+
+/// A reviewer with a `runner` runs its backend inside the container engine, end to
+/// end: dispatch takes the container branch, resolves the image through the engine
+/// (a `dockerfile` build here), and the `docker run` line carries the in-container
+/// `claude` invocation that the fake engine re-executes as the agent. A clean pass
+/// still passes, proving the whole container wiring (image build, the `docker run`
+/// argv, the in-container program name, env forwarding, output capture) is real.
+#[test]
+fn a_containerized_reviewer_runs_in_the_engine() {
+    let Some((fake, docker)) = container_tooling() else {
+        return;
+    };
+
+    let repo = TestRepo::new(&registry(&[Reviewer::new("e2e", "claude-code", "gate")
+        .behavior("pass")
+        .dockerfile("Dockerfile")]));
+    // The Dockerfile only needs to exist: the fake engine's `build` is a no-op, but
+    // image-tag derivation reads the file's bytes.
+    std::fs::write(repo.path().join("Dockerfile"), "FROM scratch\n").unwrap();
+
+    let engine = docker.to_str().unwrap();
+    let agent = fake.to_str().unwrap();
+    let log = repo.path().join("fake-docker.log");
+    let run = repo.review_base(
+        fake,
+        "main",
+        &[
+            ("BASTION_CONTAINER_ENGINE", engine),
+            ("FAKE_AGENT_BIN", agent),
+            ("FAKE_DOCKER_LOG", log.to_str().unwrap()),
+        ],
+    );
+
+    assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
+    assert_eq!(run.completed().0, Decision::Pass);
+    assert_eq!(run.resolved("e2e").0, Decision::Pass);
+    // The engine actually ran, and ran the bare in-image `claude` (not a host path):
+    // a regression to the native path would never reach the fake engine, so the log
+    // would be missing entirely. The `dockerfile` source also builds before it runs:
+    // `ensure_image` fires the `build` first, then `docker run` re-execs the agent. A
+    // regression that stopped building (or ran before building) would reorder or drop
+    // the `build` line.
+    let logged = std::fs::read_to_string(&log).expect("the fake engine ran and logged");
+    let lines: Vec<&str> = logged.lines().collect();
+    assert_eq!(
+        lines,
+        ["build", "claude"],
+        "expected a build before the run"
+    );
+}
+
+/// `backend: any` resolves to Claude Code inside a container too: the container path
+/// must pin the bare in-image `claude`, not a host-resolved path. A regression that
+/// resolved `any` differently across the native and container paths would surface as a
+/// different (or missing) in-container program here.
+#[test]
+fn a_containerized_any_backend_runs_claude_in_the_engine() {
+    let Some((fake, docker)) = container_tooling() else {
+        return;
+    };
+
+    let repo = TestRepo::new(&registry(&[Reviewer::new("e2e-any", "any", "gate")
+        .behavior("pass")
+        .image("ghcr.io/acme/e2e:latest")]));
+
+    let engine = docker.to_str().unwrap();
+    let agent = fake.to_str().unwrap();
+    let log = repo.path().join("fake-docker.log");
+    let run = repo.review_base(
+        fake,
+        "main",
+        &[
+            ("BASTION_CONTAINER_ENGINE", engine),
+            ("FAKE_AGENT_BIN", agent),
+            ("FAKE_DOCKER_LOG", log.to_str().unwrap()),
+        ],
+    );
+
+    assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
+    assert_eq!(run.resolved("e2e-any").0, Decision::Pass);
+    // `any` ran the bare in-image `claude` off the prebuilt image, with no build.
+    let logged = std::fs::read_to_string(&log).expect("the fake engine ran and logged");
+    assert_eq!(logged.lines().collect::<Vec<_>>(), ["claude"]);
+}
+
+/// A containerized gate does not launder a block: when the in-container agent
+/// blocks, the gate blocks and the binary exits nonzero. Drives the Codex backend
+/// off a prebuilt `image` source, so the prompt rides stdin through `docker run -i`
+/// and no build step runs.
+#[test]
+fn a_containerized_gate_still_fails_closed_on_a_block() {
+    let Some((fake, docker)) = container_tooling() else {
+        return;
+    };
+
+    let repo = TestRepo::new(&registry(&[Reviewer::new("e2e-block", "codex", "gate")
+        .behavior("block")
+        .image("ghcr.io/acme/e2e:latest")]));
+
+    let engine = docker.to_str().unwrap();
+    let agent = fake.to_str().unwrap();
+    let log = repo.path().join("fake-docker.log");
+    let run = repo.review_base(
+        fake,
+        "main",
+        &[
+            ("BASTION_CONTAINER_ENGINE", engine),
+            ("FAKE_AGENT_BIN", agent),
+            ("FAKE_DOCKER_LOG", log.to_str().unwrap()),
+        ],
+    );
+
+    assert_eq!(run.code, Some(1));
+    assert_eq!(run.completed().0, Decision::Block);
+    assert_eq!(run.resolved("e2e-block").0, Decision::Block);
+    // The block is real: with the fake engine clearing inherited env, the agent saw
+    // `FAKE_BEHAVIOR=block` only because Bastion forwarded the reviewer's `env` through
+    // the `--env-file`. Had it not crossed, the agent would default to `pass` and this
+    // would not block. The bare in-image `codex` ran, off the prebuilt image with no
+    // build: an `image` source is used as-is, so the log holds the run and no `build`
+    // line.
+    let logged = std::fs::read_to_string(&log).expect("the fake engine ran and logged");
+    assert_eq!(logged.lines().collect::<Vec<_>>(), ["codex"]);
+}
+
+/// A containerized gate whose agent never emits a parseable verdict fails closed. The
+/// agent returns malformed output on every turn, so the backend reprompts once and
+/// still cannot parse a verdict; a gate must then block, exactly as on the native
+/// path. This pins the documented fail-closed behavior for containerized reviewers
+/// whose first turn is malformed: each `docker run` is a separate `--rm` container, so
+/// a real engine cannot resume first-turn session state, and the safe outcome is a
+/// block, never a laundered pass. (The fake engine does not model cross-container
+/// session loss, so this asserts the always-true fail-closed case, persistent
+/// malformed output, rather than a recovery the fake would falsely allow.)
+#[test]
+fn a_containerized_malformed_gate_fails_closed() {
+    let Some((fake, docker)) = container_tooling() else {
+        return;
+    };
+
+    let repo = TestRepo::new(&registry(&[Reviewer::new(
+        "e2e-malformed",
+        "codex",
+        "gate",
+    )
+    .behavior("malformed")
+    .image("ghcr.io/acme/e2e:latest")]));
+
+    let engine = docker.to_str().unwrap();
+    let agent = fake.to_str().unwrap();
+    let run = repo.review_base(
+        fake,
+        "main",
+        &[
+            ("BASTION_CONTAINER_ENGINE", engine),
+            ("FAKE_AGENT_BIN", agent),
+        ],
+    );
+
+    assert_eq!(run.code, Some(1));
+    assert_eq!(run.completed().0, Decision::Block);
+    assert_eq!(run.resolved("e2e-malformed").0, Decision::Block);
+}
+
+/// A containerized reviewer's environment is isolated: the container does not
+/// inherit Bastion's arbitrary environment, only the reviewer's literal `env` (and
+/// the fixed credential allowlist). The fake engine clears inherited env, so this
+/// asserts the boundary directly. The host sets `FAKE_SUMMARY=leaked-from-host` on
+/// the Bastion process. One reviewer declares its own `FAKE_SUMMARY` and must see
+/// that (reviewer env forwarded via `--env-file` reaches the container); a second
+/// reviewer declares none and must fall back to the agent's default summary, proving
+/// the host value did *not* leak across the boundary. Both observe the value through
+/// the summary the agent echoes.
+#[test]
+fn a_containerized_reviewer_sees_only_forwarded_env() {
+    let Some((fake, docker)) = container_tooling() else {
+        return;
+    };
+
+    let repo = TestRepo::new(&registry(&[
+        // Declares `FAKE_SUMMARY`: the forwarded value must cross.
+        Reviewer::new("e2e-declared", "claude-code", "advisor")
+            .behavior("pass")
+            .env("FAKE_SUMMARY", "from-reviewer-env")
+            .image("ghcr.io/acme/e2e:latest"),
+        // Declares no `FAKE_SUMMARY`: the host's value must not leak in, so the agent
+        // falls back to its built-in default summary.
+        Reviewer::new("e2e-isolated", "claude-code", "advisor")
+            .behavior("pass")
+            .image("ghcr.io/acme/e2e:latest"),
+    ]));
+
+    let engine = docker.to_str().unwrap();
+    let agent = fake.to_str().unwrap();
+    let run = repo.review_base(
+        fake,
+        "main",
+        &[
+            ("BASTION_CONTAINER_ENGINE", engine),
+            ("FAKE_AGENT_BIN", agent),
+            // A host-only variable neither reviewer forwards: it must not leak in.
+            ("FAKE_SUMMARY", "leaked-from-host"),
+        ],
+    );
+
+    assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
+    // The declared reviewer env crossed into the container.
+    assert_eq!(run.resolved("e2e-declared").1, "from-reviewer-env");
+    // The undeclared host variable did not: the agent used its default summary.
+    let isolated = run.resolved("e2e-isolated").1;
+    assert_eq!(isolated, "fake reviewer verdict");
+    assert_ne!(isolated, "leaked-from-host");
+}
+
+/// A provider credential reaches the in-container agent without being listed in the
+/// reviewer's `env`. `dispatch` wires `credential_passthrough()` into the container
+/// runner, which forwards the fixed allowlist of provider credential names by `-e`.
+/// Here `ANTHROPIC_API_KEY` is set on the Bastion process but *not* in the reviewer's
+/// `env`; with the fake engine clearing inherited env, the agent can only see it
+/// because the credential passthrough forwarded it. The agent echoes it into its
+/// summary so the test can observe it crossed. This guards the dispatch wiring: an
+/// empty credential list would leave the value absent and fail the assertion.
+#[test]
+fn a_provider_credential_crosses_into_the_container() {
+    let Some((fake, docker)) = container_tooling() else {
+        return;
+    };
+
+    // `FAKE_ECHO_ENV` (a reviewer env) tells the agent to echo `ANTHROPIC_API_KEY`,
+    // which is *not* listed in `env`: it can only arrive via credential passthrough.
+    let repo = TestRepo::new(&registry(&[Reviewer::new(
+        "e2e-cred",
+        "claude-code",
+        "advisor",
+    )
+    .behavior("pass")
+    .env("FAKE_ECHO_ENV", "ANTHROPIC_API_KEY")
+    .image("ghcr.io/acme/e2e:latest")]));
+
+    let engine = docker.to_str().unwrap();
+    let agent = fake.to_str().unwrap();
+    let run = repo.review_base(
+        fake,
+        "main",
+        &[
+            ("BASTION_CONTAINER_ENGINE", engine),
+            ("FAKE_AGENT_BIN", agent),
+            // A provider credential on the Bastion process, not in the reviewer env.
+            ("ANTHROPIC_API_KEY", "cred-sentinel-xyz"),
+        ],
+    );
+
+    assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
+    let summary = run.resolved("e2e-cred").1;
+    assert!(
+        summary.contains("cred-sentinel-xyz"),
+        "the provider credential did not reach the in-container agent; summary: {summary:?}"
+    );
+}
+
+/// A hung containerized reviewer is timed out closed *and* its container is torn
+/// down. `docker run --rm` only removes the container on a clean exit; when Bastion
+/// times the reviewer out it kills the engine client, so the runner force-removes the
+/// named container itself. The agent sleeps far past the timeout; the gate must still
+/// block (the fail-closed guarantee the native timeout path also gives), and the fake
+/// engine must have recorded the `rm -f` teardown.
+#[test]
+fn a_hung_containerized_reviewer_times_out_and_is_torn_down() {
+    let Some((fake, docker)) = container_tooling() else {
+        return;
+    };
+
+    let repo = TestRepo::new(&registry(&[Reviewer::new(
+        "e2e-hang",
+        "claude-code",
+        "gate",
+    )
+    .behavior("pass")
+    .env("FAKE_SLEEP_MS", "5000")
+    .timeout("300ms")
+    .image("ghcr.io/acme/e2e:latest")]));
+
+    let engine = docker.to_str().unwrap();
+    let agent = fake.to_str().unwrap();
+    let log = repo.path().join("fake-docker.log");
+    let run = repo.review_base(
+        fake,
+        "main",
+        &[
+            ("BASTION_CONTAINER_ENGINE", engine),
+            ("FAKE_AGENT_BIN", agent),
+            ("FAKE_DOCKER_LOG", log.to_str().unwrap()),
+        ],
+    );
+
+    // Timed out: the gate fails closed.
+    assert_eq!(run.code, Some(1));
+    assert_eq!(run.completed().0, Decision::Block);
+    assert_eq!(run.resolved("e2e-hang").0, Decision::Block);
+    // The container teardown fired: the engine received `rm -f` for the run's
+    // container, so a hung agent cannot keep running detached past the timeout.
+    let logged = std::fs::read_to_string(&log).unwrap_or_default();
+    assert!(
+        logged.lines().any(|line| line.starts_with("rm:")),
+        "expected a container teardown (`rm -f`); engine log:\n{logged}"
     );
 }
 
@@ -1621,144 +1269,6 @@ fn skills_install_and_check_round_trip() {
 // ---------------------------------------------------------------------------
 // `bastion github report`: drive the real binary against a fake GitHub.
 // ---------------------------------------------------------------------------
-
-/// One captured HTTP request to the fake GitHub.
-#[derive(Clone)]
-struct CapturedRequest {
-    method: String,
-    path: String,
-    body: String,
-}
-
-/// A minimal in-process GitHub: it accepts connections, records each request, and
-/// replies with a small JSON object (an empty comment list for `GET`, a created id
-/// for `POST`), closing the connection each time so the client opens a fresh one.
-///
-/// The accept loop is non-blocking and watches a stop flag, so the server can never
-/// hang the test waiting for a request the binary did not make: the test runs the
-/// binary to completion, then flips the flag and joins.
-struct FakeGitHub {
-    url: String,
-    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    handle: std::thread::JoinHandle<Vec<CapturedRequest>>,
-}
-
-impl FakeGitHub {
-    fn start() -> Self {
-        use std::net::TcpListener;
-        use std::sync::Arc;
-        use std::sync::atomic::AtomicBool;
-
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind fake github");
-        let url = format!("http://{}", listener.local_addr().unwrap());
-        listener.set_nonblocking(true).unwrap();
-        let stop = Arc::new(AtomicBool::new(false));
-        let stop_thread = stop.clone();
-
-        let handle = std::thread::spawn(move || {
-            use std::sync::atomic::Ordering;
-            let mut recorded = Vec::new();
-            loop {
-                match listener.accept() {
-                    Ok((stream, _)) => {
-                        if let Some(req) = serve_one(stream) {
-                            recorded.push(req);
-                        }
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        if stop_thread.load(Ordering::Relaxed) {
-                            break;
-                        }
-                        std::thread::sleep(Duration::from_millis(5));
-                    }
-                    Err(e) => panic!("fake github accept failed: {e}"),
-                }
-            }
-            recorded
-        });
-
-        Self { url, stop, handle }
-    }
-
-    /// Stop the server and return everything it recorded.
-    fn finish(self) -> Vec<CapturedRequest> {
-        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
-        self.handle.join().expect("fake github thread")
-    }
-}
-
-/// Read one HTTP request off `stream`, reply, and return what was captured.
-fn serve_one(mut stream: std::net::TcpStream) -> Option<CapturedRequest> {
-    use std::io::{Read, Write};
-
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 2048];
-    // Read until the header terminator, then drain the declared body.
-    let header_end = loop {
-        let n = stream.read(&mut tmp).ok()?;
-        if n == 0 {
-            return None;
-        }
-        buf.extend_from_slice(&tmp[..n]);
-        if let Some(pos) = find_subsequence(&buf, b"\r\n\r\n") {
-            break pos;
-        }
-    };
-    let head = String::from_utf8_lossy(&buf[..header_end]).into_owned();
-    let content_length = head
-        .lines()
-        .find_map(|line| {
-            let lower = line.to_ascii_lowercase();
-            lower
-                .strip_prefix("content-length:")
-                .map(|v| v.trim().parse::<usize>().unwrap_or(0))
-        })
-        .unwrap_or(0);
-    let body_start = header_end + 4;
-    while buf.len() - body_start < content_length {
-        let n = stream.read(&mut tmp).ok()?;
-        if n == 0 {
-            break;
-        }
-        buf.extend_from_slice(&tmp[..n]);
-    }
-
-    let request_line = head.lines().next().unwrap_or("");
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or("").to_string();
-    let path = parts.next().unwrap_or("").to_string();
-    let body = String::from_utf8_lossy(&buf[body_start..]).into_owned();
-
-    let (status, json) = if method == "GET" {
-        (200, "[]".to_string())
-    } else {
-        (201, r#"{"id":1}"#.to_string())
-    };
-    let response = format!(
-        "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{json}",
-        json.len()
-    );
-    stream.write_all(response.as_bytes()).ok()?;
-    stream.flush().ok();
-
-    Some(CapturedRequest { method, path, body })
-}
-
-/// First index of `needle` within `haystack`.
-fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
-}
-
-impl std::fmt::Debug for CapturedRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {}", self.method, self.path)
-    }
-}
 
 #[test]
 fn github_report_posts_a_comment_and_checks_for_a_blocked_run() {

@@ -12,6 +12,7 @@
 pub mod claude_code;
 pub mod codex;
 pub mod command;
+pub mod container;
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -24,7 +25,8 @@ use crate::verdict::{Decision, Money, Usage, Verdict};
 
 use self::claude_code::ClaudeCodeBackend;
 use self::codex::CodexBackend;
-use self::command::SystemCommandRunner;
+use self::command::{CommandRunner, SystemCommandRunner};
+use self::container::{ContainerEngine, ContainerRunner, ExecutionPlan, credential_passthrough};
 
 /// Everything a backend is handed to run one reviewer.
 ///
@@ -99,100 +101,114 @@ impl Backend for MockBackend {
     }
 }
 
-/// Run one reviewer on the backend its profile selects.
+/// Run one reviewer on the backend its profile selects, natively or in a container.
 ///
-/// Dispatch maps [`reviewer::Backend`] to a concrete backend. `Any` defaults to
-/// Claude Code for now; the named variants pin a harness. The match is the single
-/// place that grows when a sibling backend lands. The [`Backend`] trait does not.
+/// Dispatch first resolves the reviewer's [`ExecutionPlan`]: that is the single
+/// place an unprovisioned capability tier fails closed, so a backend is only ever
+/// reached for a reviewer this build can actually run. It then selects the concrete
+/// backend by [`reviewer::Backend`] (the match that grows when a sibling backend
+/// lands; the [`Backend`] trait does not). A containerized plan wraps the backend's
+/// subprocess seam in a [`ContainerRunner`], so the identical backend code runs
+/// inside the image with its program resolved on the container's `PATH`.
 ///
 /// # Errors
 ///
-/// Returns an error if the reviewer opts into an execution tier this build does
-/// not provision (the [`ensure_provisionable`] preflight), or if the selected
-/// backend fails to run or cannot produce a verdict. The runner turns either into
-/// a fail-closed block for gates.
+/// Returns an error if the reviewer selects an unwired backend ([`Pi`](reviewer::Backend::Pi)),
+/// if it opts into a tier this build does not provision or declares an invalid `runner`
+/// (a `runner` with neither source, an absolute or repo-escaping `dockerfile`, or an
+/// option-like `image`; all from the [`ExecutionPlan::resolve`] preflight), if the
+/// container image cannot be built, or if the selected backend fails to run or cannot
+/// produce a verdict. The runner turns any of these into a fail-closed block for gates.
 pub async fn dispatch(request: &ReviewRequest<'_>) -> Result<ReviewOutcome> {
-    // Refuse to run a reviewer that opts into an execution tier this build cannot
-    // provision, since running it native without its declared environment would be
-    // a silent fail-open.
-    ensure_provisionable(request.reviewer)?;
-
-    match request.reviewer.backend {
-        // `Any` lets Bastion choose; default to Claude Code until routing by
-        // availability/subscription exists.
-        reviewer::Backend::Any | reviewer::Backend::ClaudeCode => {
-            ClaudeCodeBackend::new(SystemCommandRunner)
-                .review(request)
-                .await
+    // Fail an unwired backend closed up front, before any side effects. Otherwise a
+    // `backend: pi` reviewer with a `runner` would build (and pull for) a container
+    // image only to bail at backend selection: an unimplemented backend must never
+    // cause work, let alone claim to have reviewed anything.
+    ensure_backend_wired(request.reviewer.backend, &request.reviewer.name)?;
+    match ExecutionPlan::resolve(request.reviewer)? {
+        ExecutionPlan::Native => {
+            run_backend(request, SystemCommandRunner, Program::HostDefault).await
         }
-        reviewer::Backend::Codex => CodexBackend::new(SystemCommandRunner).review(request).await,
-        // Sibling backends implement the same trait; wire them here as they land.
-        reviewer::Backend::Pi => {
-            color_eyre::eyre::bail!(
-                "the pi backend is not yet wired in this build (reviewer '{}')",
-                request.reviewer.name
-            )
+        ExecutionPlan::Container(plan) => {
+            let engine = ContainerEngine::from_env();
+            let image = plan
+                .ensure_image(&engine, &SystemCommandRunner, request.repo_root)
+                .await?;
+            tracing::debug!(
+                reviewer = %request.reviewer.name,
+                image = %image,
+                open_network = plan.open_network(),
+                "running reviewer in a container"
+            );
+            let runner =
+                ContainerRunner::new(SystemCommandRunner, engine, image, credential_passthrough());
+            run_backend(request, runner, Program::InContainer).await
         }
     }
 }
 
-/// Refuse a reviewer that opts into an execution tier this build does not yet
-/// provision, so a declared-but-unhonored capability fails closed instead of
-/// silently degrading to a plain native run.
-///
-/// The reviewer schema models a richer execution profile than this build
-/// executes: a container `runner`, general `network`, `mcp` servers, and `skills`
-/// loaded into the agent's context. Each is an *opt-in*. A gate that relies on one
-/// and silently does not get it is the exact fail-open hole the design forbids
-/// (`docs/developer-guide/design.md`): an opt-in a gate depends on must be honored,
-/// or the gate must fail closed. This is the same stance as the unwired `Pi`
-/// backend, which bails rather than pretending to have reviewed anything.
-///
-/// `network: false` is the least-privilege *default*, not an opt-in, so it is left
-/// alone: a hermetic reviewer that happens to inherit the host network is
-/// over-privileged hygiene, not a broken gate. As each tier is wired, its arm here
-/// is removed (and the [honored-fields
-/// table](../../docs/developer-guide/backends.md) updated in lockstep).
+/// Fail closed if `backend` is named in the schema but not implemented in this
+/// build, so an unwired backend never causes side effects or claims a review.
 ///
 /// # Errors
 ///
-/// Returns an error naming the unprovisioned opt-in the reviewer declares.
-/// [`dispatch`] turns that into a fail-closed block for a gate and a skip for an
-/// advisor, via the runner's fail-closed/fail-open policy.
-fn ensure_provisionable(reviewer: &Reviewer) -> Result<()> {
-    if reviewer.is_containerized() {
-        bail!(
-            "reviewer '{}' declares a container `runner`, but this build provisions no \
-             containers and runs every reviewer natively; failing closed rather than \
-             running it native without the environment it declared",
-            reviewer.name
-        );
+/// Returns an error for `Pi`, the remaining unwired backend.
+fn ensure_backend_wired(backend: reviewer::Backend, reviewer: &str) -> Result<()> {
+    match backend {
+        reviewer::Backend::Any | reviewer::Backend::ClaudeCode | reviewer::Backend::Codex => Ok(()),
+        reviewer::Backend::Pi => {
+            bail!("the pi backend is not yet wired in this build (reviewer '{reviewer}')")
+        }
     }
-    if reviewer.capabilities.network {
-        bail!(
-            "reviewer '{}' opts into `network` access, but this build cannot scope a \
-             reviewer's network without a container runner, which is not provisioned; \
-             failing closed rather than granting unscoped host network",
-            reviewer.name
-        );
+}
+
+/// How a backend resolves its program: from the host, or as the bare in-container
+/// name.
+#[derive(Debug, Clone, Copy)]
+enum Program {
+    /// Resolve from the host (`BASTION_CLAUDE_BIN` / `PATH`); the native path.
+    HostDefault,
+    /// The default program name, resolved on the container's `PATH`.
+    InContainer,
+}
+
+/// Select the concrete backend for `request` and run it over `runner`.
+///
+/// Shared by the native and container paths so backend selection lives in one place;
+/// only how the program is resolved differs. `dispatch` already rejected an unwired
+/// backend via [`ensure_backend_wired`], so the `Pi` arm here is an unreachable
+/// safety net kept for match exhaustiveness: an unimplemented backend must never
+/// claim to have reviewed anything.
+async fn run_backend<R: CommandRunner>(
+    request: &ReviewRequest<'_>,
+    runner: R,
+    program: Program,
+) -> Result<ReviewOutcome> {
+    match request.reviewer.backend {
+        // `Any` lets Bastion choose; default to Claude Code until routing by
+        // availability/subscription exists.
+        reviewer::Backend::Any | reviewer::Backend::ClaudeCode => match program {
+            Program::HostDefault => ClaudeCodeBackend::new(runner).review(request).await,
+            Program::InContainer => {
+                ClaudeCodeBackend::with_program(runner, claude_code::DEFAULT_PROGRAM)
+                    .review(request)
+                    .await
+            }
+        },
+        reviewer::Backend::Codex => match program {
+            Program::HostDefault => CodexBackend::new(runner).review(request).await,
+            Program::InContainer => {
+                CodexBackend::with_program(runner, codex::DEFAULT_PROGRAM)
+                    .review(request)
+                    .await
+            }
+        },
+        // Sibling backends implement the same trait; wire them here as they land.
+        reviewer::Backend::Pi => bail!(
+            "the pi backend is not yet wired in this build (reviewer '{}')",
+            request.reviewer.name
+        ),
     }
-    if !reviewer.capabilities.mcp.is_empty() {
-        bail!(
-            "reviewer '{}' declares MCP servers {:?}, but this build does not provision \
-             MCP; failing closed rather than reviewing without the tools it asked for",
-            reviewer.name,
-            reviewer.capabilities.mcp
-        );
-    }
-    if !reviewer.capabilities.skills.is_empty() {
-        bail!(
-            "reviewer '{}' declares skills {:?}, but this build does not load skills into \
-             the agent's context; failing closed rather than reviewing without them",
-            reviewer.name,
-            reviewer.capabilities.skills
-        );
-    }
-    Ok(())
 }
 
 /// The shared preamble that tells a reviewing agent what its changeset is and how
@@ -400,79 +416,36 @@ mod tests {
         assert!(err.to_string().contains("pi backend is not yet wired"));
     }
 
-    #[test]
-    fn least_privilege_reviewer_is_provisionable() {
-        // The default profile (no runner, no capability opt-ins) is exactly what
-        // this build executes, so it must pass the preflight.
-        let r = reviewer(reviewer::Backend::ClaudeCode);
-        assert!(r.capabilities.is_least_privilege());
-        assert!(ensure_provisionable(&r).is_ok());
-    }
-
-    #[test]
-    fn provisioned_fields_do_not_trip_the_preflight() {
-        // env, inputs, and timeout are honored today, so setting them must not be
-        // mistaken for an unprovisioned opt-in.
-        let mut r = reviewer(reviewer::Backend::ClaudeCode);
-        r.env.insert("PREVIEW_URL".into(), "x".into());
-        r.inputs.insert("preview_url".into(), "x".into());
-        r.timeout = Some(std::time::Duration::from_secs(60));
-        assert!(ensure_provisionable(&r).is_ok());
-    }
-
-    #[test]
-    fn network_false_is_the_default_not_an_optin() {
-        // The least-privilege default must never fail closed: it is what every
-        // hermetic reviewer runs with.
-        let mut r = reviewer(reviewer::Backend::ClaudeCode);
-        r.capabilities.network = false;
-        assert!(ensure_provisionable(&r).is_ok());
-    }
-
-    #[test]
-    fn containerized_reviewer_fails_closed() {
-        let mut r = reviewer(reviewer::Backend::ClaudeCode);
-        r.runner = Some(crate::reviewer::RunnerSpec {
-            dockerfile: Some("./e2e.Dockerfile".into()),
+    #[tokio::test]
+    async fn dispatch_rejects_an_unwired_backend_before_building_a_container() {
+        // A `backend: pi` reviewer with a `runner` must fail closed *before* the
+        // engine is touched: dispatch checks the backend up front, so a Pi reviewer
+        // never builds or pulls an image. If it did reach `ensure_image`, on a host
+        // with no engine that would surface as a spawn failure, not the pi error, so
+        // asserting the pi error proves no build was attempted.
+        let mut reviewer = reviewer(reviewer::Backend::Pi);
+        reviewer.runner = Some(crate::reviewer::RunnerSpec {
+            dockerfile: Some("Dockerfile".into()),
             image: None,
         });
-        let err = ensure_provisionable(&r).unwrap_err();
-        assert!(err.to_string().contains("runner"));
-    }
-
-    #[test]
-    fn network_optin_fails_closed() {
-        let mut r = reviewer(reviewer::Backend::ClaudeCode);
-        r.capabilities.network = true;
-        let err = ensure_provisionable(&r).unwrap_err();
-        assert!(err.to_string().contains("network"));
-    }
-
-    #[test]
-    fn mcp_optin_fails_closed() {
-        let mut r = reviewer(reviewer::Backend::ClaudeCode);
-        r.capabilities.mcp = vec!["playwright".into()];
-        let err = ensure_provisionable(&r).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("MCP"));
-        assert!(msg.contains("playwright"));
-    }
-
-    #[test]
-    fn skills_optin_fails_closed() {
-        let mut r = reviewer(reviewer::Backend::ClaudeCode);
-        r.capabilities.skills = vec!["stop-slop".into()];
-        let err = ensure_provisionable(&r).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("skills"));
-        assert!(msg.contains("stop-slop"));
+        let run = RunId("r".into());
+        let root = PathBuf::from(".");
+        let request = ReviewRequest {
+            reviewer: &reviewer,
+            run: &run,
+            repo_root: &root,
+            base: "main",
+        };
+        let err = dispatch(&request).await.unwrap_err();
+        assert!(err.to_string().contains("pi backend is not yet wired"));
     }
 
     #[tokio::test]
     async fn dispatch_fails_closed_on_unprovisioned_capability() {
-        // The preflight runs ahead of backend selection, so a reviewer that opts
-        // into an unprovisioned tier never reaches a backend: dispatch returns the
-        // fail-closed error the runner turns into a block for a gate.
+        // The plan resolves ahead of backend selection, so a reviewer that opts into
+        // an unprovisioned tier (here, skills) never reaches a backend: dispatch
+        // returns the fail-closed error the runner turns into a block for a gate. The
+        // plan-resolution cases themselves are covered in `container`.
         let mut reviewer = reviewer(reviewer::Backend::ClaudeCode);
         reviewer.capabilities.skills = vec!["stop-slop".into()];
         let run = RunId("r".into());
@@ -489,19 +462,19 @@ mod tests {
 
     #[test]
     fn the_shipped_registry_is_fully_provisionable() {
-        // Every reviewer in the shipped registry must pass the preflight: a
-        // declaration this build cannot honor would fail that reviewer closed at
-        // review time. Reintroducing `runner`, `network: true`, `mcp`, or `skills`
-        // there parses fine and loads fine, so without this guard it would slip past
-        // the registry-load test and only surface as a self-wedged gate. (The
-        // `unprovisioned-capabilities` reviewer guards new edits in review; this
+        // Every reviewer in the shipped registry must resolve to an execution plan:
+        // a declaration this build cannot honor would fail that reviewer closed at
+        // review time. Reintroducing an unprovisioned `mcp`/`skills`, or a native
+        // `network: true`, parses fine and loads fine, so without this guard it would
+        // slip past the registry-load test and only surface as a self-wedged gate.
+        // (The `unprovisioned-capabilities` reviewer guards new edits in review; this
         // guards the already-shipped set in the build.)
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(crate::config::CONFIG_DIR)
             .join(crate::config::REGISTRY_FILE);
         let config = crate::config::Config::load(&path).expect("shipped registry loads");
         for reviewer in &config.reviewers {
-            ensure_provisionable(reviewer).unwrap_or_else(|err| {
+            ExecutionPlan::resolve(reviewer).unwrap_or_else(|err| {
                 panic!(
                     "shipped reviewer '{}' is not provisionable: {err}",
                     reviewer.name

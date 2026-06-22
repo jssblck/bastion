@@ -208,5 +208,23 @@ reviewers:
             "unprovisioned-capabilities must trigger on the registry it guards (got {:?})",
             gate.trigger
         );
+        // Pin the policy clauses the container-runner work changed, so a prompt edit
+        // that silently re-broadened the guard (back to blocking a `runner`, or
+        // forward to letting `mcp`/`skills` through) fails here. The runner block is
+        // now provisioned, a native `network: true` still fails closed, and `mcp` and
+        // `skills` remain unprovisioned.
+        let prompt = &gate.prompt;
+        assert!(
+            prompt.contains("the container `runner` block"),
+            "the gate prompt must state the `runner` block is provisioned"
+        );
+        assert!(
+            prompt.contains("does NOT yet provision the `mcp` or `skills`"),
+            "the gate prompt must still treat `mcp` and `skills` as unprovisioned"
+        );
+        assert!(
+            prompt.contains("NO `runner` block"),
+            "the gate prompt must still block native `network: true` (no `runner`)"
+        );
     }
 }

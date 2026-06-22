@@ -89,9 +89,9 @@ Formalized, Bastion is built around the following threat model:
 
 ## The reviewer
 
-A reviewer is a bundle: **prompt + trigger + mode + backend + capabilities + (optional) environment**. We call it the reviewer's _execution profile_.
+A reviewer is a bundle: **prompt + trigger + mode + backend + capabilities + (optional) runner + (optional) environment**. We call it the reviewer's _execution profile_. The optional `runner` provisions a container the backend runs inside (see the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today) and [Containers](./containers.md)); without it the reviewer runs natively on the host.
 
-**Least privilege is the default.** This isn't intended as anti-exfil hardening but as plain hygiene and to keep the common case fast: a reviewer gets no network, no secrets, and no tools unless it asks. Most reviewers are hermetic and need nothing but the checkout and a model. Access to the model provider is always permitted, since every reviewer needs it; `network: true` is the opt-in for _general_ outbound network beyond that.
+**Least privilege is the default.** This isn't intended as anti-exfil hardening but as plain hygiene and to keep the common case fast: a reviewer gets no secrets and no tools unless it asks. Most reviewers are hermetic and need nothing but the checkout and a model. Access to the model provider is always permitted, since every reviewer needs it; `network: true` is the opt-in for _general_ outbound network beyond that. (One caveat in the current build: network scoping is not yet enforced, so a containerized reviewer attaches the engine's default network whether or not it asks. The `network` flag is recorded but does not yet restrict egress; see the implementation-status note below and the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today).)
 
 Reviewers are **composable**. They run independently and asynchronously, and their verdicts are aggregated at the end. This means you can add a new reviewer for a concern without affecting the existing ones, and you can have some reviewers that run fast and others that run slow without blocking the whole process.
 
@@ -135,7 +135,7 @@ reviewers:
     backend: claude-code                     # pinned by user preference. optional; `any` by default.
     timeout: 15m
     runner:
-      dockerfile: ./bastion/e2e.Dockerfile   # provides a hermetic environment with tools installed. optional; if absent, runs native/in-process.
+      dockerfile: ./bastion/e2e.Dockerfile   # builds a hermetic image with tools installed. optional within `runner`; if absent, falls back to `image`. (Omit the whole `runner` block to run native; a `runner` with neither source fails closed.)
       image: ghcr.io/acme/e2e:latest         # alternative to `dockerfile` for a pre-built image. optional; if both `dockerfile` and `image` are present, `dockerfile` takes precedence.
     env:
       PREVIEW_URL: http://preview.internal   # literal environment variables injected into the reviewer process. optional.
@@ -151,12 +151,15 @@ reviewers:
 ```
 
 > **Implementation status.** This schema is the design target. In the current
-> build, `name`, `trigger`, `mode`, `backend`, `prompt`, `timeout`, `env`, and
-> `inputs` are honored; `runner` (containers) and the `capabilities` opt-ins
-> (`network: true`, `mcp`, `skills`) parse but are **not yet provisioned**, and a
-> reviewer that declares one **fails closed** (a gate blocks, an advisor is
-> skipped) rather than running native without it. The least-privilege default
-> (`network: false`, no `mcp`/`skills`, no `runner`) runs native. `env` and
+> build, `name`, `trigger`, `mode`, `backend`, `prompt`, `timeout`, `env`,
+> `inputs`, and `runner` (containers) are honored: a reviewer with a `runner` block
+> runs its backend inside the built or named image (see
+> [Containers](./containers.md)). `capabilities.network: true` is honored inside a
+> container but not yet scoped (egress allowlisting is a later milestone), and a
+> native `network: true` fails closed; `mcp` and `skills` parse but are **not yet
+> provisioned**, so a reviewer that declares one **fails closed** (a gate blocks, an
+> advisor is skipped) rather than running without it. The least-privilege default
+> (`network: false`, no `mcp`/`skills`, no `runner`) runs natively. `env` and
 > `inputs` values are literal strings (no shell `$VAR` expansion). See the
 > [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today).
 
@@ -177,7 +180,7 @@ Bastion supports Claude Code, Codex, and Pi as first-class harnesses.
 
 Instead of running its own agent loops, Bastion supports existing tooling as backends. The runner translates the reviewer's execution profile into the backend's native config, and Bastion's CI workflow calls the backend's CLI to run the review. This keeps Bastion simple and lets it leverage the strengths of each backend, as well as supporting subscription-based usage that requires users to run on a specific backend.
 
-For local usage, Bastion reuses the same configs that the user has configured locally for the harness being used, so the billing or other configuration is copied and reused in the reviewer agents.
+For local usage, a native reviewer reuses the same configs the user has configured locally for the harness being used, so the billing or other configuration the host CLI already holds is reused in the reviewer agents. A containerized reviewer (one with a `runner`) does not get that host config: Bastion bind-mounts only the checkout and forwards the reviewer's literal `env` plus a fixed set of provider-credential variable names, so the in-container agent authenticates from those forwarded credentials (or from auth baked into the image), not from the host's `~/.claude` / `~/.codex`. See [Containers](./containers.md).
 
 To comply with subscription terms of service (which tie a subscription to an individual, not a team) in CI, Bastion can be configured with mappings for different authentication to use per reviewer. Bastion does not store these subscription details; teams must store these separately. For example, GitHub Actions secrets can be used to store API keys or subscription details, and the Bastion runner can be configured to read different secrets depending on the user making the request in CI. Bastion can also optionally default to API billing if no subscription is configured.
 
@@ -248,7 +251,7 @@ The main reason this is mentioned in this design at all, when it is really a hum
 
 The local CLI surface makes reviewers fitness functions agent authors can optimize against locally prior to even opening a PR.
 
-`bastion review` runs the relevant reviewers (by `trigger`) against the local working tree / branch, exactly as CI would. Progress and verdicts are rendered in the CLI output for agents to read. Since Bastion is CI-agnostic, things like environment variables are expected to be provided to Bastion in the local environment. For example, a `precommit` script might boot and run the service being reviewed locally to provide the `PREVIEW_URL` to Bastion-based reviewers, but the preview URL is just something like `http://localhost:3000` instead of something more formal.
+`bastion review` runs the relevant reviewers (by `trigger`) against the local working tree / branch, exactly as CI would. Progress and verdicts are rendered in the CLI output for agents to read. Since Bastion is CI-agnostic, things like environment variables are expected to be provided to Bastion in the local environment. For example, a `precommit` script might boot and run the service being reviewed locally to provide the `PREVIEW_URL` to Bastion-based reviewers, but the preview URL is just something like `http://localhost:3000` instead of something more formal. A native reviewer inherits that local environment directly. A containerized reviewer (one with a `runner`) inherits none of it; only its literal `env` pairs plus the fixed provider-credential set cross into the container, so a dynamic local value must be written into the reviewer's `env` (templated, if it is not known at authoring time). See [Containers](./containers.md).
 
 The intention is that an authoring agent loops `bastion review` until green, then opens a PR that CI largely just confirms.
 

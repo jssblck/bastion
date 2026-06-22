@@ -89,6 +89,18 @@ codex --version     # for the Codex backend
 If the binary lives elsewhere or you want to point at a wrapper, set
 `BASTION_CLAUDE_BIN` or `BASTION_CODEX_BIN` to its path.
 
+That covers the default, **native** path. If you author a reviewer with a
+[`runner`](./authoring-reviewers.md#runner-and-capabilities), that reviewer runs its
+backend inside a container instead, so it needs a container engine on the host rather
+than the backend CLI: Bastion shells out to `docker` by default (set
+`BASTION_CONTAINER_ENGINE` to use another, for example `podman`), and the backend CLI
+(`claude` / `codex`) must be present inside the image. A fixed set of provider
+credential variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and the like) is forwarded
+from your environment into the container by name so the in-container agent can
+authenticate; host CLI auth that lives in a file (`~/.claude`, `~/.codex/auth.json`) is
+not, so an image that relies on that should bake it in. You only need this once you
+start using `runner` reviewers; the quickstart below stays native.
+
 ## 3. Write your first reviewer
 
 Reviewers live in a single declarative file: `bastion/reviewers.yaml`, in your
