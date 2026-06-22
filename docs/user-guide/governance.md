@@ -25,7 +25,7 @@ Two native GitHub mechanisms enforce this; neither is exotic.
 
 ### CODEOWNERS protects the registry
 
-Bastion can generate a CODEOWNERS block covering the reviewer-policy paths -- the
+Bastion can generate a CODEOWNERS block covering the reviewer-policy paths: the
 registry, the reviewer definitions, the Bastion workflow, and the CODEOWNERS file
 itself:
 
@@ -36,32 +36,32 @@ bastion github codeowners --owner @your-org/platform
 Pass `--owner` once per owner (it is repeatable). Add the generated block to your
 `CODEOWNERS`. Now any PR that adds, removes, or edits a reviewer; loosens a
 trigger; or changes a prompt touches an owned path, so GitHub requires a human
-review before merge. You can also write your own CODEOWNERS instead -- the
+review before merge. You can also write your own CODEOWNERS instead; the
 generated block is a correct starting suggestion.
 
 > Why generate it statically rather than have Bastion manage it live? CODEOWNERS
 > changes only take effect *after* a PR merges, so the file must be written to
-> protect every path Bastion will ever write into, ahead of time. A generated,
-> reviewed block is the honest way to do that.
+> protect every path Bastion will ever write into, ahead of time, which is what
+> the generated, reviewed block provides.
 
 ### Branch protection requires the check
 
-Require Bastion's review on your default branch -- today that is the review job from
+Require Bastion's review on your default branch: today that is the review job from
 [Continuous integration](./continuous-integration.md#what-ships-today); in the
 target adapter it is the always-present aggregate check named `bastion`. A PR then
-cannot merge with the gate switched off -- and because the workflow file and the
+cannot merge with the gate switched off, and because the workflow file and the
 registry are themselves owned paths, switching it off is itself a policy change a
 human sees.
 
 That is the entire enforcement story, and it is intentionally modest. The
 contributor Bastion is designed for is an aligned agent that would never quietly
 disable CI; the CODEOWNERS trip wire and the required check exist so that *if*
-policy changes, a human is in the loop -- not so that a determined adversary is
+policy changes, a human is in the loop, not so that a determined adversary is
 stopped.
 
 ## The escape-to-improvement loop
 
-An **escape** is a PR that merged but should have been blocked -- a reviewer missed
+An **escape** is a PR that merged but should have been blocked: a reviewer missed
 something. Escapes are inevitable, especially early while reviewers are still being
 tuned, and they are the single most valuable signal for improving the system.
 
@@ -74,17 +74,17 @@ is a human governance loop:
    the missed property, or fix the reviewer's environment.
 4. **Merge** the policy change (through the CODEOWNERS-gated human review above).
 
-This is why Bastion favors convergence over up-front perfection. A reviewer that is
-"good enough" and then improved from real escapes beats one you tried to perfect on
-paper. Treat escapes as expected feedback, not failures -- a steady triage habit is
-the difference between a policy that gets sharper over time and one that rots.
+This is why Bastion expects reviewers to improve over time. Start with a reviewer
+that is good enough and sharpen it from real escapes instead of perfecting it on
+paper. Treat escapes as expected feedback rather than failures, and triage them
+regularly so the policy keeps improving.
 
 ## What Bastion does not guarantee
 
 Govern with these limits in mind; they are deliberate, not gaps to be closed:
 
 - **It is not a correctness proof.** Bastion does not guarantee code is free of
-  bugs or vulnerabilities. A reviewer is only as good as its model and prompt --
+  bugs or vulnerabilities. A reviewer is only as good as its model and prompt;
   it is code review without the human in the small loop, not a verifier.
 - **It does not judge whether the right thing is being built.** That is a
   design-time question; by PR time the ship has sailed. Keep humans in the design
@@ -92,13 +92,13 @@ Govern with these limits in mind; they are deliberate, not gaps to be closed:
 - **It is not an adversarial security boundary.** Bastion assumes PR authors are
   aligned contributors and treats reviewed code as trusted input; it does not
   defend reviewer agents against prompt injection or exfiltration from the code
-  they review. The bar is *reasonable reduction proportionate to effort* -- a speed
+  they review. The bar is *reasonable reduction proportionate to effort*: a speed
   bump and good defaults, like lint and CI and human review before it. Anything
   stronger (signing, external rule storage, an enumerated trusted-computing-base)
   is deliberately out of scope.
 
-The full threat model and trust boundary -- the assumptions these limits follow
-from -- are in the
+The full threat model and trust boundary (the assumptions these limits follow
+from) are in the
 [core design](../developer-guide/design.md#threat-model--trust-boundary).
 
 ## A governance checklist

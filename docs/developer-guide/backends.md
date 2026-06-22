@@ -35,7 +35,7 @@ A backend is handed a `ReviewRequest` (the reviewer, the run id, the repo root, 
 the base branch) and returns a `ReviewOutcome` (the structured `Verdict`, optional
 `Usage`, and the optional full transcript). The trait is deliberately small and
 stable: sibling backends implement the same signature, and `dispatch` is the single
-place that grows when one lands -- the trait does not.
+place that grows when one lands; the trait does not.
 
 An error from `review` is *not* a verdict. The runner turns it into a fail-closed
 `block` for a gate (with a synthetic blocking finding) and drops it for an advisor.
@@ -55,7 +55,7 @@ match request.reviewer.backend {
 ```
 
 `Any` defaults to Claude Code until routing by availability/subscription exists.
-**`Pi` fails closed** -- it is named in the schema but not implemented, so selecting
+**`Pi` fails closed**: it is named in the schema but not implemented, so selecting
 it errors rather than silently passing. This is load-bearing: an unimplemented
 backend must never claim to have reviewed anything. There is a test
 (`dispatch_rejects_unwired_backends`) guarding exactly that.
@@ -75,16 +75,16 @@ parsing, and retry logic.
 Three helpers keep the backends consistent so a reviewer behaves the same
 regardless of which agent runs it:
 
-- **`changeset_preamble`** -- the instruction prepended to every prompt telling the
+- **`changeset_preamble`**: the instruction prepended to every prompt telling the
   agent how to see its changeset. It steers to `git diff {base}` (the working-tree
   form: working tree vs. base) plus an untracked-file scan, and explicitly warns *off*
   `{base}...HEAD`, which shows only committed history and would miss the uncommitted
   work an author iterates on locally. In CI the head is committed and there are no
   untracked files, so the same instruction is correct there too.
-- **`interpolate`** -- substitutes `${key}` placeholders in a prompt from the
+- **`interpolate`**: substitutes `${key}` placeholders in a prompt from the
   reviewer's `inputs`. Unknown placeholders are left as literal text (the reviewer
   author is trusted; a literal `${...}` is harmless).
-- **`money_from_dollars`** -- converts a backend-reported dollar cost into the exact
+- **`money_from_dollars`**: converts a backend-reported dollar cost into the exact
   `Money` (cents) type, clamping negative or non-finite values to zero so a
   malformed cost can never produce a nonsensical charge.
 
@@ -98,14 +98,14 @@ about what is honored, so the code does not over-promise:
 | `prompt`, `trigger`, `mode`, `name` | Fully honored. |
 | `backend` | Honored (`claude-code`, `codex`; `any` -> Claude Code; `pi` fails closed). |
 | `timeout` | Honored by the runner. |
-| `inputs` | Honored -- interpolated into the prompt. |
-| `env` | Honored -- injected into the child process environment. |
+| `inputs` | Honored, interpolated into the prompt. |
+| `env` | Honored, injected into the child process environment. |
 | `capabilities` (`network`, `mcp`, `skills`) | **Parsed but not provisioned.** Acknowledged in `base_spec` (`let _ = reviewer.capabilities...`) and deferred to the container runner. |
 | `runner` (`dockerfile`, `image`) | **Parsed but not provisioned.** Execution is native only; no container is built. |
 
-When you wire the container runner, this is the table to update -- and the
+When you wire the container runner, this is the table to update, and with it the
 [authoring guide's note](../user-guide/authoring-reviewers.md#runner-and-capabilities-declared-not-yet-provisioned)
-and the [user-facing status](../user-guide/README.md#status) along with it.
+and the [user-facing status](../user-guide/README.md#status).
 
 ## Adding a backend
 
@@ -119,15 +119,15 @@ and the [user-facing status](../user-guide/README.md#status) along with it.
    `codex.rs`: assert the args and env you build, and the parsing of a representative
    envelope, including the malformed-output retry path.
 
-`MockBackend` is *not* the template for a new backend -- it is a deterministic
+`MockBackend` is *not* the template for a new backend; it is a deterministic
 always-pass double for testing the runner without any agent. Real backends drive a
 fake executable instead.
 
 ## The verdict round-trip
 
-Backends capture the agent's structured output -- Claude Code via a JSON schema
-(`--json-schema`), Codex via a requested fenced verdict block parsed from its final
-message -- and validate it against the verdict schema. If the agent does not produce
+Backends capture the agent's structured output, then validate it against the
+verdict schema: Claude Code via a JSON schema (`--json-schema`), Codex via a
+requested fenced verdict block parsed from its final message. If the agent does not produce
 complying output, the backend re-runs the *same session* with a turn that re-states
 the schema and asks for just the structured output of the work already done; only
 after that fails does it give up with an error (which the runner fails closed). The
@@ -136,5 +136,5 @@ verdict schema itself is specified in the
 
 ---
 
-Next: [Conventions](./conventions.md) -- the coding rules this crate holds itself
+Next: [Conventions](./conventions.md). The coding rules this crate holds itself
 to.

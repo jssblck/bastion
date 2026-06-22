@@ -70,3 +70,11 @@ jobs:
             --file ".agents/skills/rust-skills/x.md" --content "clause ${em} clause")"
           echo "$excluded"
           echo "$excluded" | grep -q "Result: Passthrough"
+          # Neither top-level skill dir is gated: only the bundled source under
+          # skills/** is. The two dirs are exact mirrors (see tests/skills_mirror.rs),
+          # so assert a path under .claude/skills is passed through too, not just the
+          # .agents one above.
+          mirrored="$(nudge test --rule no-unicode-dashes --tool Write \
+            --file ".claude/skills/rust-skills/x.md" --content "clause ${em} clause")"
+          echo "$mirrored"
+          echo "$mirrored" | grep -q "Result: Passthrough"

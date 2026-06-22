@@ -8,7 +8,7 @@ adapter](./github-adapter.md) and the [local surface](./local-surface.md) are th
 two concrete surfaces built on top of it. For a task-oriented introduction aimed
 at people *using* Bastion, see the [user guide](../user-guide/README.md).
 
-Bastion is a formalization of a pattern already in use privately: GitHub Actions that run focused agent prompts as reviewers, plus a CLI that can comment on a PR and mark its check blocked or approved. v1 is _that, made into a real system_. Complexity beyond the existing pattern is deferred to §10 and must justify itself before entering v1.
+Bastion is a formalization of a pattern already in use privately: GitHub Actions that run focused agent prompts as reviewers, plus a CLI that can comment on a PR and mark its check blocked or approved. v1 is _that, made into a real system_. Complexity beyond the existing pattern is deferred to the Known limitations section and must justify itself before entering v1.
 
 ---
 
@@ -16,7 +16,7 @@ Bastion is a formalization of a pattern already in use privately: GitHub Actions
 
 ### The problem
 
-Agents now write most of the code on a growing number of teams. Output volume is closer to _engineers × 100_ than _× 1_ when fully unlocked. Two things prevent teams from fully unlocking:
+Agents now write most of the code on a growing number of teams. Output volume is closer to _engineers x 100_ than _x 1_ when fully unlocked. Two things prevent teams from fully unlocking:
 
 - **Human diff review does not scale.** Asking a 5-person team to review their agents' output is like asking 5 people in a 500-person org to review the other 495. You can't fix that by trying harder.
 - **Without review, codebases rot.** Things go great until they don't, and then you have a ball of mud no one can work in.
@@ -53,7 +53,7 @@ What does that look like in practice? The core principles are:
 2. **Reviewers run in the author's own loop**, not just in CI. The same reviewer runs locally (fast, pre-PR) and in CI (authoritative). CI becomes a confirmation that's almost always green, instead of a slow surprise.
 3. **Human at the policy layer.** The goal is not human-out-of-the-loop. It's to _relocate the human from reviewing diffs to authoring, curating, and governing reviewers_, plus triaging escapes. The human's interface becomes the reviewer registry and the escape feed. Bastion is best thought of as a product of _governance_ or _consensus_. The reviewers are the agents you already trust.
 4. **Even aligned agents acting in earnest can inadvertently game the system.** The system must tolerate this, and the human governance layer must be able to detect and correct it. The goal is not to categorically prevent gaming; this is likely impossible without giving up the very benefits of agentic development in the first place. The goal is to make gaming visible when it happens and to make it easy to fix by adjusting the reviewers.
-5. **Convergence over time is better than strict perfection up front.** The escape → improvement loop is the heart of the system. It's better to have a reviewer that's "good enough" and then improve it based on real escapes, than to try to design a perfect reviewer from the start. The system is designed to be iteratively improved based on real-world feedback. This is again a governance story: the human team is responsible for the reviewers, and they can adjust them as needed based on the escapes that happen in production; the reviewers will never get everything perfectly correct but over time humans can steer them in the right direction based on real feedback from the codebase and agents merging code.
+5. **Reviewers converge over time.** Start with a reviewer that's good enough, then sharpen it from the escapes you hit in production. This is the escape-to-improvement loop. The human team owns the reviewers and adjusts them as escapes come in. No reviewer ever gets everything right, so the team keeps updating them from feedback in the codebase and from agent-authored PRs.
 
 Bastion also makes two non-guarantees explicit:
 
@@ -97,7 +97,7 @@ Reviewers are **composable**. They run independently and asynchronously, and the
 
 Reviewers are **declarative and static**. They're defined in a config file, not generated on the fly by code. This makes them reviewable and ensures that the trigger set is stable. It also means that any change to a reviewer definition requires human review, which helps prevent accidental or malicious weakening of the review process.
 
-Finally, Bastion does not own CI. One of the examples below indicates a preview URL; Bastion doesn't set this up- the example reviewer just expects it to be there. The reviewer is responsible for defining its own execution environment, and the CI workflow is responsible for providing it. This keeps Bastion flexible and allows teams to integrate it with existing CI setups.
+Finally, Bastion does not own CI. One of the examples below indicates a preview URL; Bastion doesn't set this up, the example reviewer just expects it to be there. The reviewer is responsible for defining its own execution environment, and the CI workflow is responsible for providing it. This keeps Bastion flexible and allows teams to integrate it with existing CI setups.
 
 ### Schema
 
@@ -153,7 +153,7 @@ reviewers:
 > **Implementation status.** This schema is the design target. In the current
 > build, `name`, `trigger`, `mode`, `backend`, `prompt`, `timeout`, `env`, and
 > `inputs` are honored; `runner` (containers) and `capabilities` (network/mcp/skills)
-> parse but are **not yet provisioned** -- execution is native only. `env` and
+> parse but are **not yet provisioned**: execution is native only. `env` and
 > `inputs` values are literal strings (no shell `$VAR` expansion). See the
 > [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today).
 
@@ -222,12 +222,12 @@ Reviewers may have very different latencies: one might be a 90 second check, ano
 Given this, aggregation is async with per-reviewer timeouts and error handling; a hung reviewer can't wedge the merge train.
 
 - **All gates must `pass`** for a PR to merge.
-- **Fail-closed gates.** A _gate_ that crashes, times out, or can't produce a valid verdict resolves to **block / needs-attention**, never silent pass. "All gates pass" means every gate returned `pass`; errored or timed-out ≠ pass.
+- **Fail-closed gates.** A _gate_ that crashes, times out, or can't produce a valid verdict resolves to **block / needs-attention**, never silent pass. "All gates pass" means every gate returned `pass`; errored or timed out is not a pass.
 - **Fail-open advisors.** An _advisor_ that crashes, times out, or can't produce a valid verdict is ignored in the aggregate verdict. Advisors are best-effort and do not block, so they don't need to fail closed.
 
 ---
 
-## Escape → improvement loop
+## The escape-to-improvement loop
 
 An "escape" is a PR that gets merged erroneously, i.e. it should have been blocked by a reviewer but wasn't. Escapes are inevitable, especially early on when reviewers are still being tuned, but they are also the most valuable source of information for improving the system.
 
