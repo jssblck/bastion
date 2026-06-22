@@ -6,10 +6,13 @@ the runner and backends, the CI adapter, or the maintainability of the system.
 
 ## Local setup
 
-Install Rust stable, Git, and (optionally) [`just`](https://github.com/casey/just).
+Install Rust stable, Git, [`nudge`](https://github.com/attunehq/nudge) (for the
+mechanical-convention checks), and (optionally)
+[`just`](https://github.com/casey/just).
 
 ```sh
-just check        # or: cargo fmt --check && cargo test && cargo clippy --all-targets -- -D warnings
+curl -sSfL https://raw.githubusercontent.com/attunehq/nudge/main/scripts/install.sh | bash
+just check        # or: cargo fmt --check && cargo test && cargo clippy --all-targets -- -D warnings && nudge check
 ```
 
 There are no external services to stand up: the test suite is hermetic and uses
@@ -22,7 +25,7 @@ There are no external services to stand up: the test suite is hermetic and uses
   changing schemas, renaming concepts, or rewriting call sites, do it and mention
   the breakage plainly.
 - Keep the reviewer schema, the verdict/event schema, and the docs under `docs/`
-  in sync when behavior changes — the local and GitHub surfaces are meant to be
+  in sync when behavior changes: the local and GitHub surfaces are meant to be
   mirror images and must not drift.
 - Update the example `bastion/reviewers.yaml` when the schema changes.
 - Run `just check` before opening a PR.

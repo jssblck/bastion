@@ -411,7 +411,7 @@ fn leading_backticks(line: &str) -> usize {
     line.trim_start().chars().take_while(|&c| c == '`').count()
 }
 
-/// Whether `line` (after indentation) is only backticks — a valid closing fence.
+/// Whether `line` (after indentation) is only backticks, a valid closing fence.
 fn is_bare_fence(line: &str) -> bool {
     let trimmed = line.trim_start();
     !trimmed.is_empty() && trimmed.chars().all(|c| c == '`')

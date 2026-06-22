@@ -136,8 +136,8 @@ pub async fn execute(
 /// [`execute`] with an injectable backend factory, for tests.
 ///
 /// `exec` produces the review future for one owned request; production passes the
-/// real [`backend::dispatch`]. The rest — concurrency, timeouts, aggregation,
-/// event emission, and persistence — is identical, so tests cover the real paths.
+/// real [`backend::dispatch`]. The rest (concurrency, timeouts, aggregation,
+/// event emission, and persistence) is identical, so tests cover the real paths.
 ///
 /// # Errors
 ///

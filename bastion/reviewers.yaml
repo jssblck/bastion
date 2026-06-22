@@ -270,3 +270,74 @@ reviewers:
       require a docs update, so approve it. When the relevant docs were updated
       (or already cover the change), approve. When you block, name the exact code
       element and the doc section that must change.
+
+  # Prose voice. Keeps user-facing copy (the marketing site, the guides, the
+  # top-level docs) free of AI-register "slop". The tells are structural, not
+  # lexical, so the prompt spells them out and the reviewer is self-contained on
+  # any backend. The companion `stop-slop` skill (.claude/skills/stop-slop) holds
+  # the full reference and before/after examples; the `skills` capability below is
+  # the forward hook for backends that load skills into the agent's context
+  # (declarative until provisioned; see docs/developer-guide/design.md). A gate:
+  # prose voice is a judgment call, but this project treats slop in user-facing
+  # prose as a merge blocker, biased toward catching it since a false block is
+  # cheap to override.
+  - name: prose-anti-slop
+    trigger: [site/src/**/*.astro, docs/**/*.md, README.md, CONTRIBUTING.md]
+    mode: gate
+    backend: codex
+    capabilities:
+      skills: [stop-slop]
+    prompt: |
+      As a gate, review only the user-facing PROSE in the changed files for
+      AI-register "slop": the structural tics that make copy read as machine-
+      written. The tells are structural, not vocabulary, so do not just hunt for
+      buzzwords.
+
+      Decision:
+
+      - If the changed prose carries one or more slop tells from the list below,
+        return verdict: block with one blocking finding per instance that names
+        the file, the line or sentence, which tell it is, and a shorter rewrite
+        that keeps every fact.
+      - If the changed prose is clean, return verdict: pass.
+      - Bias toward catching slop. A missed tell is worse than a false block: a
+        false block is cheap to override, but slop that merges becomes the house
+        style. Still respect the discipline below so the gate stays signal, not
+        noise: flag slop, not every stylistic choice.
+
+      Flag these:
+
+      - Virtue or character framing: prose that asserts the product is honest,
+        trustworthy, principled, humble, or "knows its edges" instead of stating
+        what it does. State the mechanism and let it speak.
+      - Manufactured antithesis ("X, not Y") where the second half is a strawman
+        or a vibe rather than a real, distinct, true alternative. Cut those. KEEP
+        contrasts where both halves name real opposed behaviors: in this repo
+        "gates block, advisors comment" and "gates fail closed, advisors fail
+        open" are real and must stay.
+      - Aphorism openers or closers: a section that opens or closes on a tidy
+        maxim ("attention is scarce...", "the more you ask, the less it catches").
+        Cut the maxim; the surrounding fact already carries it.
+      - Triadic parallelism and rule-of-three cadence used for rhythm rather than
+        because there are exactly three real, distinct items.
+      - The dramatic colon: setup then payoff staged for suspense ("runs locally,
+        end to end: capture to definition").
+      - Uniform clipped-fragment headers (every header a short declarative with a
+        terminal period). Suggest varying them; some can be plain noun phrases.
+      - The meta-pattern: every sentence doing rhetorical work. Real copy is
+        lumpier and lets some sentences be flat and informational.
+      - Em dashes or en dashes, and the literal "--" used as a dash, in prose:
+        this project writes plain ASCII, so recast with a comma, a colon, or
+        parentheses. Ignore "--flag" forms inside commands and code.
+
+      Discipline:
+
+      - Touch only prose. Leave code blocks, YAML, CLI examples, command flags,
+        tables, and quoted or third-party material exactly as they are.
+      - Do not over-correct. Flat, fragment-phobic, antithesis-phobic prose is its
+        own tell; one beat of personality per section is fine. Block slop, not
+        every stylistic choice.
+      - Apply the test: if a fact survives the rewrite and the copy got shorter,
+        the cut was slop. If a rewrite would drop information, do not suggest it.
+      - If the `stop-slop` skill is available in your context, use it for the full
+        reference and the before/after examples.

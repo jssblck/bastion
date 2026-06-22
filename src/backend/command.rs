@@ -97,7 +97,7 @@ pub trait CommandRunner: Send + Sync {
     ///
     /// Returns an error if the process cannot be spawned (e.g. the program is not
     /// on `PATH`) or its output cannot be captured. A non-zero exit is *not* an
-    /// error here — it is reported via [`CommandOutput::code`] so the caller can
+    /// error here: it is reported via [`CommandOutput::code`] so the caller can
     /// decide what it means.
     async fn run(&self, spec: &CommandSpec) -> Result<CommandOutput>;
 }

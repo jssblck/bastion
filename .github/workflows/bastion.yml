@@ -21,7 +21,6 @@ name: bastion
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
 
 # Read-only: this MVP only needs to read the diff and fail the job. The future
 # comment-posting adapter will additionally need `pull-requests: write` and

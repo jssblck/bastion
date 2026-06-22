@@ -48,7 +48,7 @@ fn write_event_human<W: Write>(out: &mut W, event: &RunEvent) -> io::Result<()> 
             reviewers,
         } => writeln!(
             out,
-            "run {run}: {branch} vs {base} — {changed} file(s) changed, {} reviewer(s) triggered",
+            "run {run}: {branch} vs {base}, {changed} file(s) changed, {} reviewer(s) triggered",
             reviewers.len()
         ),
         RunEvent::ReviewerStarted {
@@ -91,7 +91,7 @@ fn write_event_human<W: Write>(out: &mut W, event: &RunEvent) -> io::Result<()> 
             ..
         } => writeln!(
             out,
-            "{} run complete — {}/{} gates passed ({}s, {cost_usd})",
+            "{} run complete: {}/{} gates passed ({}s, {cost_usd})",
             marker(*verdict),
             gates.passed,
             gates.total,

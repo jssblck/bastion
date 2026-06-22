@@ -12,8 +12,8 @@ Matklad's durable points:
 - Describe boundaries and cross-cutting concerns.
 - Use the doc as a chance to notice when source layout and conceptual layout have drifted.
 
-Homeport adaptation:
+Adaptation:
 
-- `docs/architecture.md` is already the right home.
-- The doc should stay focused on runtime boundaries, module map, adapter contract, skill bundles, local artifact generation, and secret-handling exclusions.
-- Detailed product research belongs in `docs/research.md`; implementation-level churn belongs in code comments or narrower docs.
+- A single architecture doc (for example `docs/architecture.md` or the architecture map in `AGENTS.md`) is the right home.
+- The doc should stay focused on runtime boundaries, the module map, the public contracts, and any cross-cutting concerns.
+- Detailed background research belongs in a separate doc; implementation-level churn belongs in code comments or narrower docs.
