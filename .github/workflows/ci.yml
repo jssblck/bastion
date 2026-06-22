@@ -70,3 +70,10 @@ jobs:
             --file ".agents/skills/rust-skills/x.md" --content "clause ${em} clause")"
           echo "$excluded"
           echo "$excluded" | grep -q "Result: Passthrough"
+          # The skill trees are mirrored (.agents/skills and .claude/skills are
+          # exact copies; see tests/skills_mirror.rs), so the same vendored content
+          # must be excluded under .claude too, not just .agents.
+          mirrored="$(nudge test --rule no-unicode-dashes --tool Write \
+            --file ".claude/skills/rust-skills/x.md" --content "clause ${em} clause")"
+          echo "$mirrored"
+          echo "$mirrored" | grep -q "Result: Passthrough"

@@ -249,10 +249,11 @@ reviewers:
   #
   # The trigger covers all first-party authored markdown (the roots are enumerated
   # because trigger globs are OR-combined with no negation). It deliberately omits
-  # the vendored skill trees under .agents/skills/** and the stop-slop skill's own
-  # reference files under .claude/skills/**: those are third-party or generated, and
-  # the stop-slop references carry intentional "before" slop the gate must not flag.
-  # The bundled skill source under skills/** is first-party and is covered.
+  # the mirrored skill trees under .agents/skills/** and .claude/skills/** (kept as
+  # exact copies; see tests/skills_mirror.rs): those are vendored, generated, or the
+  # stop-slop skill's own reference files, which carry intentional "before" slop the
+  # gate must not flag. The bundled skill source under skills/** is first-party and
+  # is covered.
   - name: prose-anti-slop
     trigger:
       [

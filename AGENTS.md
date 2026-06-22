@@ -103,11 +103,13 @@ version:
   embedded source (a deterministic, version-independent lint wired into
   `.github/workflows/ci.yml`), and `bastion skills list` shows what is bundled.
   This repo dogfoods the `using-bastion` skill: its agents work *on* Bastion and
-  *with* it. These are distinct from the repo-local skills that guide agents
-  working on Bastion: the Rust skills under `.agents/skills/`, and the
-  `stop-slop` prose skill under `.claude/skills/stop-slop/` (a plain Claude Code
-  skill, not bundled into the binary, so it is outside `bastion skills
-  install`/`check`).
+  *with* it. Distinct from it are the repo-local skills that guide agents working
+  on Bastion: the Rust skills and the `stop-slop` prose skill, which are not
+  bundled into the binary and so sit outside `bastion skills install`/`check`. All
+  of these live under both `.agents/skills/` (the agent-neutral convention) and
+  `.claude/skills/` (Claude Code's native path), kept as exact copies so every
+  skill is available through either surface; `tests/skills_mirror.rs` fails the
+  build if the two trees drift.
 - `tests/integration.rs`: the end-to-end suite. It drives the *real compiled
   `bastion` binary* (`CARGO_BIN_EXE_bastion`), each scenario in its own throwaway
   `git` repo and private `BASTION_DATA_DIR`, against a `rustc`-compiled fake agent
@@ -144,14 +146,14 @@ version:
   filesystem/git fixtures (`tempfile`, throwaway `git init` repos), as the
   existing tests do. `MockBackend` is a deliberate deterministic test/dev double
   for the agent boundary, not a general mocking pattern.
-- Follow the repo-local Rust skills under `.agents/skills/`: parse-don't-validate
-  at boundaries, newtypes over stringly-typed data, and the clippy lint groups in
-  `Cargo.toml`.
+- Follow the repo-local Rust skills (under `.agents/skills/`, mirrored to
+  `.claude/skills/`): parse-don't-validate at boundaries, newtypes over
+  stringly-typed data, and the clippy lint groups in `Cargo.toml`.
 - Keep user-facing prose (the marketing site, the guides, the README) free of
   AI-register slop: state mechanisms, not the product's character. Follow the
-  `stop-slop` skill under `.claude/skills/stop-slop/`, which catches the
-  structural tells. The `prose-anti-slop` gate in `bastion/reviewers.yaml`
-  blocks the merge on slop in changed prose.
+  `stop-slop` skill (under `.claude/skills/stop-slop/`, mirrored to
+  `.agents/skills/`), which catches the structural tells. The `prose-anti-slop`
+  gate in `bastion/reviewers.yaml` blocks the merge on slop in changed prose.
 - Use plain ASCII quotes in docs, comments, and generated text. No em dashes or
   en dashes, and no literal `--` used as a dash in prose; recast with a comma, a
   colon, or parentheses.
