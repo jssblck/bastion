@@ -41,8 +41,8 @@ generated block is a correct starting suggestion.
 
 > Why generate it statically rather than have Bastion manage it live? CODEOWNERS
 > changes only take effect *after* a PR merges, so the file must be written to
-> protect every path Bastion will ever write into, ahead of time. A generated,
-> reviewed block covers them all up front.
+> protect every path Bastion will ever write into, ahead of time, which is what
+> the generated, reviewed block provides.
 
 ### Branch protection requires the check
 
