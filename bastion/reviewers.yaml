@@ -413,3 +413,41 @@ reviewers:
           `fr`): fixed tracks resolve identically on every row, so they cannot
           drift. A shared table is still cleaner, but this is not a block.
         - Markdown tables and any existing `<table>`, which already share tracks.
+
+  # Deploy trigger coverage. The site is single-sourced: the Astro content
+  # collection in site/src/content.config.ts globs markdown from outside site/
+  # (today ../docs/user-guide), so the built site depends on files the "Deploy
+  # site" workflow does not sit next to. If that workflow's push `paths:` filter
+  # does not list every directory the build reads, a docs-only change merges
+  # without redeploying and the published site silently goes stale. This is a
+  # gate because a stale deploy is a real, user-visible regression and the fix
+  # (widen the filter) is mechanical.
+  - name: deploy-trigger-coverage
+    trigger: [".github/workflows/site.yml", "site/src/content.config.ts"]
+    mode: gate
+    backend: codex
+    prompt: |
+      The marketing site in site/ is single-sourced: site/src/content.config.ts
+      loads guide content with a glob whose `base` points outside site/ (today
+      ../docs/user-guide). The "Deploy site" workflow (.github/workflows/site.yml)
+      only redeploys on a push that matches its `paths:` filter, so every external
+      directory the content config reads must appear in that filter, or a change to
+      those files merges without redeploying and the live site goes stale. You are
+      running in the repository, so read both files directly.
+
+      This is a gate. Block the PR if the following is definitely true for the
+      change; otherwise approve it. When you cannot confirm a problem, approve.
+
+      - After this change, site/src/content.config.ts globs content from a
+        directory outside site/ (a `base` that escapes site/, for example
+        ../docs/...) that is NOT covered by the push `paths:` filter in
+        .github/workflows/site.yml, AND that filter is restrictive (it declares
+        `paths:` at all rather than matching every push to the branch). A glob
+        base that stays under site/ is already covered by the existing `site/**`
+        entry, so it is not a violation.
+
+      When you block, name the content-collection base directory that is read and
+      the `paths:` entry that must be added to cover it. Judge only deploy-trigger
+      coverage for the site build. Unrelated workflow edits, or content-config
+      changes that stay within already-covered directories, are not violations, so
+      approve them.
