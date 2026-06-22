@@ -24,15 +24,15 @@ Only the current main development line is supported.
 Bastion is **not** an adversarial security boundary; it is the agent-era
 equivalent of team code review for aligned contributors. It assumes PRs are
 authored by contributors (human or agent) earnestly working toward the project's
-goals, and that reviewed code is therefore trusted input — Bastion does not try
+goals, and that reviewed code is therefore trusted input. Bastion does not try
 to protect reviewer agents against prompt injection or exfiltration from the code
 they review.
 
 The security properties Bastion *does* aim for are governance properties:
 gates fail closed, and any change to the reviewer policy is visible to a human
 through CODEOWNERS and a required status check. The bar is reasonable reduction
-proportionate to effort — a speed bump and good defaults that keep aligned actors
-on the rails — not a proof that gaming or exfiltration is impossible. See
+proportionate to effort: a speed bump and good defaults that keep aligned actors
+on the rails, not a proof that gaming or exfiltration is impossible. See
 [`docs/developer-guide/design.md`](docs/developer-guide/design.md) (_Threat model & trust boundary_) and
 [`docs/developer-guide/github-adapter.md`](docs/developer-guide/github-adapter.md) (_Governance_) for the full model.
 

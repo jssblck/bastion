@@ -12,17 +12,17 @@
 //!
 //! The module layout follows the domain rather than file kind:
 //!
-//! - [`reviewer`] / [`config`] — the declarative reviewer registry.
-//! - [`routing`] — matching changed files to reviewers by trigger glob.
-//! - [`verdict`] / [`event`] — the structured outputs reviewers and runs emit.
-//! - [`git`] — the few git queries the CLI needs (changed files, branch).
-//! - [`paths`] / [`store`] — the on-disk run history under the data directory.
-//! - [`render`] — turning events into human or JSONL output.
-//! - [`backend`] — the agent execution boundary (Claude Code and siblings).
-//! - [`runner`] — the parallel, timeout-bounded runner and aggregation.
-//! - [`skills`] — the agent skills bundled into the binary and installed into a
+//! - [`reviewer`] / [`config`]: the declarative reviewer registry.
+//! - [`routing`]: matching changed files to reviewers by trigger glob.
+//! - [`verdict`] / [`event`]: the structured outputs reviewers and runs emit.
+//! - [`git`]: the few git queries the CLI needs (changed files, branch).
+//! - [`paths`] / [`store`]: the on-disk run history under the data directory.
+//! - [`render`]: turning events into human or JSONL output.
+//! - [`backend`]: the agent execution boundary (Claude Code and siblings).
+//! - [`runner`]: the parallel, timeout-bounded runner and aggregation.
+//! - [`skills`]: the agent skills bundled into the binary and installed into a
 //!   consuming repo so its agents learn how to use Bastion.
-//! - [`cli`] / [`commands`] — the argument surface and command handlers.
+//! - [`cli`] / [`commands`]: the argument surface and command handlers.
 
 #![warn(missing_docs)]
 

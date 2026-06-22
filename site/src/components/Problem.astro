@@ -10,11 +10,10 @@ const generic = [
 
 <section class="section problem">
   <div class="container">
-    <SectionHeading title="Other AI reviewers were built for the old world.">
-      Copilot, CodeRabbit and the rest read the whole diff at once and leave
-      comments for a person to act on. Pile more concerns onto one generic
-      reviewer and its recall on any single one collapses. Attention is scarce,
-      for humans and for agents, and smarter models don't change that.
+    <SectionHeading title="Recall falls as one reviewer takes on more concerns.">
+      Copilot, CodeRabbit, and the rest hand the whole diff to one model and
+      leave comments for a person to act on. Pile more concerns onto that one
+      reviewer and its recall on any single concern drops.
     </SectionHeading>
 
     <div class="problem-grid">
@@ -37,8 +36,8 @@ const generic = [
           }
         </ul>
         <p class="panel-foot">
-          One checklist stretched across everything. The more you ask, the less
-          it catches.
+          One checklist stretched across everything; each concern gets a
+          fraction of the model's attention.
         </p>
       </article>
 
@@ -66,7 +65,7 @@ const generic = [
         </ul>
         <p class="panel-foot">
           You cover more ground by <strong>adding narrow reviewers</strong>,
-          never by broadening one. Each stays at high recall.
+          not by broadening one. Each stays at high recall.
         </p>
       </article>
     </div>

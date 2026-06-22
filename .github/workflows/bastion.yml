@@ -24,7 +24,6 @@ name: bastion
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
 
 # Read the diff and fail the job, and write the surfaces `bastion github report`
 # posts after the review: the sticky PR comment (`pull-requests: write`) and the

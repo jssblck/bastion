@@ -20,20 +20,20 @@ anything, and keep gates failing closed.
 
 ## Source of truth
 
-- `README.md` — sparse user-facing intro, install, and links into the guides.
-- `docs/user-guide/` — task-oriented guide for people *using* Bastion (concepts,
+- `README.md`: sparse user-facing intro, install, and links into the guides.
+- `docs/user-guide/`: task-oriented guide for people *using* Bastion (concepts,
   authoring reviewers, the local loop, CI, governance). Progressive disclosure.
-- `docs/developer-guide/` — guide for people working on Bastion itself
+- `docs/developer-guide/`: guide for people working on Bastion itself
   (architecture, the backend boundary, conventions), plus the design references:
-  - `docs/developer-guide/design.md` — the core system: reviewers, the verdict
+  - `docs/developer-guide/design.md`: the core system: reviewers, the verdict
     contract, the merge gate, the threat model. The authoritative design reference.
-  - `docs/developer-guide/github-adapter.md` — the GitHub CI adapter and governance.
-  - `docs/developer-guide/local-surface.md` — the local CLI surface this crate
+  - `docs/developer-guide/github-adapter.md`: the GitHub CI adapter and governance.
+  - `docs/developer-guide/local-surface.md`: the local CLI surface this crate
     implements. The local and GitHub surfaces are deliberate mirror images; keep
     them in sync.
-- `bastion/reviewers.yaml` — the example reviewer registry; update it when the
+- `bastion/reviewers.yaml`: the example reviewer registry; update it when the
   schema changes.
-- `.agents/skills/readme.md` — repo-local Rust coding skills and their provenance.
+- `.agents/skills/readme.md`: repo-local Rust coding skills and their provenance.
 - `CLAUDE.md` is a bare `@AGENTS.md` import so guidance does not drift between
   agent surfaces.
 
@@ -43,9 +43,11 @@ anything, and keep gates failing closed.
 cargo fmt --check
 cargo test
 cargo clippy --all-targets -- -D warnings
+nudge check
 ```
 
-`just check` runs all three. Commands:
+`just check` runs all four (install [`nudge`](https://github.com/attunehq/nudge)
+first; see CONTRIBUTING.md). Commands:
 
 ```sh
 bastion --version
@@ -70,32 +72,32 @@ backend boundary is covered in
 [`docs/developer-guide/backends.md`](docs/developer-guide/backends.md). The terse
 version:
 
-- `build.rs` — derives `BASTION_VERSION` from `git describe --always --tags
+- `build.rs`: derives `BASTION_VERSION` from `git describe --always --tags
   --dirty=-dirty`, with a `BASTION_VERSION` env override and a `Cargo.toml`
   fallback.
-- `src/main.rs` — thin binary entrypoint; wires the tokio runtime to
+- `src/main.rs`: thin binary entrypoint; wires the tokio runtime to
   `bastion::run`.
-- `src/lib.rs` — library root; installs `color_eyre` + `tracing` and dispatches.
-- `src/version.rs` — exposes the build-derived version string.
-- `src/cli.rs` — clap derive command tree and dispatch.
-- `src/commands.rs` — one handler per subcommand.
-- `src/reviewer.rs` / `src/config.rs` — the declarative reviewer schema and
+- `src/lib.rs`: library root; installs `color_eyre` + `tracing` and dispatches.
+- `src/version.rs`: exposes the build-derived version string.
+- `src/cli.rs`: clap derive command tree and dispatch.
+- `src/commands.rs`: one handler per subcommand.
+- `src/reviewer.rs` / `src/config.rs`: the declarative reviewer schema and
   registry loading/discovery.
-- `src/routing.rs` — compiling trigger globs and matching changed files.
-- `src/verdict.rs` / `src/event.rs` — the structured verdict and run-event
+- `src/routing.rs`: compiling trigger globs and matching changed files.
+- `src/verdict.rs` / `src/event.rs`: the structured verdict and run-event
   schemas (the `Money` type carries cents but serializes as dollars).
-- `src/git.rs` — the git queries the CLI needs (changed files, branch, root).
-- `src/paths.rs` / `src/store.rs` — the data-directory layout and run history.
-- `src/render.rs` — human and JSONL output.
-- `src/runner.rs` — the parallel, timeout-bounded runner: fans matched reviewers
+- `src/git.rs`: the git queries the CLI needs (changed files, branch, root).
+- `src/paths.rs` / `src/store.rs`: the data-directory layout and run history.
+- `src/render.rs`: human and JSONL output.
+- `src/runner.rs`: the parallel, timeout-bounded runner: fans matched reviewers
   out over a `JoinSet`, fails closed on error/timeout, streams run events, and
   persists each run.
-- `src/backend/` — the agent execution boundary. `mod.rs` defines the `Backend`
+- `src/backend/`: the agent execution boundary. `mod.rs` defines the `Backend`
   trait, the deterministic `MockBackend`, and `dispatch`; `command.rs` is the
   injectable `CommandRunner` subprocess seam; `claude_code.rs` and `codex.rs` are
   the real backends driven against a fake executable in tests. The `Pi` arm of
   `dispatch` is still unwired and bails.
-- `src/github/` — the GitHub adapter (the CI surface). `codeowners.rs` generates
+- `src/github/`: the GitHub adapter (the CI surface). `codeowners.rs` generates
   the governance block (pure text, no network); `client.rs` is the REST seam,
   modeled on the backend's `CommandRunner`: a proof-carrying `ApiRequest`, a
   `GitHubApi` trait, the real `reqwest`-backed `RestClient`, and a recording double
@@ -105,16 +107,19 @@ version:
   finding, optional ones included), a check run per reviewer, and the always-present
   aggregate `bastion` check. Check runs need a GitHub App token, so this runs under
   the Actions `GITHUB_TOKEN`, not a classic PAT.
-- `src/skills.rs` / `skills/` — the agent skills bundled into the binary. Each
+- `src/skills.rs` / `skills/`: the agent skills bundled into the binary. Each
   `skills/<slug>/SKILL.md` is embedded with `include_str!`; `bastion skills
   install` writes it into a consuming repo's `.claude/skills/` and `.agents/skills/`,
   `bastion skills check` fails closed when a checked-in copy has drifted from the
   embedded source (a deterministic, version-independent lint wired into
   `.github/workflows/ci.yml`), and `bastion skills list` shows what is bundled.
   This repo dogfoods the `using-bastion` skill: its agents work *on* Bastion and
-  *with* it. These are distinct from the repo-local Rust skills under
-  `.agents/skills/`, which guide agents working on Bastion.
-- `tests/integration.rs` — the end-to-end suite. It drives the *real compiled
+  *with* it. These are distinct from the repo-local skills that guide agents
+  working on Bastion: the Rust skills under `.agents/skills/`, and the
+  `stop-slop` prose skill under `.claude/skills/stop-slop/` (a plain Claude Code
+  skill, not bundled into the binary, so it is outside `bastion skills
+  install`/`check`).
+- `tests/integration.rs`: the end-to-end suite. It drives the *real compiled
   `bastion` binary* (`CARGO_BIN_EXE_bastion`), each scenario in its own throwaway
   `git` repo and private `BASTION_DATA_DIR`, against a `rustc`-compiled fake agent
   wired in via `BASTION_CLAUDE_BIN`/`BASTION_CODEX_BIN`. The fake reads per-reviewer
@@ -125,7 +130,7 @@ version:
   in-process fake GitHub (the binary's `GITHUB_API_URL` is pointed at it), asserting
   the real comment and check-run requests with no network. It detect-and-skips when
   `rustc`/`git` are absent.
-- `scripts/install.sh` / `scripts/install.ps1` — the public install scripts
+- `scripts/install.sh` / `scripts/install.ps1`: the public install scripts
   (`curl | bash` and `irm | iex`). They detect the platform, download the matching
   release archive plus `checksums.txt`, verify the SHA-256, and place `bastion` on
   the user's `PATH`. They fail closed on any checksum problem; `tests/script_safety.rs`
@@ -168,7 +173,14 @@ version:
 - Follow the repo-local Rust skills under `.agents/skills/`: parse-don't-validate
   at boundaries, newtypes over stringly-typed data, and the clippy lint groups in
   `Cargo.toml`.
-- Use plain ASCII quotes in docs, comments, and generated text.
+- Keep user-facing prose (the marketing site, the guides, the README) free of
+  AI-register slop: state mechanisms, not the product's character. Follow the
+  `stop-slop` skill under `.claude/skills/stop-slop/`, which catches the
+  structural tells. The `prose-anti-slop` gate in `bastion/reviewers.yaml`
+  blocks the merge on slop in changed prose.
+- Use plain ASCII quotes in docs, comments, and generated text. No em dashes or
+  en dashes, and no literal `--` used as a dash in prose; recast with a comma, a
+  colon, or parentheses.
 
 ## Releases
 
@@ -199,7 +211,13 @@ Run the core checks for ordinary changes:
 cargo fmt --check
 cargo test
 cargo clippy --all-targets -- -D warnings
+nudge check
 ```
+
+`nudge check` enforces the mechanical conventions in `.nudge.yaml` (today: no
+Unicode dashes in authored text). It runs in CI and as an agent-time hook, and
+gates the same way locally; the `prose-anti-slop` gate in
+`bastion/reviewers.yaml` covers the prose-voice judgment a regex cannot.
 
 Also run targeted checks when relevant:
 
@@ -207,3 +225,5 @@ Also run targeted checks when relevant:
 - Schema changes: update `bastion/reviewers.yaml` and the docs under `docs/`.
 - Public scaffolding changes: keep `README.md`, `CONTRIBUTING.md`, `SECURITY.md`,
   `NOTICE`, and the GitHub workflows in sync.
+- Rule changes: validate `.nudge.yaml` with `nudge validate` and confirm
+  `nudge check` is clean.

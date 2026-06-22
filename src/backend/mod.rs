@@ -2,8 +2,8 @@
 //!
 //! Bastion does not run its own agent loop; it translates a reviewer's execution
 //! profile into a backend's native config and shells out to that backend's CLI
-//! (`docs/developer-guide/design.md`). This module defines the contract — [`Backend`], what it is
-//! handed ([`ReviewRequest`]) and what it must return ([`ReviewOutcome`]) — plus
+//! (`docs/developer-guide/design.md`). This module defines the contract: [`Backend`], what it is
+//! handed ([`ReviewRequest`]) and what it must return ([`ReviewOutcome`]), plus
 //! the concrete backends and the dispatch that picks one for a reviewer.
 //!
 //! The subprocess boundary lives behind [`command::CommandRunner`] so backends can
@@ -103,7 +103,7 @@ impl Backend for MockBackend {
 ///
 /// Dispatch maps [`reviewer::Backend`] to a concrete backend. `Any` defaults to
 /// Claude Code for now; the named variants pin a harness. The match is the single
-/// place that grows when a sibling backend lands — the [`Backend`] trait does not.
+/// place that grows when a sibling backend lands. The [`Backend`] trait does not.
 ///
 /// # Errors
 ///

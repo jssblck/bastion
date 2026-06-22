@@ -1,0 +1,68 @@
+# Nudge rules for Bastion: deterministic, agent-time + CI enforcement of the
+# mechanical conventions a linter or reviewer should not have to judge.
+#
+# Layering (see AGENTS.md and the code-craft new-project-defaults skill): a rule
+# lives at the lowest layer that can express it faithfully. clippy owns the Rust
+# lints; the `prose-anti-slop` bastion gate owns prose-voice judgment; nudge
+# owns the rules that are purely mechanical yet have no native linter. The em/en
+# dash ban is exactly that: a pure-lexical rule with zero ambiguity. It is wired
+# into CI via `nudge check` (see .github/workflows/ci.yml and the `just check`
+# recipe), so it gates every commit regardless of who or what wrote the code.
+#
+# Note on the literal "--" used as a dash: it is deliberately NOT a nudge rule.
+# A regex cannot tell a prose "clause -- clause" from the shell end-of-options
+# token (`cargo run -- review`, `cargo clippy --all-targets -- -D warnings`,
+# `bash -s -- -b`), which appears throughout the install and CI command examples,
+# and Nudge has no Markdown tree-sitter grammar to scope a query to prose. So
+# that one stays at the judgment layer: the `prose-anti-slop` gate in
+# bastion/reviewers.yaml flags it, since it can tell a separator from a dash.
+
+version: 1
+
+rules:
+  - name: no-unicode-dashes
+    description: >
+      Authored text uses plain ASCII punctuation, never an em dash, en dash,
+      horizontal bar, figure dash, or the Unicode minus sign. These read as a
+      tell of unedited machine output and are not part of this project's voice.
+    message: >
+      Do not use an em dash, en dash, or other Unicode dash. Recast with the
+      punctuation that fits the join: a comma for a loose pause, a colon to
+      introduce or expand, parentheses for an aside, or two sentences. Do not
+      substitute a literal "--" (that is banned too). Then retry. See AGENTS.md.
+    on:
+      # figure dash, en dash, em dash, horizontal bar, minus sign
+      # --- Rust sources (no vendored .rs exist, so the broad glob is safe) ---
+      - { hook: PreToolUse, tool: Write, file: "**/*.rs", content: &dash [{ kind: Regex, pattern: '[\x{2012}\x{2013}\x{2014}\x{2015}\x{2212}]' }] }
+      - { hook: PreToolUse, tool: Edit,  file: "**/*.rs", new_content: *dash }
+      # --- Marketing site components ---
+      - { hook: PreToolUse, tool: Write, file: "**/*.astro", content: *dash }
+      - { hook: PreToolUse, tool: Edit,  file: "**/*.astro", new_content: *dash }
+      # --- Top-level project prose. A bare "*.md" cannot be used: the `glob`
+      # crate's `*` crosses `/` in matches_path, so without a literal prefix it
+      # would match every .md in the tree (including vendored skills). Enumerate
+      # the root files instead; nested .md is covered by the prefixed globs below.
+      - { hook: PreToolUse, tool: Write, file: "README.md", content: *dash }
+      - { hook: PreToolUse, tool: Edit,  file: "README.md", new_content: *dash }
+      - { hook: PreToolUse, tool: Write, file: "CONTRIBUTING.md", content: *dash }
+      - { hook: PreToolUse, tool: Edit,  file: "CONTRIBUTING.md", new_content: *dash }
+      - { hook: PreToolUse, tool: Write, file: "SECURITY.md", content: *dash }
+      - { hook: PreToolUse, tool: Edit,  file: "SECURITY.md", new_content: *dash }
+      - { hook: PreToolUse, tool: Write, file: "AGENTS.md", content: *dash }
+      - { hook: PreToolUse, tool: Edit,  file: "AGENTS.md", new_content: *dash }
+      - { hook: PreToolUse, tool: Write, file: "CLAUDE.md", content: *dash }
+      - { hook: PreToolUse, tool: Edit,  file: "CLAUDE.md", new_content: *dash }
+      # --- Guides and developer docs (first-party; vendored skills live under .agents and are excluded) ---
+      - { hook: PreToolUse, tool: Write, file: "docs/**/*.md", content: *dash }
+      - { hook: PreToolUse, tool: Edit,  file: "docs/**/*.md", new_content: *dash }
+      # --- Site top-level docs (README, DESIGN) ---
+      - { hook: PreToolUse, tool: Write, file: "site/*.md", content: *dash }
+      - { hook: PreToolUse, tool: Edit,  file: "site/*.md", new_content: *dash }
+      # --- The reviewer registry ---
+      - { hook: PreToolUse, tool: Write, file: "bastion/*.yaml", content: *dash }
+      - { hook: PreToolUse, tool: Edit,  file: "bastion/*.yaml", new_content: *dash }
+      # --- First-party skills (the bundled source and the repo-local prose skill) ---
+      - { hook: PreToolUse, tool: Write, file: "skills/**/*.md", content: *dash }
+      - { hook: PreToolUse, tool: Edit,  file: "skills/**/*.md", new_content: *dash }
+      - { hook: PreToolUse, tool: Write, file: ".claude/skills/**/*.md", content: *dash }
+      - { hook: PreToolUse, tool: Edit,  file: ".claude/skills/**/*.md", new_content: *dash }

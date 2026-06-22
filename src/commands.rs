@@ -37,7 +37,7 @@ use crate::verdict::{Decision, Money};
 /// persists the full run; this handler renders the `run.started` event and the
 /// events the runner streams back.
 ///
-/// `cwd` is the directory to resolve the repository and config from — the process
+/// `cwd` is the directory to resolve the repository and config from: the process
 /// working directory in normal use, but explicit so the handler is testable.
 ///
 /// # Errors

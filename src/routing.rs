@@ -1,6 +1,6 @@
 //! Trigger routing: selecting the reviewers whose globs match a changeset.
 //!
-//! Routing is shared between the local and CI surfaces — the prompt scopes a
+//! Routing is shared between the local and CI surfaces: the prompt scopes a
 //! reviewer's *attention*, but its `trigger` globs scope *whether it runs at
 //! all*. A reviewer runs when any changed file matches any of its trigger globs.
 //!
@@ -71,7 +71,10 @@ impl<'a> Router<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
+    use crate::config::{CONFIG_DIR, Config, REGISTRY_FILE};
     use crate::reviewer::Mode;
 
     fn reviewer(name: &str, triggers: &[&str]) -> Reviewer {
@@ -123,5 +126,70 @@ mod tests {
             .err()
             .expect("invalid glob should fail");
         assert!(err.to_string().contains("bad"));
+    }
+
+    fn shipped_registry() -> Config {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(CONFIG_DIR)
+            .join(REGISTRY_FILE);
+        Config::load(&path).expect("shipped reviewers.yaml loads")
+    }
+
+    fn matched_names<'a>(router: &Router<'a>, file: &str) -> Vec<String> {
+        router
+            .matched(&[file])
+            .iter()
+            .map(|r| r.name.clone())
+            .collect()
+    }
+
+    #[test]
+    fn the_shipped_prose_gate_routes_on_prose_and_not_code() {
+        // prose-anti-slop is a gate, so its trigger globs are load-bearing: a
+        // changeset that should be reviewed for slop must actually route to it,
+        // and a code-only changeset must not. A typo in those globs would silently
+        // stop the gate from running, so pin both directions against the shipped
+        // registry.
+        let config = shipped_registry();
+        let router = Router::compile(&config.reviewers).expect("triggers compile");
+
+        for prose in [
+            "site/src/components/Hero.astro",
+            "docs/user-guide/concepts.md",
+            "README.md",
+            "CONTRIBUTING.md",
+        ] {
+            let names = matched_names(&router, prose);
+            assert!(
+                names.iter().any(|n| n == "prose-anti-slop"),
+                "prose path {prose} should route to prose-anti-slop, got {names:?}"
+            );
+        }
+
+        for code in ["src/main.rs", "Cargo.toml", "bastion/reviewers.yaml"] {
+            let names = matched_names(&router, code);
+            assert!(
+                !names.iter().any(|n| n == "prose-anti-slop"),
+                "non-prose path {code} must not route to prose-anti-slop, got {names:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_shipped_prose_reviewer_is_governed_as_a_gate() {
+        // The whole point of routing slop to this reviewer is that it can block.
+        // If it were demoted to an advisor its findings would be clamped to a
+        // pass, so guard the mode here.
+        let config = shipped_registry();
+        let reviewer = config
+            .reviewers
+            .iter()
+            .find(|r| r.name == "prose-anti-slop")
+            .expect("prose-anti-slop is in the shipped registry");
+        assert_eq!(
+            reviewer.mode,
+            Mode::Gate,
+            "prose-anti-slop is governed as a gate, so slop blocks the merge"
+        );
     }
 }
