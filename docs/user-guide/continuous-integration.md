@@ -19,12 +19,15 @@ the one forge Bastion targets.
 > preview environments, and the branch-protection rules are GitHub's. Bastion
 > reads and writes them through a thin adapter and otherwise stays out of the way.
 
-> **What ships today vs. the target.** The per-reviewer check runs, inline PR
-> comments, live aggregate table, and packaged action described below are the
-> adapter Bastion is converging toward. What ships *today* is a self-hosted
-> workflow that runs `bastion review` and gates on its exit code, uploading the
-> full run as an artifact. It does not yet post per-reviewer checks or PR
-> comments, and `bastion/review-action@v1` is not yet published. Jump to
+> **What ships today vs. the target.** Most of the adapter below now ships. The
+> self-hosted workflow runs `bastion review`, gates on its exit code, and then runs
+> `bastion github report` to post the results back: a sticky PR comment with every
+> reviewer's verdict and findings (optional ones included), one check run per
+> reviewer, and the always-present aggregate `bastion` check. The full run is also
+> uploaded as an artifact. Still on the target list: findings as *inline* diff
+> comments (today they ride the sticky comment and check annotations), the live
+> aggregate table and per-reviewer spinners (which need the engine to talk to the API
+> mid-run), and the packaged `bastion/review-action@v1`. Jump to
 > [What ships today](#what-ships-today) for a workflow you can use now; the rest of
 > the chapter describes the target shape.
 
@@ -38,11 +41,10 @@ GitHub surfaces, the same two a human reviewer uses:
 - **Findings become inline PR review comments.** Each finding is posted on its
   `path` and line range. `blocking` and `optional` render differently so a reader
   can tell at a glance which comments hold up the merge. These comments are the
-  surface an implementing agent reads; everything it needs to act is there.
+  surface an implementing agent reads, and they carry everything it needs to act.
 - **Each verdict becomes a check run** named after the reviewer
   (`bastion / tenant-isolation`). A blocking gate reports `failure`; a passing gate
-  reports `success`; an advisor always reports `success` with its findings
-  attached.
+  reports `success`; an advisor reports `success` with its findings attached.
 
 The local-to-GitHub mapping is one-to-one: the JSONL events you read locally are
 the same decisions GitHub renders as checks and comments. The full parity table is
@@ -83,16 +85,24 @@ implementing agent's normal loop, which lives entirely in the comments.
 
 ## What ships today
 
-The working approach is a self-hosted workflow that installs a pinned `bastion`
-release plus your backend CLI, authenticates the backend, and runs `bastion
-review`. The CLI exits non-zero if any gate blocks, so the job's pass/fail *is* your
-merge gate until the richer adapter lands:
+The working approach is a self-hosted workflow that installs a published `bastion`
+release plus your backend CLI, authenticates the backend, runs `bastion review`, and
+then runs `bastion github report` to post the results to the PR. The CLI exits
+non-zero if any gate blocks, so the job's pass/fail *is* your merge gate; the report
+step adds the sticky comment and the per-reviewer and aggregate check runs:
 
 ```yaml
 name: bastion
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+
+# The report step writes the PR comment and the check runs, so the job needs more
+# than read access.
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
 
 jobs:
   review:
@@ -105,18 +115,59 @@ jobs:
         with:
           fetch-depth: 0          # full history; reviewers diff against the base
 
-      # 1. Install a pinned, published bastion release (not built from the PR).
+      # 1. Install a published bastion release (not built from the PR).
       # 2. Install and authenticate your backend CLI (e.g. claude or codex),
       #    ideally billed to the PR author; see the auth pattern referenced below.
       # 3. Stand up anything your reviewers consume (a preview env, a database).
 
       - name: Review
+        env:
+          BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
+        # Non-zero exit on a blocked gate fails the job; that is the merge gate.
         run: bastion review --base "origin/${{ github.base_ref }}"
-        # Non-zero exit on a blocked gate fails the job; that is the merge gate
-        # today. Upload the run dir as an artifact if you want the full detail.
+
+      - name: Report to the PR
+        # Runs even when the review blocked and failed the job, so the comment and
+        # checks always land. The default GITHUB_TOKEN is a GitHub App token, so it
+        # can create check runs (a classic PAT cannot).
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
+        run: |
+          bastion github report \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --sha "${{ github.event.pull_request.head.sha }}"
 ```
 
-For a complete, working example (pinned-release install, per-author backend
+### `bastion github report`
+
+The report step reads the run that `bastion review` just persisted (under
+`BASTION_DATA_DIR`) and posts it to the pull request. Its full surface:
+
+```
+bastion github report --repo <OWNER/NAME> --pr <N> --sha <SHA> [RUN]
+```
+
+- `--repo <OWNER/NAME>`: the repository to post to. Defaults to the
+  `GITHUB_REPOSITORY` environment variable that Actions sets, so you can usually
+  omit it.
+- `--pr <N>`: the pull request number (required).
+- `--sha <SHA>`: the head commit the check runs attach to (required); pass the
+  PR's `head.sha`, not the merge commit.
+- `RUN`: an optional positional run id to report; defaults to the latest recorded
+  run, which is what you want right after `bastion review`.
+
+It needs a token with `pull-requests: write` and `checks: write` in `GITHUB_TOKEN`,
+and reads `GITHUB_API_URL` (Actions sets it; also the hook for GitHub Enterprise).
+Creating check runs requires a GitHub App installation token, which the Actions
+`GITHUB_TOKEN` is; a classic personal access token cannot. If the run cannot be
+found (an earlier failure persisted nothing), it prints a notice and exits 0 rather
+than failing the step a second time. The command is CI-facing and has no local
+mirror: locally you read findings straight from `bastion review --format jsonl`.
+
+For a complete, working example (latest-release install, per-author backend
 credentials, and fork-PR safety), see this repository's own
 [`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml) and the
 [GitHub adapter reference](../developer-guide/github-adapter.md).
@@ -180,10 +231,10 @@ Bastion's job starts once it exists. (See
 ## Self-hosting note
 
 This repository dogfoods the adapter through
-[`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml), running a
-pinned, published `bastion` release rather than a binary built from the PR's own
+[`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml), running the
+latest published `bastion` release rather than a binary built from the PR's own
 sources, so a change can never edit the engine that judges it. That workflow is
-the concrete, self-hosted MVP described in the
+the concrete, self-hosted adapter described in the
 [GitHub adapter reference](../developer-guide/github-adapter.md).
 
 ---

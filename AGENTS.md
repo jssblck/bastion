@@ -58,6 +58,7 @@ bastion show
 bastion transcript <reviewer>
 bastion clean --keep 20
 bastion github codeowners --owner @your-org/platform
+bastion github report --repo OWNER/NAME --pr N --sha SHA
 bastion skills install
 bastion skills check
 bastion skills list
@@ -96,6 +97,16 @@ version:
   injectable `CommandRunner` subprocess seam; `claude_code.rs` and `codex.rs` are
   the real backends driven against a fake executable in tests. The `Pi` arm of
   `dispatch` is still unwired and bails.
+- `src/github/`: the GitHub adapter (the CI surface). `codeowners.rs` generates
+  the governance block (pure text, no network); `client.rs` is the REST seam,
+  modeled on the backend's `CommandRunner`: a proof-carrying `ApiRequest`, a
+  `GitHubApi` trait, the real `reqwest`-backed `RestClient`, and a recording double
+  for tests; `report.rs` distills a finished run's event stream into a sticky PR
+  comment and check-run payloads (all pure and unit-tested) and posts them. `bastion
+  github report` reads a persisted run and posts it: the sticky comment (with every
+  finding, optional ones included), a check run per reviewer, and the always-present
+  aggregate `bastion` check. Check runs need a GitHub App token, so this runs under
+  the Actions `GITHUB_TOKEN`, not a classic PAT.
 - `src/skills.rs` / `skills/`: the agent skills bundled into the binary. Each
   `skills/<slug>/SKILL.md` is embedded with `include_str!`; `bastion skills
   install` writes it into a consuming repo's `.claude/skills/` and `.agents/skills/`,
@@ -117,7 +128,10 @@ version:
   `env` (which Bastion propagates into the child) to stage passes, blocks, malformed
   output, crashes, and hangs, so the suite exercises the full subprocess path,
   fail-closed/fail-open aggregation, concurrency, persistence, and the read-back
-  commands at scale. It detect-and-skips when `rustc`/`git` are absent.
+  commands at scale. One scenario also drives `bastion github report` against an
+  in-process fake GitHub (the binary's `GITHUB_API_URL` is pointed at it), asserting
+  the real comment and check-run requests with no network. It detect-and-skips when
+  `rustc`/`git` are absent.
 - `scripts/install.sh` / `scripts/install.ps1`: the public install scripts
   (`curl | bash` and `irm | iex`). They detect the platform, download the matching
   release archive plus `checksums.txt`, verify the SHA-256, and place `bastion` on
@@ -128,6 +142,18 @@ version:
 ## Development rules
 
 - Do not preserve backwards compatibility by default. Mention breakage plainly.
+- Weigh breakage by who actually consumes the thing. The artifact downstream users
+  depend on is the `bastion` binary and its surfaces: the CLI, the verdict/event
+  schema, the install scripts, and the bundled skills. A change that could wedge or
+  break *those* is a real risk to weigh and call out. This repo's *own* CI is not
+  one of those surfaces: users run `bastion`, not our workflows, and they do not copy
+  `.github/workflows/*` verbatim (the docs show an illustrative example, but each
+  team writes its own). So a change that might wedge Bastion's *own* self-review gate
+  (for example `.github/workflows/bastion.yml`, which dogfoods the adapter) is only a
+  minor inconvenience: the maintainer can admin-merge past a stuck gate. Do not
+  contort a design to avoid self-wedging our CI, and do not add break-glass machinery
+  for it. In practice, changes to our GitHub Actions workflows are nearly always safe
+  to make boldly; reserve the caution for changes to the binary and its surfaces.
 - Keep the local surface and the GitHub adapter as mirror images: the same
   reviewers, verdicts, and findings, presented through whatever each transport
   makes natural. A schema change touches both surfaces and `docs/`.
@@ -174,8 +200,10 @@ a release is just a tag, never a crates.io publish.
   build-time fallback, not the source of truth, and is never published.
 - A tag with a pre-release suffix (`v0.2.0-rc.1`) ships as a prerelease.
 
-The full release runbook (the build matrix, version derivation, and bumping the
-self-review pin in `.github/workflows/bastion.yml`) lives in `CONTRIBUTING.md`.
+The full release runbook (the build matrix and version derivation) lives in
+`CONTRIBUTING.md`. There is no self-review pin to bump: the
+`.github/workflows/bastion.yml` gate always runs the latest published release, so it
+adopts a new engine automatically once the release is published.
 
 ## Verification expectations
 

@@ -1,43 +1,42 @@
 name: bastion
 
-# Bastion reviewing Bastion. On every pull request this downloads the pinned,
-# published `bastion` binary (BASTION_VERSION below) and runs `bastion review`
-# over the changeset; a blocked review exits non-zero and fails the job. Branch
-# protection on `main` requires the `bastion review` check so a blocking gate
-# stops the merge.
+# Bastion reviewing Bastion. On every pull request this downloads a published
+# `bastion` release binary and runs `bastion review` over the changeset; a blocked
+# review exits non-zero and fails the job. Branch protection on `main` requires the
+# `bastion review` check so a blocking gate stops the merge.
 #
 # The reviewer engine is a *released* binary, not one built from the PR's own
 # sources. That is deliberate: building from the PR would let a change edit the
-# very engine that judges it -- neutering a reviewer or forcing a pass. Pinning to
-# a published, CODEOWNERS-governed release keeps the engine outside the PR's reach,
-# and bumping BASTION_VERSION is itself a reviewed change. Reviewer *policy*
-# (bastion/reviewers.yaml) is still read from the checkout so prompt and trigger
-# changes take effect in the same PR -- those paths are CODEOWNERS-protected too.
+# very engine that judges it (neutering a reviewer or forcing a pass). The job
+# always adopts the *latest* published release, so the engine stays outside the
+# PR's reach yet picks up improvements with no per-PR pin bump; releases are
+# maintainer-cut tags, so the engine is only ever a maintainer-published artifact.
+# Reviewer *policy* (bastion/reviewers.yaml) is still read from the checkout so
+# prompt and trigger changes take effect in the same PR; those paths are
+# CODEOWNERS-protected too.
 #
-# This is the concrete, self-hosted MVP of the adapter described in docs/developer-guide/github-adapter.md.
-# It does not yet post per-reviewer check runs or inline PR comments (that is the
-# packaged `review-action`/GitHub App, still future); here the job's pass/fail is
-# the gate and the full run is uploaded as an artifact.
+# This is the concrete, self-hosted adapter described in docs/developer-guide/github-adapter.md.
+# After the review runs, `bastion github report` posts a sticky PR comment carrying
+# every reviewer's verdict and findings (optional findings included) plus one check
+# run per reviewer and an always-present aggregate `bastion` check. Inline diff
+# comments and live mid-run progress are still future. The job's pass/fail remains
+# the gate, and the full run is also uploaded as an artifact.
 
 on:
   pull_request:
 
-# Read-only: this MVP only needs to read the diff and fail the job. The future
-# comment-posting adapter will additionally need `pull-requests: write` and
-# `checks: write`.
+# Read the diff and fail the job, and write the surfaces `bastion github report`
+# posts after the review: the sticky PR comment (`pull-requests: write`) and the
+# per-reviewer and aggregate check runs (`checks: write`).
 permissions:
   contents: read
+  pull-requests: write
+  checks: write
 
 # One in-flight review per PR; a new push cancels the previous run.
 concurrency:
   group: bastion-${{ github.event.pull_request.number }}
   cancel-in-progress: true
-
-env:
-  # The released bastion engine that reviews this repo's PRs -- the governed
-  # reviewer version. Bump it (a CODEOWNERS-reviewed change) to adopt a newer
-  # engine; it must be a published release tag with attached binaries.
-  BASTION_VERSION: v0.1.0
 
 jobs:
   review:
@@ -57,16 +56,24 @@ jobs:
           # the Codex reviewer can run `git diff <base>` over the working tree.
           fetch-depth: 0
 
-      - name: Install the pinned bastion release
+      - name: Install the bastion release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          repo="${{ github.repository }}"
+          # The latest published release. `gh release view` with no tag uses GitHub's
+          # "latest" (most recent non-draft, non-prerelease), so the engine
+          # auto-advances but never silently adopts an `-rc` build.
+          version="$(gh release view --repo "$repo" --json tagName -q .tagName)"
+          echo "Using bastion engine: $version"
+          # Expose the resolved version to later steps (e.g. the report step's notice).
+          echo "BASTION_ENGINE_VERSION=$version" >> "$GITHUB_ENV"
           asset="bastion-x86_64-unknown-linux-gnu.tar.gz"
           dest="$RUNNER_TEMP/bastion"
           mkdir -p "$dest"
-          gh release download "$BASTION_VERSION" \
-            --repo "${{ github.repository }}" \
+          gh release download "$version" \
+            --repo "$repo" \
             --pattern "$asset" \
             --dir "$dest"
           tar -xzf "$dest/$asset" -C "$dest"
@@ -106,6 +113,7 @@ jobs:
           AUTHOR: ${{ github.event.pull_request.user.login }}
           CODEX_AUTH_JSSBLCK: ${{ secrets.CODEX_AUTH_JSSBLCK }}
         run: |
+          set -euo pipefail
           author="$(printf '%s' "$AUTHOR" | tr '[:upper:]' '[:lower:]')"
           # Quote bracketed bot logins; unquoted, case reads [bot] as a glob class.
           case "$author" in
@@ -136,6 +144,36 @@ jobs:
         # stream goes to the log; the canonical JSONL is persisted under
         # BASTION_DATA_DIR and uploaded below.
         run: bastion review --base "origin/${{ github.base_ref }}"
+
+      - name: Report the review to the pull request
+        # Runs even when the review blocked (and so failed the job above), so the PR
+        # always gets the comment and the per-reviewer checks. It reads the run that
+        # `bastion review` just persisted under BASTION_DATA_DIR; if no run was
+        # recorded (an earlier infrastructure failure) it prints a notice and exits 0
+        # rather than piling a second error on top of the real one. The default
+        # GITHUB_TOKEN is a GitHub App installation token, so it can create check
+        # runs (a classic PAT cannot); GITHUB_API_URL is provided by Actions.
+        #
+        # `github report` landed after v0.1.0, so until a release that includes it
+        # becomes the latest, the installed binary will not have the subcommand.
+        # When an older engine lacks the subcommand, the report step exits 0, and
+        # reporting starts once the latest release includes the command. The
+        # capability probe is the only tolerated failure; once the subcommand
+        # exists, a real posting error fails the step.
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
+        run: |
+          set -euo pipefail
+          if ! bastion github report --help >/dev/null 2>&1; then
+            echo "::notice::bastion engine ${BASTION_ENGINE_VERSION:-unknown} has no 'github report'; skipping PR comment and checks until the latest release includes it."
+            exit 0
+          fi
+          bastion github report \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --sha "${{ github.event.pull_request.head.sha }}"
 
       - name: Upload the run
         if: always()

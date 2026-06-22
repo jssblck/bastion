@@ -46,12 +46,14 @@ generated block is a correct starting suggestion.
 
 ### Branch protection requires the check
 
-Require Bastion's review on your default branch: today that is the review job from
-[Continuous integration](./continuous-integration.md#what-ships-today); in the
-target adapter it is the always-present aggregate check named `bastion`. A PR then
-cannot merge with the gate switched off, and because the workflow file and the
-registry are themselves owned paths, switching it off is itself a policy change a
-human sees.
+Require Bastion's review on your default branch. Today that is the review job from
+[Continuous integration](./continuous-integration.md#what-ships-today), which now
+also posts the always-present aggregate check named `bastion` (with a check run per
+reviewer alongside it), so you can require either the job or that `bastion` check.
+The fully packaged action on the target list would expose the aggregate check as the
+single thing to require. A PR then cannot merge with the gate switched off, and
+because the workflow file and the registry are themselves owned paths, switching it
+off is itself a policy change a human sees.
 
 That is the entire enforcement story, and it is intentionally modest. The
 contributor Bastion is designed for is an aligned agent that would never quietly
@@ -107,7 +109,7 @@ For a healthy deployment:
 
 - [ ] `bastion/reviewers.yaml` and the Bastion workflow are CODEOWNERS-protected.
 - [ ] Bastion's review is required by branch protection on the default branch (the
-      review job today; the aggregate `bastion` check once the packaged adapter lands).
+      review job, or the aggregate `bastion` check that `bastion github report` now posts).
 - [ ] Reviewer-policy PRs get a real human review, not a rubber stamp.
 - [ ] Someone owns escape triage, and escapes feed back into reviewer changes.
 - [ ] Billing is configured (per-author secrets or an API-key fallback) so reviews
