@@ -7,8 +7,8 @@
 //! CLI reports it, and the raw session JSON is kept as the transcript.
 //!
 //! Per `docs/developer-guide/design.md`, when the agent fails to produce output matching the
-//! verdict schema, Bastion re-runs the same session once — explaining the schema
-//! again and asking only for the structured output — before giving up. A backend
+//! verdict schema, Bastion re-runs the same session once (explaining the schema
+//! again and asking only for the structured output) before giving up. A backend
 //! error is the runner's signal to fail a gate closed.
 
 use color_eyre::eyre::{Context, Result, bail, eyre};
@@ -397,7 +397,7 @@ fn parse_verdict_from_text(text: &str) -> Option<Verdict> {
 /// Combine the usage reported by the first turn and the resumed reprompt turn.
 ///
 /// `claude`'s `total_cost_usd` is the *cumulative* cost of the whole session, and
-/// the reprompt resumes the same session — so the second turn's total already
+/// the reprompt resumes the same session, so the second turn's total already
 /// includes the first. Summing them would double-count; instead we take the later
 /// (larger) cumulative figure. Token counts are treated the same way (cumulative
 /// session totals), guarding against a turn that under-reports by keeping the max.
@@ -826,8 +826,8 @@ mod tests {
     /// and prints `envelope_json` to stdout, returning its path. Using a genuine
     /// compiled binary (rather than a shell/batch script) means the test drives the
     /// *real* [`SystemCommandRunner`] subprocess path identically on every platform
-    /// — including the long, metacharacter-laden `--json-schema` argument that
-    /// Windows batch files cannot accept.
+    /// (including the long, metacharacter-laden `--json-schema` argument that
+    /// Windows batch files cannot accept).
     ///
     /// Returns `None` (so the caller can detect-and-skip) when no `rustc` is on
     /// `PATH`, so the suite never spuriously fails on a machine without a toolchain.

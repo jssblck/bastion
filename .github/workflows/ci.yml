@@ -30,3 +30,19 @@ jobs:
       # pinned release): this is a deterministic, content-only lint, not a review.
       - name: Bundled skills are in sync
         run: cargo run --locked --quiet -- skills check
+
+  nudge:
+    name: Nudge rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Deterministic, agent-independent enforcement of the mechanical conventions
+      # in .nudge.yaml (today: no Unicode dashes in authored text). This is what
+      # makes the rules a gate rather than a suggestion to agents: `nudge check`
+      # runs the same file rules over the whole tree with no agent in the loop.
+      - name: Install Nudge
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/attunehq/nudge/main/scripts/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Check mechanical conventions
+        run: nudge check

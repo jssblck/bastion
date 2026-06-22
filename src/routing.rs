@@ -1,6 +1,6 @@
 //! Trigger routing: selecting the reviewers whose globs match a changeset.
 //!
-//! Routing is shared between the local and CI surfaces — the prompt scopes a
+//! Routing is shared between the local and CI surfaces: the prompt scopes a
 //! reviewer's *attention*, but its `trigger` globs scope *whether it runs at
 //! all*. A reviewer runs when any changed file matches any of its trigger globs.
 //!

@@ -49,7 +49,7 @@ pub fn current_branch(cwd: &Path) -> Result<String> {
 /// The set of files changed in the working tree relative to `base`.
 ///
 /// This is the union of tracked changes against `base` and untracked,
-/// non-ignored files — i.e. everything a PR from `base` would introduce,
+/// non-ignored files, i.e. everything a PR from `base` would introduce,
 /// including edits not yet committed. Paths are repository-relative and sorted.
 ///
 /// # Errors
