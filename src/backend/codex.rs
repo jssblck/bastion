@@ -251,7 +251,7 @@ and nothing after it, as a fenced YAML code block matching exactly this schema:\
 ```yaml\n\
 verdict: pass | block        # the authoritative gate decision\n\
 summary: \"...\"               # one-line human-friendly summary\n\
-findings:                    # may be empty; a block must carry >=1 blocking finding\n\
+findings:                    # list every issue you find; a block carries >=1 blocking\n\
   - kind: blocking | optional\n\
     path: relative/file/path\n\
     line_start: 1\n\
@@ -267,12 +267,14 @@ for the review you already completed, and nothing else.";
 
 /// Build the full prompt handed to Codex for `request`: the shared changeset
 /// preamble (how to see the diff against the base branch), the interpolated review
-/// instruction, and the schema instruction.
+/// instruction, the shared exhaustive-findings instruction (report every issue in
+/// one pass), and the schema instruction.
 fn build_prompt(request: &ReviewRequest<'_>) -> String {
     let reviewer = request.reviewer;
     let preamble = super::changeset_preamble(request.base);
     let interpolated = super::interpolate(&reviewer.prompt, &reviewer.inputs);
-    format!("{preamble}\n\n{interpolated}\n\n{SCHEMA_INSTRUCTION}")
+    let exhaustive = super::EXHAUSTIVE_FINDINGS_INSTRUCTION;
+    format!("{preamble}\n\n{interpolated}\n\n{exhaustive}\n\n{SCHEMA_INSTRUCTION}")
 }
 
 /// A parsed Codex `exec --json` session: the reconstructed transcript, the final
@@ -785,6 +787,73 @@ findings:
         assert_eq!(verdict.findings[0].kind, FindingKind::Blocking);
         assert_eq!(verdict.findings[0].path, "src/db.ts");
         assert!(verdict.is_consistent());
+    }
+
+    #[tokio::test]
+    async fn every_finding_in_the_verdict_is_surfaced_not_just_the_first() {
+        // Regression for under-reporting: a block that lists several findings must
+        // surface all of them, so the author fixes the complete set in one pass
+        // instead of one review cycle per issue. Nothing in the parse path may
+        // collapse the list to the first (or first blocking) finding.
+        let message = "\
+Found several issues.
+
+```yaml
+verdict: block
+summary: three prose tells
+findings:
+  - kind: blocking
+    path: README.md
+    line_start: 1
+    line_end: 1
+    detail: aphorism opener
+  - kind: blocking
+    path: README.md
+    line_start: 5
+    line_end: 6
+    detail: manufactured antithesis
+  - kind: optional
+    path: docs/guide.md
+    line_start: 9
+    line_end: 9
+    detail: dramatic colon
+```";
+        let (outcome, _) = review_with(&reviewer(), [ok_output(stream(&[message], None))]).await;
+        let verdict = outcome.expect("verdict parses").verdict;
+        assert_eq!(verdict.decision, Decision::Block);
+        assert_eq!(verdict.findings.len(), 3);
+        let details: Vec<&str> = verdict.findings.iter().map(|f| f.detail.as_str()).collect();
+        assert_eq!(
+            details,
+            [
+                "aphorism opener",
+                "manufactured antithesis",
+                "dramatic colon"
+            ]
+        );
+        // The mix of blocking and optional findings is preserved, in order.
+        assert_eq!(verdict.findings[0].kind, FindingKind::Blocking);
+        assert_eq!(verdict.findings[2].kind, FindingKind::Optional);
+        assert_eq!(verdict.findings[2].path, "docs/guide.md");
+    }
+
+    #[tokio::test]
+    async fn prompt_asks_for_exhaustive_findings() {
+        let (_, specs) = review_with(
+            &reviewer(),
+            [ok_output(stream(
+                &["```yaml\nverdict: pass\nsummary: ok\n```"],
+                None,
+            ))],
+        )
+        .await;
+        let prompt = stdin_of(&specs[0]);
+        assert!(prompt.contains("Report every issue you can identify"));
+        assert!(prompt.contains("Do not stop after the"));
+        // The exhaustive instruction precedes the schema instruction.
+        let exhaustive_at = prompt.find("Report every issue").expect("present");
+        let schema_at = prompt.find("structured verdict").expect("present");
+        assert!(exhaustive_at < schema_at);
     }
 
     #[tokio::test]

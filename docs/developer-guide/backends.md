@@ -17,7 +17,7 @@ stays pure orchestration.
 
 | File | Role |
 | --- | --- |
-| [`mod.rs`](../../src/backend/mod.rs) | The `Backend` trait, `ReviewRequest`/`ReviewOutcome`, `MockBackend`, `dispatch`, and the shared helpers (`changeset_preamble`, `interpolate`, `money_from_dollars`). |
+| [`mod.rs`](../../src/backend/mod.rs) | The `Backend` trait, `ReviewRequest`/`ReviewOutcome`, `MockBackend`, `dispatch`, and the shared prompt/helpers (`changeset_preamble`, `EXHAUSTIVE_FINDINGS_INSTRUCTION`, `interpolate`, `money_from_dollars`). |
 | [`command.rs`](../../src/backend/command.rs) | The `CommandRunner` subprocess seam: `CommandSpec` and `SystemCommandRunner`, plus a fake runner for tests. |
 | [`claude_code.rs`](../../src/backend/claude_code.rs) | The Claude Code backend. |
 | [`codex.rs`](../../src/backend/codex.rs) | The Codex backend. |
@@ -72,7 +72,7 @@ parsing, and retry logic.
 
 ## Shared behavior in `mod.rs`
 
-Three helpers keep the backends consistent so a reviewer behaves the same
+These shared helpers keep the backends consistent so a reviewer behaves the same
 regardless of which agent runs it:
 
 - **`changeset_preamble`**: the instruction prepended to every prompt telling the
@@ -81,6 +81,14 @@ regardless of which agent runs it:
   `{base}...HEAD`, which shows only committed history and would miss the uncommitted
   work an author iterates on locally. In CI the head is committed and there are no
   untracked files, so the same instruction is correct there too.
+- **`EXHAUSTIVE_FINDINGS_INSTRUCTION`**: a fixed instruction appended to every
+  reviewer prompt (after the reviewer's own text, before the schema instruction)
+  telling the agent to enumerate *every* qualifying finding in one pass rather than
+  stopping at the first. A verdict is consistent with a single blocking finding, so
+  without this an agent tends to report one issue and stop, forcing the author
+  through a fresh review cycle per issue. It changes only how completely a reviewer
+  reports, never the gate decision: a clean changeset still returns `pass` with no
+  findings, and the reviewer's own prompt still decides what counts as an issue.
 - **`interpolate`**: substitutes `${key}` placeholders in a prompt from the
   reviewer's `inputs`. Unknown placeholders are left as literal text (the reviewer
   author is trusted; a literal `${...}` is harmless).
@@ -113,7 +121,9 @@ and the [user-facing status](../user-guide/README.md#status).
    (it is `#[non_exhaustive]`; keep `as_str` and the kebab-case serde form in sync).
 2. Create `src/backend/<name>.rs` implementing the `Backend` trait, building its
    `CommandSpec` and parsing its CLI's structured-output envelope into a `Verdict`.
-   Reuse `changeset_preamble`, `interpolate`, and `money_from_dollars`.
+   Reuse `changeset_preamble`, `interpolate`, and `money_from_dollars`, and append
+   `EXHAUSTIVE_FINDINGS_INSTRUCTION` to the prompt so the new backend enumerates
+   every finding in one pass like the others.
 3. Wire the variant into `dispatch` in [`mod.rs`](../../src/backend/mod.rs).
 4. Test it against a fake `CommandRunner`, following `claude_code.rs` /
    `codex.rs`: assert the args and env you build, and the parsing of a representative

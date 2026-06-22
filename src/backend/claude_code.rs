@@ -210,18 +210,21 @@ const REPROMPT: &str = "Your previous response did not include a valid structure
 
 /// Build the prompt handed to `claude`: the shared changeset preamble (how to see
 /// the diff against the base branch), the reviewer's instruction with `${name}`
-/// inputs interpolated, and the schema instruction.
+/// inputs interpolated, the shared exhaustive-findings instruction (report every
+/// issue in one pass), and the schema instruction.
 fn build_prompt(request: &ReviewRequest<'_>) -> String {
     let reviewer = request.reviewer;
     let mut prompt = super::changeset_preamble(request.base);
     prompt.push_str("\n\n");
     prompt.push_str(&super::interpolate(&reviewer.prompt, &reviewer.inputs));
+    prompt.push_str("\n\n");
+    prompt.push_str(super::EXHAUSTIVE_FINDINGS_INSTRUCTION);
     prompt.push_str(
         "\n\nWhen you have finished reviewing, return your judgment as structured output \
          conforming to the requested JSON schema: a top-level `verdict` of \"pass\" or \"block\", \
          a human-friendly `summary`, and a `findings` array locating specific comments. Mark a \
          finding `blocking` if it is a reason to block, or `optional` if it is a non-blocking \
-         suggestion. If you block, include at least one blocking finding explaining why.",
+         suggestion. If you block, include a blocking finding for each issue you are blocking on.",
     );
     prompt
 }
@@ -567,6 +570,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn every_finding_in_structured_output_is_surfaced_not_just_the_first() {
+        // Regression for under-reporting: all findings in the structured output
+        // must reach the verdict, in order, so a single pass returns the complete
+        // set rather than one finding per CI cycle.
+        let envelope = serde_json::json!({
+            "session_id": "s-1",
+            "structured_output": {
+                "verdict": "block",
+                "summary": "multiple tells",
+                "findings": [
+                    { "kind": "blocking", "path": "README.md", "line_start": 1, "line_end": 1, "detail": "aphorism opener" },
+                    { "kind": "blocking", "path": "README.md", "line_start": 5, "line_end": 6, "detail": "manufactured antithesis" },
+                    { "kind": "optional", "path": "docs/g.md", "line_start": 9, "line_end": 9, "detail": "dramatic colon" }
+                ]
+            }
+        })
+        .to_string();
+
+        let outcome = review_with(vec![ok(&envelope)], &reviewer())
+            .await
+            .expect("verdict parses");
+        assert!(outcome.verdict.decision.is_block());
+        assert_eq!(outcome.verdict.findings.len(), 3);
+        let details: Vec<&str> = outcome
+            .verdict
+            .findings
+            .iter()
+            .map(|f| f.detail.as_str())
+            .collect();
+        assert_eq!(
+            details,
+            [
+                "aphorism opener",
+                "manufactured antithesis",
+                "dramatic colon"
+            ]
+        );
+        assert_eq!(outcome.verdict.findings[2].kind, FindingKind::Optional);
+    }
+
+    #[tokio::test]
     async fn falls_back_to_parsing_the_result_text_as_json() {
         // No structured_output; the verdict is embedded in the result text,
         // wrapped in prose to exercise the brace-extraction fallback.
@@ -771,6 +815,15 @@ mod tests {
         // The reviewer's own instruction and the schema instruction follow.
         assert!(prompt.contains("Review it."));
         assert!(prompt.contains("structured output"));
+        // The shared exhaustive-findings instruction is present, between the
+        // reviewer instruction and the closing schema instruction.
+        assert!(prompt.contains("Report every issue you can identify"));
+        assert!(prompt.contains("Do not stop after the"));
+        let reviewer_at = prompt.find("Review it.").expect("present");
+        let exhaustive_at = prompt.find("Report every issue").expect("present");
+        let schema_at = prompt.find("return your judgment").expect("present");
+        assert!(reviewer_at < exhaustive_at);
+        assert!(exhaustive_at < schema_at);
     }
 
     #[tokio::test]

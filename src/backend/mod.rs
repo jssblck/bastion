@@ -153,6 +153,30 @@ fn changeset_preamble(base: &str) -> String {
     )
 }
 
+/// The shared instruction that tells a reviewing agent to report *every*
+/// qualifying finding in one pass, not just the first one it sees.
+///
+/// A verdict is internally consistent when a `block` carries at least one blocking
+/// finding (see [`Verdict::is_consistent`](crate::verdict::Verdict::is_consistent)),
+/// so an agent left to its own devices tends to surface one representative issue
+/// and stop the moment the verdict is satisfiable. That makes the author fix one
+/// thing, push, and burn another full review cycle to see the next, once per issue.
+/// Appending this to every reviewer prompt, on both backends, makes a single pass
+/// enumerate the complete finding set so the author can fix everything at once. It
+/// changes only how completely a reviewer reports, never the gate decision: a clean
+/// changeset still returns `pass` with no findings, and the reviewer's own prompt
+/// still decides what counts as an issue.
+pub(crate) const EXHAUSTIVE_FINDINGS_INSTRUCTION: &str = "\
+    Report every issue you can identify across the whole changeset in this single \
+    review pass, not just the first or most obvious one. Emit a separate finding \
+    for each distinct instance, each with its own location, even when several \
+    instances share a cause or fall under the same rule. Do not stop after the \
+    first finding or once the verdict is already decided: when you block, a single \
+    finding does not discharge the review if other issues remain. Scan every \
+    changed file and list them all so the author can fix the complete set in one \
+    pass. If the changeset is clean, still return a pass with no findings; do not \
+    invent issues to pad the list.";
+
 /// Replace `${key}` occurrences in `template` with values from `inputs`.
 ///
 /// Shared by the backends so prompt interpolation is identical regardless of
@@ -238,6 +262,18 @@ mod tests {
         assert!(preamble.contains("untracked"));
         // ...and explicitly warns off the committed-only three-dot form.
         assert!(preamble.contains("Do not rely on `git diff origin/main...HEAD`"));
+    }
+
+    #[test]
+    fn exhaustive_findings_instruction_demands_a_complete_pass() {
+        let text = EXHAUSTIVE_FINDINGS_INSTRUCTION;
+        let lower = text.to_lowercase();
+        // It must ask for the full set, not the first finding.
+        assert!(lower.contains("every issue"));
+        assert!(lower.contains("do not stop after the"));
+        // And it must not weaken the gate: a clean changeset still passes clean.
+        assert!(lower.contains("clean"));
+        assert!(lower.contains("return a pass"));
     }
 
     #[test]

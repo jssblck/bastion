@@ -196,6 +196,11 @@ The prompt is the reviewer. A few habits keep recall high:
 - **Let the agent explore.** Every reviewer gets a full checkout and is told how to
   see the changeset (the diff against the base, plus untracked files). You do not
   need to paste the diff into the prompt; point the reviewer at the property.
+- **You do not need to ask for completeness.** Bastion appends an instruction to
+  every reviewer prompt telling the agent to report every distinct finding in one
+  pass, not just the first. Write the prompt for the concern and phrase findings
+  per instance (one per file and line range), and the agent enumerates them all so
+  the author fixes the whole set from one run.
 
 Some worked examples, taken from Bastion's own registry
 ([`bastion/reviewers.yaml`](../../bastion/reviewers.yaml)):
