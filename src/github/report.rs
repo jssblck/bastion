@@ -213,6 +213,23 @@ fn gate_row_blocks(row: &ReviewerRow) -> bool {
             || row.findings.iter().any(|f| f.kind == FindingKind::Blocking))
 }
 
+/// Whether a resolved row's recorded decision is internally consistent with its
+/// findings, mirroring [`crate::verdict::Verdict::is_consistent`]: a `block` must
+/// carry at least one blocking finding, and a `pass` must carry none.
+///
+/// This holds for every mode, not just gates: an advisor row that records `pass`
+/// while carrying a blocking finding is just as self-contradictory as a gate one, and
+/// a persisted run with any such row has been corrupted or hand-edited. Replay must
+/// reject it the same way the backend parser rejects an inconsistent live verdict,
+/// rather than publishing a check off a contradictory record.
+fn row_is_consistent(row: &ReviewerRow) -> bool {
+    let has_blocking = row.findings.iter().any(|f| f.kind == FindingKind::Blocking);
+    match row.decision {
+        Decision::Pass => !has_blocking,
+        Decision::Block => has_blocking,
+    }
+}
+
 /// Whether the replayed run is structurally complete, well-ordered, and internally
 /// consistent enough to be trusted at all, independent of whether it passed.
 ///
@@ -235,6 +252,12 @@ fn is_well_formed_run(digest: &RunDigest) -> bool {
     // cannot be ruled out); one missing its `run.completed` is truncated; a
     // duplicated either is not a single coherent record.
     if digest.started_count != 1 || digest.completed_count != 1 {
+        return false;
+    }
+    // No resolved row may contradict itself (a block with no blocking finding, or a
+    // pass that carries one). Such a row is a corrupted record, untrustworthy for any
+    // mode, so the whole run fails closed rather than publishing a check off it.
+    if !digest.rows.iter().all(row_is_consistent) {
         return false;
     }
     // Every gate the plan announced produced a matching resolved gate row.
@@ -1619,6 +1642,86 @@ mod tests {
         let g1 = checks.iter().find(|c| c.name == "bastion / g1").unwrap();
         assert!(g1.summary.chars().count() <= MAX_CHECK_SUMMARY + 80);
         assert!(g1.summary.contains("truncated; see the Bastion comment"));
+    }
+
+    #[test]
+    fn fails_closed_on_a_block_row_without_a_blocking_finding() {
+        // A gate that recorded `block` but carries no blocking finding is self-
+        // contradictory (mirrors Verdict::is_consistent). The run is treated as
+        // malformed, not as a trustworthy blocked gate.
+        let events = forged_run(
+            &["g1"],
+            vec![gate_resolved("g1", Decision::Block, vec![])],
+            (
+                Decision::Block,
+                Gates {
+                    total: 1,
+                    passed: 0,
+                    blocked: 1,
+                },
+            ),
+        );
+        let digest = digest(&events);
+        assert!(!is_well_formed_run(&digest));
+        assert!(!is_clean_pass(&digest));
+        assert_eq!(
+            check_runs(&ctx(), &digest)
+                .iter()
+                .find(|c| c.name == "bastion")
+                .unwrap()
+                .conclusion,
+            Conclusion::Failure
+        );
+    }
+
+    #[test]
+    fn advisor_with_a_pass_and_blocking_finding_fails_closed() {
+        // An advisor row that records pass while carrying a blocking finding is self-
+        // contradictory. Advisors never gate, but the run is malformed, so the advisor
+        // check must conclude neutral rather than a green success.
+        let events = vec![
+            RunEvent::RunStarted {
+                run: RunId("r-forge".into()),
+                branch: "feat".into(),
+                base: "main".into(),
+                changed: 1,
+                reviewers: vec![ReviewerRef {
+                    name: "a1".into(),
+                    mode: Mode::Advisor,
+                }],
+            },
+            RunEvent::ReviewerResolved {
+                run: RunId("r-forge".into()),
+                reviewer: "a1".into(),
+                verdict: Decision::Pass,
+                summary: "x".into(),
+                findings: vec![finding(FindingKind::Blocking, "src/a.rs", 1, 1, "leak")],
+                usage: None,
+                duration_ms: 1000,
+                has_transcript: true,
+            },
+            RunEvent::RunCompleted {
+                run: RunId("r-forge".into()),
+                verdict: Decision::Pass,
+                gates: Gates {
+                    total: 0,
+                    passed: 0,
+                    blocked: 0,
+                },
+                duration_ms: 1000,
+                cost_usd: Money::from_cents(0),
+            },
+        ];
+        let digest = digest(&events);
+        assert!(!is_well_formed_run(&digest));
+        assert_eq!(
+            check_runs(&ctx(), &digest)
+                .iter()
+                .find(|c| c.name == "bastion / a1")
+                .unwrap()
+                .conclusion,
+            Conclusion::Neutral
+        );
     }
 
     #[test]
