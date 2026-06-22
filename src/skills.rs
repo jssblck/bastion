@@ -54,15 +54,30 @@ pub struct BundledSkill {
     source: &'static str,
 }
 
+/// Normalize line endings to LF.
+///
+/// The bundled `SKILL.md` is embedded with `include_str!`, so its bytes are
+/// whatever git checked out: on Windows with `core.autocrlf`, that is CRLF. The
+/// rendered file must be byte-identical on every platform, because [`check`]
+/// compares a checked-in copy against [`BundledSkill::render`] byte for byte and
+/// fails closed on any difference. The `.gitattributes` entry forcing LF on the
+/// skill assets is the first line of defense; normalizing here keeps the binary
+/// correct even when it is built from a source checkout that slipped through with
+/// CRLF (for example an unpacked tarball).
+fn normalize_newlines(source: &str) -> String {
+    source.replace("\r\n", "\n")
+}
+
 impl BundledSkill {
     /// The skill file as it should appear on disk, with the provenance marker
-    /// replaced by the [`PROVENANCE`] comment. The output is deterministic and
-    /// version-independent, so a checked-in copy stays byte-stable across bastion
-    /// upgrades that do not change the skill text. That is precisely what lets
-    /// [`check`] run as a CI drift guard without going red on every release.
+    /// replaced by the [`PROVENANCE`] comment. Line endings are normalized to LF
+    /// so the output is deterministic, version-independent, and identical on every
+    /// platform: a checked-in copy stays byte-stable across bastion upgrades that
+    /// do not change the skill text. That is precisely what lets [`check`] run as a
+    /// CI drift guard without going red on every release or on Windows checkouts.
     #[must_use]
     pub fn render(&self) -> String {
-        self.source.replace(PROVENANCE_MARKER, PROVENANCE)
+        normalize_newlines(self.source).replace(PROVENANCE_MARKER, PROVENANCE)
     }
 
     /// This skill's path under one skills root: `<dir>/<slug>/SKILL.md`.
@@ -125,8 +140,11 @@ pub fn install(root: &Path, dirs: &[PathBuf], force: bool) -> Result<Vec<Install
 
 /// Install one rendered skill file, returning what it did.
 fn install_one(path: &Path, rendered: &str, force: bool) -> Result<Installed> {
+    // Compare on normalized newlines: a consuming repo's `core.autocrlf` can hand
+    // back a CRLF copy of a file we wrote as LF, and that is the same skill, not an
+    // edit. `rendered` is already LF (see [`BundledSkill::render`]).
     let status = match read_if_exists(path)? {
-        Some(current) if current == rendered => Installed::Unchanged,
+        Some(current) if normalize_newlines(&current) == rendered => Installed::Unchanged,
         Some(_) if !force => Installed::Skipped,
         Some(_) => Installed::Updated,
         None => Installed::Created,
@@ -177,8 +195,11 @@ pub fn check(root: &Path, dirs: &[PathBuf]) -> Result<Vec<CheckOutcome>> {
         let rendered = skill.render();
         for dir in dirs {
             let path = skill.path_in(&root.join(dir));
+            // Normalize newlines before comparing: a consuming repo's
+            // `core.autocrlf` may check our LF file back out as CRLF, which is the
+            // same content, not drift. Only a genuine content edit counts.
             let status = match read_if_exists(&path)? {
-                Some(current) if current == rendered => Checked::UpToDate,
+                Some(current) if normalize_newlines(&current) == rendered => Checked::UpToDate,
                 Some(_) => Checked::Drifted,
                 None => Checked::Missing,
             };
@@ -205,19 +226,22 @@ mod tests {
     fn bundled_skill_is_a_valid_skill_file() {
         // Every bundled skill must be a Claude Code skill: front matter first, with
         // a name matching its slug so the installed directory and the skill agree.
+        // Normalize newlines first: the embedded source carries CRLF on a Windows
+        // checkout, but the skill is identical content on every platform.
         for skill in BUNDLED {
+            let source = normalize_newlines(skill.source);
             assert!(
-                skill.source.starts_with("---\n"),
+                source.starts_with("---\n"),
                 "{} must start with YAML front matter",
                 skill.slug
             );
             assert!(
-                skill.source.contains(&format!("name: {}", skill.slug)),
+                source.contains(&format!("name: {}", skill.slug)),
                 "{} front matter must declare its slug as `name`",
                 skill.slug
             );
             assert!(
-                skill.source.contains(PROVENANCE_MARKER),
+                source.contains(PROVENANCE_MARKER),
                 "{} must carry the provenance marker so install can stamp it",
                 skill.slug
             );
@@ -240,6 +264,19 @@ mod tests {
         // so a checked-in copy stays byte-stable across builds (the CI guard relies
         // on this).
         assert_eq!(out, BUNDLED[0].render());
+    }
+
+    #[test]
+    fn render_is_lf_only_on_every_platform() {
+        // The drift guard compares byte for byte, so the rendered file must use LF
+        // regardless of how git checked out the embedded source (CRLF on Windows).
+        for skill in BUNDLED {
+            assert!(
+                !skill.render().contains('\r'),
+                "{} render must not carry CR; it would drift against a LF checkout",
+                skill.slug
+            );
+        }
     }
 
     #[test]
@@ -296,5 +333,40 @@ mod tests {
                 .iter()
                 .any(|o| o.path != edited && o.status == Checked::UpToDate)
         );
+    }
+
+    #[test]
+    fn crlf_checkout_is_not_drift_but_a_real_edit_is() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        install(root, &default_dirs(), false).unwrap();
+
+        // A consuming repo's autocrlf can rewrite our LF file as CRLF on checkout.
+        // That is the same skill, so check must stay green and install idempotent.
+        let file = root.join(".claude/skills/using-bastion/SKILL.md");
+        let crlf = BUNDLED[0].render().replace('\n', "\r\n");
+        fs::write(&file, &crlf).unwrap();
+
+        let checked = check(root, &default_dirs()).unwrap();
+        let status = checked.iter().find(|o| o.path == file).unwrap().status;
+        assert_eq!(
+            status,
+            Checked::UpToDate,
+            "CRLF newlines must not read as drift"
+        );
+
+        let reinstall = install(root, &default_dirs(), false).unwrap();
+        let install_status = reinstall.iter().find(|o| o.path == file).unwrap().status;
+        assert_eq!(
+            install_status,
+            Installed::Unchanged,
+            "a CRLF copy of the same content needs no rewrite"
+        );
+
+        // A genuine content edit still drifts, CRLF endings notwithstanding.
+        fs::write(&file, "tampered\r\n").unwrap();
+        let after = check(root, &default_dirs()).unwrap();
+        let drifted = after.iter().find(|o| o.path == file).unwrap().status;
+        assert_eq!(drifted, Checked::Drifted, "a real edit must still drift");
     }
 }
