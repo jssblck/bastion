@@ -37,6 +37,13 @@ pub const MARKER: &str = "<!-- bastion-report -->";
 /// note any overflow in the check summary rather than silently dropping it.
 const MAX_ANNOTATIONS: usize = 50;
 
+/// GitHub caps a check-run annotation `message` (documented at 64KB). A single
+/// oversized finding would 422 the whole report request, so we truncate the inline
+/// message well under the limit; the full finding text still rides the sticky comment
+/// and the reviewer check summary, so nothing is lost. Measured in characters, which
+/// for any UTF-8 byte width stays comfortably below 64KB.
+const MAX_ANNOTATION_MESSAGE: usize = 8000;
+
 /// One reviewer's resolved row, distilled from the event stream.
 #[derive(Debug, Clone)]
 struct ReviewerRow {
@@ -470,14 +477,18 @@ fn check_runs(ctx: &PrContext, digest: &RunDigest) -> Vec<CheckRun> {
 
 /// The check run for one reviewer.
 ///
-/// `run_ok` is whether the whole run is a structurally complete, well-ordered record
-/// ([`is_well_formed_run`]); a gate cannot pass off a run that is not.
+/// `run_ok` is whether the whole run is a structurally complete, well-ordered,
+/// internally consistent record ([`is_well_formed_run`]); no check may publish a
+/// green success off a run that is not.
 fn reviewer_check(ctx: &PrContext, row: &ReviewerRow, run_ok: bool) -> CheckRun {
     // Fail closed: a gate that blocks, that passed while carrying a blocking finding
     // (self-contradictory), or that sits in an incomplete/reordered run concludes
-    // failure. Advisors never gate, so they fail open regardless.
+    // failure. An advisor never gates (so it never concludes failure), but it must
+    // not publish a green success off an untrustworthy run either: in that case it
+    // concludes `neutral`, which stays non-blocking yet does not claim a clean pass.
     let blocks = gate_row_blocks(row);
     let (conclusion, decision_word) = match row.mode {
+        Mode::Advisor if !run_ok => (Conclusion::Neutral, "Advisory (unverified)"),
         Mode::Advisor => (Conclusion::Success, "Advisory"),
         Mode::Gate if blocks => (Conclusion::Failure, "Blocked"),
         Mode::Gate if !run_ok => (Conclusion::Failure, "Unverified"),
@@ -596,8 +607,23 @@ fn is_locatable(finding: &Finding) -> bool {
     !finding.path.is_empty() && finding.line_start >= 1
 }
 
+/// The annotation `message` for a finding, truncated to [`MAX_ANNOTATION_MESSAGE`]
+/// so a single long finding cannot 422 the whole report request. When cut, it points
+/// the reader to the sticky comment, which always carries the full finding text.
+fn annotation_message(detail: &str) -> String {
+    let detail = detail.trim();
+    if detail.chars().count() <= MAX_ANNOTATION_MESSAGE {
+        return detail.to_string();
+    }
+    let kept: String = detail.chars().take(MAX_ANNOTATION_MESSAGE).collect();
+    format!(
+        "{}\n\n(truncated; see the Bastion comment for the full finding.)",
+        kept.trim_end()
+    )
+}
+
 /// Map a reviewer's locatable findings to check annotations, capped at
-/// [`MAX_ANNOTATIONS`].
+/// [`MAX_ANNOTATIONS`] in count and [`MAX_ANNOTATION_MESSAGE`] per message.
 fn annotations_for(findings: &[Finding]) -> Vec<Annotation> {
     findings
         .iter()
@@ -612,7 +638,7 @@ fn annotations_for(findings: &[Finding]) -> Vec<Annotation> {
                 FindingKind::Blocking => "failure",
                 FindingKind::Optional => "warning",
             },
-            message: f.detail.clone(),
+            message: annotation_message(&f.detail),
         })
         .collect()
 }
@@ -1425,6 +1451,58 @@ mod tests {
                 .unwrap()
                 .conclusion,
             Conclusion::Failure
+        );
+    }
+
+    #[test]
+    fn advisor_concludes_neutral_not_success_on_an_untrustworthy_run() {
+        // An advisor in a truncated run (no run.completed). Advisors never gate, so it
+        // must not conclude failure, but it must not publish a green success off an
+        // unproven run either: the conclusion is neutral.
+        let events = vec![
+            RunEvent::RunStarted {
+                run: RunId("r-forge".into()),
+                branch: "feat".into(),
+                base: "main".into(),
+                changed: 1,
+                reviewers: vec![ReviewerRef {
+                    name: "a1".into(),
+                    mode: Mode::Advisor,
+                }],
+            },
+            gate_resolved("a1", Decision::Pass, vec![]),
+        ];
+        let digest = digest(&events);
+        assert_eq!(
+            check_runs(&ctx(), &digest)
+                .iter()
+                .find(|c| c.name == "bastion / a1")
+                .unwrap()
+                .conclusion,
+            Conclusion::Neutral
+        );
+    }
+
+    #[test]
+    fn oversized_annotation_message_is_truncated_with_a_pointer() {
+        // A finding longer than the per-message cap would 422 the whole report
+        // request; the annotation message is truncated and points at the comment,
+        // while a short finding passes through unchanged.
+        let long = "x".repeat(MAX_ANNOTATION_MESSAGE + 100);
+        let big = finding(FindingKind::Optional, "src/a.rs", 1, 1, &long);
+        let annotated = annotations_for(std::slice::from_ref(&big));
+        assert_eq!(annotated.len(), 1);
+        assert!(annotated[0].message.chars().count() <= MAX_ANNOTATION_MESSAGE + 80);
+        assert!(
+            annotated[0]
+                .message
+                .contains("(truncated; see the Bastion comment")
+        );
+
+        let small = finding(FindingKind::Optional, "src/a.rs", 2, 2, "nit");
+        assert_eq!(
+            annotations_for(std::slice::from_ref(&small))[0].message,
+            "nit"
         );
     }
 
