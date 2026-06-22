@@ -1,6 +1,6 @@
 ---
 name: names-are-not-type-safety
-description: Apply Alexis King's "Names are not type safety" advice in Homeport. Use when adding, reviewing, or refactoring Rust newtypes, wrapper structs, ID/name/path/text types, type aliases, domain enums, smart constructors, or APIs that rely on naming conventions for correctness.
+description: Apply Alexis King's "Names are not type safety" advice. Use when adding, reviewing, or refactoring Rust newtypes, wrapper structs, ID/name/path/text types, type aliases, domain enums, smart constructors, or APIs that rely on naming conventions for correctness.
 ---
 
 # Names Are Not Type Safety
@@ -17,7 +17,7 @@ Use Rust types to encode functional differences and invariants. Do not add wrapp
 6. Prefer correct-by-construction datatypes over wrappers with comments when Rust can express the shape directly.
 7. Run `cargo fmt --check`, `cargo test`, `cargo clippy --all-targets -- -D warnings`, and targeted tests.
 
-## Homeport Rules
+## Rules
 
 - Do not add `pub struct FooId(pub String);`-style public transparent domain wrappers. Use a private field plus a parser/smart constructor, or use a type alias if it is only a label.
 - Avoid deriving broad conversion or serde traits on checked wrappers unless that does not weaken the invariant.
@@ -27,6 +27,6 @@ Use Rust types to encode functional differences and invariants. Do not add wrapp
 
 ## Enforcement
 
-Nudge blocks public tuple wrappers around primitive/string/path values when the type name looks like an ID, name, path, text, key, token, or config wrapper. This is intentionally conservative: if the wrapper only labels a value, use a type alias; if it enforces an invariant, hide the field.
+A lint or nudge rule can flag public tuple wrappers around primitive/string/path values whose names look like an ID, name, path, text, key, token, or config wrapper. This is intentionally conservative: if the wrapper only labels a value, use a type alias; if it enforces an invariant, hide the field.
 
 Read `references/article-notes.md` for source notes and examples.

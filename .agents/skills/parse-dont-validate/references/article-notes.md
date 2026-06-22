@@ -17,22 +17,22 @@ Source: Alexis King, "Parse, don't validate" (2019-11-05), https://lexi-lambda.g
 Prefer:
 
 ```rust
-pub fn parse_profile(raw: RawProfile) -> Result<HomeportProfile>;
-pub fn plan_sync(profile: &HomeportProfile) -> SyncPlan;
+pub fn parse_config(raw: RawConfig) -> Result<Config>;
+pub fn build_plan(config: &Config) -> Plan;
 ```
 
 Avoid:
 
 ```rust
-pub fn validate_profile(raw: &RawProfile) -> Result<()>;
-pub fn plan_sync(raw: &RawProfile) -> SyncPlan;
+pub fn validate_config(raw: &RawConfig) -> Result<()>;
+pub fn build_plan(raw: &RawConfig) -> Plan;
 ```
 
-The first shape makes parsing mandatory for sync planning. The second shape allows a caller to forget validation and still compile.
+The first shape makes parsing mandatory for plan building. The second shape allows a caller to forget validation and still compile.
 
-## Homeport Examples
+## Examples
 
-- Config TOML should parse into `AppConfig` with checked path and profile fields, not deserialize and then discard a `validate()` result.
-- Profile TOML should parse into `HomeportProfile` before adapter translation or sync planning.
+- Config files should parse into a checked `Config` with strong path and option fields, not deserialize and then discard a `validate()` result.
+- Records read from an external source should parse into a refined type before the code that acts on them runs.
 - Drafting/editing tools may manipulate raw serde structs while the human is editing, but save/apply paths must parse first.
 - Build-time or checked-in data should use construction helpers that fail early and centrally, not repeated `expect("valid")` calls throughout runtime code.

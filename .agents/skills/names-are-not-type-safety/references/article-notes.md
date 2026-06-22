@@ -16,28 +16,28 @@ Source: Alexis King, "Names are not type safety" (2020-11-01), https://lexi-lamb
 Prefer a private-field checked wrapper when there is an invariant:
 
 ```rust
-pub struct CheckedSyncPlan(SyncPlan);
+pub struct CheckedConfig(Config);
 
-pub fn parse_sync_plan(plan: SyncPlan) -> Result<CheckedSyncPlan> {
-    // check every invariant, then return CheckedSyncPlan(plan)
+pub fn parse_config(config: Config) -> Result<CheckedConfig> {
+    // check every invariant, then return CheckedConfig(config)
 }
 ```
 
 Avoid a public transparent wrapper that only names a role:
 
 ```rust
-pub struct SurfaceId(pub String);
+pub struct UserId(pub String);
 ```
 
 If there is no invariant, use a field name, module, doc comment, or type alias:
 
 ```rust
-type SurfaceId = String;
+type UserId = String;
 ```
 
-## Homeport Examples
+## Examples
 
-- `HomeportProfile` is justified because it proves schema version, unique skill IDs, and MCP transport requirements before adapter translation.
-- A future `CheckedSyncPlan` would be justified if it proves no raw auth, cookie, or transcript files are scheduled for sync.
-- A hypothetical `SurfaceName(String)` with public inner access would not prove much. If all strings are accepted, prefer a field name or alias; if only known surfaces are accepted, use an enum or hide the field and parse from the supported surface list.
+- A checked config type is justified when it proves a schema version, unique IDs, and required fields before the rest of the system consumes it.
+- A checked plan type is justified when it proves something the raw plan does not, such as that no forbidden resource is scheduled.
+- A `Label(String)` wrapper with public inner access does not prove much. If all strings are accepted, prefer a field name or alias; if only known values are accepted, use an enum or hide the field and parse from the allowed set.
 - Avoid `DerefMut` on checked wrappers unless mutation cannot break the proof or the value is reparsed before reuse.
