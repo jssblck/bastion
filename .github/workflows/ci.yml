@@ -42,7 +42,25 @@ jobs:
       # runs the same file rules over the whole tree with no agent in the loop.
       - name: Install Nudge
         run: |
+          set -euo pipefail
           curl -sSfL https://raw.githubusercontent.com/attunehq/nudge/main/scripts/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Validate rule configuration
+        run: nudge validate
       - name: Check mechanical conventions
         run: nudge check
+      # Prove the rule actually behaves: it must catch a Unicode dash in an
+      # included file and pass it through in a vendored, excluded path. `nudge
+      # test` always exits 0, so assert on its reported result instead.
+      - name: Rule catches dashes and respects exclusions
+        run: |
+          set -euo pipefail
+          em="$(printf '\xe2\x80\x94')"
+          included="$(nudge test --rule no-unicode-dashes --tool Write \
+            --file README.md --content "clause ${em} clause")"
+          echo "$included"
+          echo "$included" | grep -q "Result: Interrupt"
+          excluded="$(nudge test --rule no-unicode-dashes --tool Write \
+            --file ".agents/skills/rust-skills/x.md" --content "clause ${em} clause")"
+          echo "$excluded"
+          echo "$excluded" | grep -q "Result: Passthrough"
