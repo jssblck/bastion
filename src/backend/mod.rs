@@ -16,7 +16,7 @@ pub mod command;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, bail};
 
 use crate::event::RunId;
 use crate::reviewer::{self, Reviewer};
@@ -110,6 +110,11 @@ impl Backend for MockBackend {
 /// Returns an error if the selected backend fails to run or cannot produce a
 /// verdict. The runner turns that into a fail-closed block for gates.
 pub async fn dispatch(request: &ReviewRequest<'_>) -> Result<ReviewOutcome> {
+    // Refuse to run a reviewer that opts into an execution tier this build cannot
+    // provision: failing closed is the only honest answer, since running it native
+    // without its declared environment would be a silent fail-open.
+    ensure_provisionable(request.reviewer)?;
+
     match request.reviewer.backend {
         // `Any` lets Bastion choose; default to Claude Code until routing by
         // availability/subscription exists.
@@ -127,6 +132,65 @@ pub async fn dispatch(request: &ReviewRequest<'_>) -> Result<ReviewOutcome> {
             )
         }
     }
+}
+
+/// Refuse a reviewer that opts into an execution tier this build does not yet
+/// provision, so a declared-but-unhonored capability fails closed instead of
+/// silently degrading to a plain native run.
+///
+/// The reviewer schema models a richer execution profile than this build
+/// executes: a container `runner`, general `network`, `mcp` servers, and `skills`
+/// loaded into the agent's context. Each is an *opt-in*. A gate that relies on one
+/// and silently does not get it is the exact fail-open hole the design forbids
+/// (`docs/developer-guide/design.md`): an opt-in a gate depends on must be honored,
+/// or the gate must fail closed. This is the same stance as the unwired `Pi`
+/// backend, which bails rather than pretending to have reviewed anything.
+///
+/// `network: false` is the least-privilege *default*, not an opt-in, so it is left
+/// alone: a hermetic reviewer that happens to inherit the host network is
+/// over-privileged hygiene, not a broken gate. As each tier is wired, its arm here
+/// is removed (and the [honored-fields
+/// table](../../docs/developer-guide/backends.md) updated in lockstep).
+///
+/// # Errors
+///
+/// Returns an error naming the unprovisioned opt-in the reviewer declares.
+/// [`dispatch`] turns that into a fail-closed block for a gate and a skip for an
+/// advisor, via the runner's fail-closed/fail-open policy.
+fn ensure_provisionable(reviewer: &Reviewer) -> Result<()> {
+    if reviewer.is_containerized() {
+        bail!(
+            "reviewer '{}' declares a container `runner`, but this build provisions no \
+             containers and runs every reviewer natively; failing closed rather than \
+             running it native without the environment it declared",
+            reviewer.name
+        );
+    }
+    if reviewer.capabilities.network {
+        bail!(
+            "reviewer '{}' opts into `network` access, but this build cannot scope a \
+             reviewer's network without a container runner, which is not provisioned; \
+             failing closed rather than granting unscoped host network",
+            reviewer.name
+        );
+    }
+    if !reviewer.capabilities.mcp.is_empty() {
+        bail!(
+            "reviewer '{}' declares MCP servers {:?}, but this build does not provision \
+             MCP; failing closed rather than reviewing without the tools it asked for",
+            reviewer.name,
+            reviewer.capabilities.mcp
+        );
+    }
+    if !reviewer.capabilities.skills.is_empty() {
+        bail!(
+            "reviewer '{}' declares skills {:?}, but this build does not load skills into \
+             the agent's context; failing closed rather than reviewing without them",
+            reviewer.name,
+            reviewer.capabilities.skills
+        );
+    }
+    Ok(())
 }
 
 /// The shared preamble that tells a reviewing agent what its changeset is and how
@@ -332,5 +396,92 @@ mod tests {
         };
         let err = dispatch(&request).await.unwrap_err();
         assert!(err.to_string().contains("pi backend is not yet wired"));
+    }
+
+    #[test]
+    fn least_privilege_reviewer_is_provisionable() {
+        // The default profile (no runner, no capability opt-ins) is exactly what
+        // this build executes, so it must pass the preflight.
+        let r = reviewer(reviewer::Backend::ClaudeCode);
+        assert!(r.capabilities.is_least_privilege());
+        assert!(ensure_provisionable(&r).is_ok());
+    }
+
+    #[test]
+    fn provisioned_fields_do_not_trip_the_preflight() {
+        // env, inputs, and timeout are honored today, so setting them must not be
+        // mistaken for an unprovisioned opt-in.
+        let mut r = reviewer(reviewer::Backend::ClaudeCode);
+        r.env.insert("PREVIEW_URL".into(), "x".into());
+        r.inputs.insert("preview_url".into(), "x".into());
+        r.timeout = Some(std::time::Duration::from_secs(60));
+        assert!(ensure_provisionable(&r).is_ok());
+    }
+
+    #[test]
+    fn network_false_is_the_default_not_an_optin() {
+        // The least-privilege default must never fail closed: it is what every
+        // hermetic reviewer runs with.
+        let mut r = reviewer(reviewer::Backend::ClaudeCode);
+        r.capabilities.network = false;
+        assert!(ensure_provisionable(&r).is_ok());
+    }
+
+    #[test]
+    fn containerized_reviewer_fails_closed() {
+        let mut r = reviewer(reviewer::Backend::ClaudeCode);
+        r.runner = Some(crate::reviewer::RunnerSpec {
+            dockerfile: Some("./e2e.Dockerfile".into()),
+            image: None,
+        });
+        let err = ensure_provisionable(&r).unwrap_err();
+        assert!(err.to_string().contains("runner"));
+    }
+
+    #[test]
+    fn network_optin_fails_closed() {
+        let mut r = reviewer(reviewer::Backend::ClaudeCode);
+        r.capabilities.network = true;
+        let err = ensure_provisionable(&r).unwrap_err();
+        assert!(err.to_string().contains("network"));
+    }
+
+    #[test]
+    fn mcp_optin_fails_closed() {
+        let mut r = reviewer(reviewer::Backend::ClaudeCode);
+        r.capabilities.mcp = vec!["playwright".into()];
+        let err = ensure_provisionable(&r).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("MCP"));
+        assert!(msg.contains("playwright"));
+    }
+
+    #[test]
+    fn skills_optin_fails_closed() {
+        let mut r = reviewer(reviewer::Backend::ClaudeCode);
+        r.capabilities.skills = vec!["stop-slop".into()];
+        let err = ensure_provisionable(&r).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("skills"));
+        assert!(msg.contains("stop-slop"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_fails_closed_on_unprovisioned_capability() {
+        // The preflight runs ahead of backend selection, so a reviewer that opts
+        // into an unprovisioned tier never reaches a backend: dispatch returns the
+        // fail-closed error the runner turns into a block for a gate.
+        let mut reviewer = reviewer(reviewer::Backend::ClaudeCode);
+        reviewer.capabilities.skills = vec!["stop-slop".into()];
+        let run = RunId("r".into());
+        let root = PathBuf::from(".");
+        let request = ReviewRequest {
+            reviewer: &reviewer,
+            run: &run,
+            repo_root: &root,
+            base: "main",
+        };
+        let err = dispatch(&request).await.unwrap_err();
+        assert!(err.to_string().contains("skills"));
     }
 }

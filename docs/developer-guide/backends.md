@@ -108,8 +108,15 @@ about what is honored, so the code does not over-promise:
 | `timeout` | Honored by the runner. |
 | `inputs` | Honored, interpolated into the prompt. |
 | `env` | Honored, injected into the child process environment. |
-| `capabilities` (`network`, `mcp`, `skills`) | **Parsed but not provisioned.** Acknowledged in `base_spec` (`let _ = reviewer.capabilities...`) and deferred to the container runner. |
-| `runner` (`dockerfile`, `image`) | **Parsed but not provisioned.** Execution is native only; no container is built. |
+| `capabilities.network: true` | **Not provisioned: fails closed.** A reviewer that opts in is failed closed by `ensure_provisionable` in `dispatch` (block for a gate, skip for an advisor). `network: false`, the least-privilege default, is honored trivially. |
+| `capabilities` (`mcp`, `skills`) | **Not provisioned: fails closed.** A reviewer that declares either is failed closed in `dispatch`. |
+| `runner` (`dockerfile`, `image`) | **Not provisioned: fails closed.** Execution is native only; a containerized reviewer is failed closed in `dispatch` rather than run native without its declared environment. |
+
+These opt-ins **fail closed** rather than silently degrading: a gate that declares a
+tier it cannot get must block, never run degraded and report a pass (see
+[`ensure_provisionable`](../../src/backend/mod.rs) and the
+[core design](./design.md#aggregation--the-merge-gate)). As each tier is wired, its
+arm of the preflight is removed and this row flips to "honored".
 
 When you wire the container runner, this is the table to update, and with it the
 [authoring guide's note](../user-guide/authoring-reviewers.md#runner-and-capabilities-declared-not-yet-provisioned)

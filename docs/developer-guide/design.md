@@ -152,8 +152,11 @@ reviewers:
 
 > **Implementation status.** This schema is the design target. In the current
 > build, `name`, `trigger`, `mode`, `backend`, `prompt`, `timeout`, `env`, and
-> `inputs` are honored; `runner` (containers) and `capabilities` (network/mcp/skills)
-> parse but are **not yet provisioned**: execution is native only. `env` and
+> `inputs` are honored; `runner` (containers) and the `capabilities` opt-ins
+> (`network: true`, `mcp`, `skills`) parse but are **not yet provisioned**, and a
+> reviewer that declares one **fails closed** (a gate blocks, an advisor is
+> skipped) rather than running native without it. The least-privilege default
+> (`network: false`, no `mcp`/`skills`, no `runner`) runs native. `env` and
 > `inputs` values are literal strings (no shell `$VAR` expansion). See the
 > [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today).
 

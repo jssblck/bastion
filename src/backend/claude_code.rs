@@ -105,25 +105,14 @@ impl<R: CommandRunner> ClaudeCodeBackend<R> {
             .arg("--permission-mode")
             .arg("bypassPermissions");
 
-        // Least privilege is the default: the model provider is always reachable,
-        // but no general outbound network is granted unless the reviewer opts in.
-        // The native (non-container) `claude` run inherits the host's network, so
-        // there is no extra flag to pass here today; the capability is honored at
-        // the container boundary, which a sibling change provisions.
-        let _ = reviewer.capabilities.network;
-
-        // MCP capability is, per docs/developer-guide/design.md, a property of heavy/privileged
-        // reviewers that run inside a container `runner` -- the container is what
-        // installs the MCP servers and mounts their config. The native path here
-        // has no MCP servers to point at, and the `claude` CLI configures them via
-        // a `--mcp-config <json>` file rather than a bare `--mcp <name>` flag, so
-        // emitting a flag per name would just make the CLI error out. Provisioning
-        // MCP is therefore deferred to the container runner (a sibling change);
-        // until then the declaration is acknowledged but not wired natively.
-        let _ = &reviewer.capabilities.mcp;
-
-        // Reviewer-declared environment is injected into the child process so the
-        // agent (and any tools it runs) sees it, matching the container case.
+        // Capability opt-ins (`network`, `mcp`, `skills`) and a container `runner`
+        // are not provisioned in this build. `dispatch` fails such a reviewer
+        // closed (`ensure_provisionable`) before any backend runs, so every
+        // reviewer that reaches this native path is least-privilege: there is
+        // nothing capability-specific to translate into the `claude` invocation
+        // yet. When a tier is wired it is provisioned at the container boundary, not
+        // here. Only the reviewer's declared environment is injected, into the child
+        // process so the agent (and any tools it runs) sees it.
         for (key, value) in &reviewer.env {
             spec.env.insert(key.clone(), value.clone());
         }
@@ -827,14 +816,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn injects_reviewer_env_but_defers_mcp_to_the_container() {
+    async fn injects_reviewer_env_and_emits_no_mcp_flag_natively() {
         let mut r = reviewer();
         r.env
             .insert("PREVIEW_URL".into(), "http://localhost:3000".into());
-        // A declared MCP capability must NOT become a bare `--mcp <name>` flag on
-        // the native path: that is not how the `claude` CLI configures MCP servers
-        // (it uses `--mcp-config <json>`), and provisioning them belongs to the
-        // container runner. The declaration is acknowledged but not wired here.
+        // The native `claude` invocation must never emit an MCP flag: MCP is a
+        // container-provisioned capability, and a reviewer that declares it fails
+        // closed upstream in `dispatch` (`ensure_provisionable`) rather than
+        // reaching this path. This drives `review` directly, bypassing that
+        // preflight, to pin that the native arg-building stays MCP-free regardless.
         r.capabilities.mcp = vec!["playwright".into()];
 
         let envelope = serde_json::json!({
