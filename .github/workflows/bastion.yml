@@ -17,10 +17,10 @@ name: bastion
 #
 # This is the concrete, self-hosted adapter described in docs/developer-guide/github-adapter.md.
 # After the review runs, `bastion github report` posts a sticky PR comment carrying
-# every reviewer's verdict and findings (optional ones included, so they are never
-# missed) plus one check run per reviewer and an always-present aggregate `bastion`
-# check. Inline diff comments and live mid-run progress are still future. The job's
-# pass/fail remains the gate, and the full run is also uploaded as an artifact.
+# every reviewer's verdict and findings (optional findings included) plus one check
+# run per reviewer and an always-present aggregate `bastion` check. Inline diff
+# comments and live mid-run progress are still future. The job's pass/fail remains
+# the gate, and the full run is also uploaded as an artifact.
 
 on:
   pull_request:
@@ -156,11 +156,10 @@ jobs:
         #
         # `github report` landed after v0.1.0, so until a release that includes it
         # becomes the latest, the installed binary will not have the subcommand.
-        # When the subcommand is missing the report step skips itself, which keeps
-        # this workflow safe on an older engine, and reporting turns on
-        # automatically once the latest release includes the command. The capability
-        # probe is the only tolerated failure; once supported, a real posting error
-        # fails the step.
+        # When an older engine lacks the subcommand, the report step exits 0, and
+        # reporting starts once the latest release includes the command. The
+        # capability probe is the only tolerated failure; once the subcommand
+        # exists, a real posting error fails the step.
         if: always()
         env:
           GITHUB_TOKEN: ${{ github.token }}
