@@ -41,13 +41,16 @@ GitHub surfaces -- the same two a human reviewer uses:
 - **Findings become inline PR review comments.** Each finding is posted on its
   `path` and line range. `blocking` and `optional` render differently so a reader
   can tell at a glance which comments hold up the merge. These comments are the
-  surface an implementing agent reads -- everything it needs to act is there.
+  surface an implementing agent reads: everything it needs to act is there.
 - **Each verdict becomes a check run** named after the reviewer
   (`bastion / tenant-isolation`). A blocking gate reports `failure`; a passing gate
-  reports `success`; an advisor always reports `success` with its findings
-  attached.
+  reports `success`; an advisor reports `success` with its findings attached. When
+  `bastion github report` replays a persisted run that is incomplete, reordered, or
+  internally inconsistent, it fails closed instead: gates report `failure`, and an
+  advisor reports `neutral` (non-blocking, but never a false green) rather than
+  `success`.
 
-The local-to-GitHub mapping is one-to-one -- the JSONL events you read locally are
+The local-to-GitHub mapping is one-to-one: the JSONL events you read locally are
 the same decisions GitHub renders as checks and comments. The full parity table is
 in the [local surface reference](../developer-guide/local-surface.md#parity-with-github).
 

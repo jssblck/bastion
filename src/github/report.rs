@@ -21,7 +21,7 @@ use std::fmt;
 
 use color_eyre::eyre::{Context, Result, bail};
 
-use crate::event::{Gates, RunEvent};
+use crate::event::{Gates, RunEvent, RunId};
 use crate::reviewer::{Backend, Mode};
 use crate::verdict::{Decision, Finding, FindingKind, Money, Usage};
 
@@ -43,6 +43,14 @@ const MAX_ANNOTATIONS: usize = 50;
 /// and the reviewer check summary, so nothing is lost. Measured in characters, which
 /// for any UTF-8 byte width stays comfortably below 64KB.
 const MAX_ANNOTATION_MESSAGE: usize = 8000;
+
+/// GitHub caps a check-run `output.summary` (and `output.text`) at 65535 bytes. The
+/// summary embeds untrusted reviewer findings, so a single verbose finding could blow
+/// the limit and 422 the whole request, failing an otherwise green job. We cap the
+/// assembled summary well under that ceiling and point overflow at the sticky comment,
+/// which carries the full text. Measured in characters: even all-4-byte content stays
+/// under 65535 bytes.
+const MAX_CHECK_SUMMARY: usize = 60000;
 
 /// One reviewer's resolved row, distilled from the event stream.
 #[derive(Debug, Clone)]
@@ -85,12 +93,14 @@ struct RunDigest {
     /// How many `run.completed` events the stream carried. A well-formed run reports
     /// completion exactly once.
     completed_count: u32,
-    /// Set when the event order is structurally invalid: a reviewer or completion
-    /// event arriving before the plan (`run.started`), or any event arriving after
-    /// `run.completed`. A reordered stream is not a trustworthy record, so it fails
-    /// closed even when the per-event tallies happen to line up. Defaults to `false`
-    /// (well ordered) so an empty digest is not spuriously malformed.
-    malformed_order: bool,
+    /// Set when the stream is structurally invalid: events out of order (a reviewer or
+    /// completion event before the plan `run.started`, or anything after
+    /// `run.completed`), or events that do not all share one run id (a spliced
+    /// stream, e.g. a `reviewer.resolved` from a different run grafted onto this one).
+    /// Such a stream is not a trustworthy record, so it fails closed even when the
+    /// per-event tallies happen to line up. Defaults to `false` (well formed) so an
+    /// empty digest is not spuriously malformed.
+    malformed: bool,
     rows: Vec<ReviewerRow>,
     aggregate: Option<Decision>,
     gates: Option<Gates>,
@@ -107,6 +117,7 @@ fn digest(events: &[RunEvent]) -> RunDigest {
     let mut digest = RunDigest::default();
     let mut started: Vec<(String, Mode)> = Vec::new();
     let mut backends: Vec<(String, Backend)> = Vec::new();
+    let mut run_id: Option<&RunId> = None;
 
     for event in events {
         // Structural ordering: `run.started` must precede every reviewer and
@@ -115,7 +126,16 @@ fn digest(events: &[RunEvent]) -> RunDigest {
         // truncated), so mark it and fail closed regardless of how the tallies look.
         let is_start = matches!(event, RunEvent::RunStarted { .. });
         if (!is_start && digest.started_count == 0) || digest.completed_count >= 1 {
-            digest.malformed_order = true;
+            digest.malformed = true;
+        }
+        // Run-id coherence: every event must belong to the same run. A stream that
+        // splices a `reviewer.resolved` from another run onto this run's
+        // start/complete can satisfy the row counts and tally yet never prove the
+        // selected run's gate actually resolved, so a mismatch fails closed.
+        match run_id {
+            None => run_id = Some(event.run_id()),
+            Some(seen) if seen != event.run_id() => digest.malformed = true,
+            Some(_) => {}
         }
         match event {
             RunEvent::RunStarted {
@@ -207,7 +227,7 @@ fn gate_row_blocks(row: &ReviewerRow) -> bool {
 /// per-reviewer check may report success off it. This is the shared trust gate both
 /// [`is_clean_pass`] and the per-reviewer checks build on.
 fn is_well_formed_run(digest: &RunDigest) -> bool {
-    if digest.malformed_order {
+    if digest.malformed {
         return false;
     }
     // The plan is announced once and the run completes once. A stream missing its
@@ -497,7 +517,7 @@ fn reviewer_check(ctx: &PrContext, row: &ReviewerRow, run_ok: bool) -> CheckRun 
     let title = format!("{decision_word}: {}", truncate(&row.summary, 110));
 
     let annotations = annotations_for(&row.findings);
-    let summary = reviewer_check_summary(row, &annotations);
+    let summary = cap_check_summary(reviewer_check_summary(row, &annotations));
 
     CheckRun {
         name: format!("bastion / {}", row.name),
@@ -558,7 +578,7 @@ fn aggregate_check(ctx: &PrContext, digest: &RunDigest) -> CheckRun {
         head_sha: ctx.head_sha.clone(),
         conclusion,
         title,
-        summary,
+        summary: cap_check_summary(summary),
         annotations: Vec::new(),
     }
 }
@@ -618,6 +638,21 @@ fn annotation_message(detail: &str) -> String {
     let kept: String = detail.chars().take(MAX_ANNOTATION_MESSAGE).collect();
     format!(
         "{}\n\n(truncated; see the Bastion comment for the full finding.)",
+        kept.trim_end()
+    )
+}
+
+/// Cap an assembled check-run summary at [`MAX_CHECK_SUMMARY`] so an untrusted,
+/// verbose finding cannot push `output.summary` past GitHub's 65535-byte limit and
+/// 422 the request. When cut, it points the reader at the sticky comment, which
+/// carries every finding in full.
+fn cap_check_summary(summary: String) -> String {
+    if summary.chars().count() <= MAX_CHECK_SUMMARY {
+        return summary;
+    }
+    let kept: String = summary.chars().take(MAX_CHECK_SUMMARY).collect();
+    format!(
+        "{}\n\n(truncated; see the Bastion comment for the full findings.)\n",
         kept.trim_end()
     )
 }
@@ -1366,7 +1401,7 @@ mod tests {
             },
         ];
         let digest = digest(&events);
-        assert!(digest.malformed_order);
+        assert!(digest.malformed);
         assert!(!is_clean_pass(&digest));
         assert_eq!(
             check_runs(&ctx(), &digest)
@@ -1504,6 +1539,86 @@ mod tests {
             annotations_for(std::slice::from_ref(&small))[0].message,
             "nit"
         );
+    }
+
+    #[test]
+    fn aggregate_fails_closed_on_a_spliced_run_id() {
+        // run.started/run.completed belong to run A, but a passing reviewer.resolved is
+        // grafted from run B. The counts and recorded tally line up, but the row does
+        // not belong to this run, so the selected run's gate was never proven to
+        // resolve: fail closed.
+        let events = vec![
+            RunEvent::RunStarted {
+                run: RunId("r-A".into()),
+                branch: "feat".into(),
+                base: "main".into(),
+                changed: 1,
+                reviewers: vec![ReviewerRef {
+                    name: "g1".into(),
+                    mode: Mode::Gate,
+                }],
+            },
+            RunEvent::ReviewerResolved {
+                run: RunId("r-B".into()),
+                reviewer: "g1".into(),
+                verdict: Decision::Pass,
+                summary: "ok".into(),
+                findings: vec![],
+                usage: None,
+                duration_ms: 1000,
+                has_transcript: true,
+            },
+            RunEvent::RunCompleted {
+                run: RunId("r-A".into()),
+                verdict: Decision::Pass,
+                gates: Gates {
+                    total: 1,
+                    passed: 1,
+                    blocked: 0,
+                },
+                duration_ms: 1000,
+                cost_usd: Money::from_cents(0),
+            },
+        ];
+        let digest = digest(&events);
+        assert!(digest.malformed);
+        assert!(!is_clean_pass(&digest));
+        assert_eq!(
+            check_runs(&ctx(), &digest)
+                .iter()
+                .find(|c| c.name == "bastion")
+                .unwrap()
+                .conclusion,
+            Conclusion::Failure
+        );
+    }
+
+    #[test]
+    fn oversized_check_summary_is_capped_with_a_pointer() {
+        // A reviewer carrying an enormous finding: the per-reviewer check summary must
+        // stay under GitHub's output.summary limit, with a pointer to the comment.
+        let huge = "y".repeat(MAX_CHECK_SUMMARY + 5000);
+        let events = forged_run(
+            &["g1"],
+            vec![gate_resolved(
+                "g1",
+                Decision::Block,
+                vec![finding(FindingKind::Blocking, "src/a.rs", 1, 1, &huge)],
+            )],
+            (
+                Decision::Block,
+                Gates {
+                    total: 1,
+                    passed: 0,
+                    blocked: 1,
+                },
+            ),
+        );
+        let digest = digest(&events);
+        let checks = check_runs(&ctx(), &digest);
+        let g1 = checks.iter().find(|c| c.name == "bastion / g1").unwrap();
+        assert!(g1.summary.chars().count() <= MAX_CHECK_SUMMARY + 80);
+        assert!(g1.summary.contains("truncated; see the Bastion comment"));
     }
 
     #[test]
