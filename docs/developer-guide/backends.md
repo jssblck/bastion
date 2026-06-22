@@ -3,7 +3,7 @@
 > The agent execution boundary: the trait, the subprocess seam, dispatch, and how
 > to add a backend.
 
-[<- Architecture](./architecture.md) | [Developer guide index](./README.md) | Next: [Conventions](./conventions.md) ->
+[<- Architecture](./architecture.md) | [Developer guide index](./README.md) | Next: [Containers](./containers.md) ->
 
 ---
 
@@ -21,6 +21,7 @@ stays pure orchestration.
 | [`command.rs`](../../src/backend/command.rs) | The `CommandRunner` subprocess seam: `CommandSpec` and `SystemCommandRunner`, plus a fake runner for tests. |
 | [`claude_code.rs`](../../src/backend/claude_code.rs) | The Claude Code backend. |
 | [`codex.rs`](../../src/backend/codex.rs) | The Codex backend. |
+| [`container/`](../../src/backend/container/) | The container runner, split by concern: `plan.rs` (`ExecutionPlan` and image resolution), `runner.rs` (the `CommandRunner` decorator), `credentials.rs`, and `teardown.rs`. See [Containers](./containers.md). |
 
 ## The trait
 
@@ -44,13 +45,43 @@ fabricated pass.
 
 ## Dispatch
 
-`dispatch` maps `reviewer::Backend` to a concrete backend:
+`dispatch` first rejects an unwired backend, then resolves the reviewer's
+[`ExecutionPlan`](./containers.md), then selects a concrete backend:
 
 ```rust
+ensure_backend_wired(request.reviewer.backend, &request.reviewer.name)?;
+match ExecutionPlan::resolve(request.reviewer)? {
+    ExecutionPlan::Native        => run_backend(request, SystemCommandRunner, Program::HostDefault).await,
+    ExecutionPlan::Container(plan) => {
+        let image = plan.ensure_image(&engine, &SystemCommandRunner, repo_root).await?;
+        run_backend(request, ContainerRunner::new(..., image, ...), Program::InContainer).await
+    }
+}
+```
+
+The `ensure_backend_wired` preflight runs **before** plan resolution, so an
+unimplemented backend (`Pi`) fails closed before any side effect. A `backend: pi`
+reviewer with a `runner` fails at backend selection, before Bastion builds or pulls a
+container image. Resolving the plan is then the **single place an unprovisioned
+capability tier fails closed** (see [Containers](./containers.md)), so a backend is
+only ever reached for a reviewer this build can actually run. `run_backend` then maps `reviewer::Backend` to
+the concrete backend, shared by the native and container paths so backend selection
+lives in one place:
+
+```rust
+// `program` is HostDefault on the native path, InContainer on the container path.
 match request.reviewer.backend {
-    Backend::Any | Backend::ClaudeCode => ClaudeCodeBackend::new(SystemCommandRunner).review(request).await,
-    Backend::Codex                     => CodexBackend::new(SystemCommandRunner).review(request).await,
-    Backend::Pi                        => bail!("the pi backend is not yet wired ..."),
+    Backend::Any | Backend::ClaudeCode => match program {
+        Program::HostDefault => ClaudeCodeBackend::new(runner).review(request).await,
+        Program::InContainer => ClaudeCodeBackend::with_program(runner, claude_code::DEFAULT_PROGRAM)
+            .review(request).await,
+    },
+    Backend::Codex => match program {
+        Program::HostDefault => CodexBackend::new(runner).review(request).await,
+        Program::InContainer => CodexBackend::with_program(runner, codex::DEFAULT_PROGRAM)
+            .review(request).await,
+    },
+    Backend::Pi => bail!("the pi backend is not yet wired ..."),
 }
 ```
 
@@ -58,7 +89,12 @@ match request.reviewer.backend {
 **`Pi` fails closed**: it is named in the schema but not implemented, so selecting
 it errors rather than silently passing. This is load-bearing: an unimplemented
 backend must never claim to have reviewed anything. There is a test
-(`dispatch_rejects_unwired_backends`) guarding exactly that.
+(`dispatch_rejects_unwired_backends`) guarding exactly that. The only difference
+between the native and container paths is how the program is resolved, the `program`
+branch above: natively `new` takes it from the host (`BASTION_CLAUDE_BIN` / `PATH`),
+while in a container `with_program` pins the bare default name (`claude` / `codex`)
+so it resolves on the image's `PATH` rather than a host path that means nothing
+inside the image.
 
 ## The subprocess seam
 
@@ -69,6 +105,14 @@ was given and returns canned stdout. This is what lets `claude_code.rs` and
 `codex.rs` be tested against a *fake executable* with no real agent, network, or
 cost, while still exercising the real argument-building, env-injection, output
 parsing, and retry logic.
+
+`ContainerRunner`'s drop guard is the one exception to this seam. `ContainerGuard`
+runs the container teardown (`docker rm -f`) with a direct `std::process::Command` in
+`Drop`. The seam is async and a `Drop` is not, so the cancellation teardown cannot
+route through `CommandRunner::run`. It is a fixed engine invocation (`rm -f` on the
+container's own generated name, no reviewer-controlled input), bounded by a teardown
+budget and run on its own thread so it never blocks the runtime. See
+[Containers](./containers.md#timeouts-and-teardown).
 
 ## Shared behavior in `mod.rs`
 
@@ -108,18 +152,19 @@ about what is honored, so the code does not over-promise:
 | `timeout` | Honored by the runner. |
 | `inputs` | Honored, interpolated into the prompt. |
 | `env` | Honored, injected into the child process environment. |
-| `capabilities.network: true` | **Not provisioned: fails closed.** A reviewer that opts in is failed closed by `ensure_provisionable` in `dispatch` (block for a gate, skip for an advisor). `network: false`, the least-privilege default, is honored trivially. |
-| `capabilities` (`mcp`, `skills`) | **Not provisioned: fails closed.** A reviewer that declares either is failed closed in `dispatch`. |
-| `runner` (`dockerfile`, `image`) | **Not provisioned: fails closed.** Execution is native only; a containerized reviewer is failed closed in `dispatch` rather than run native without its declared environment. |
+| `runner` (`dockerfile`, `image`) | **Honored.** A reviewer with a `runner` block runs its backend inside a container; `dockerfile` is built (cached by content hash), `image` is used as-is. See [Containers](./containers.md). |
+| `capabilities.network: true` | **Honored in a container, not yet restricted.** A containerized reviewer's container has outbound network. The `network: false` default is *not yet scoped* (egress allowlisting is a later milestone), so today both attach the engine's default network. A *native* `network: true` (no `runner`) fails closed: with no container there is nothing to scope. |
+| `capabilities` (`mcp`, `skills`) | **Not provisioned: fails closed.** A reviewer that declares either is failed closed by `ExecutionPlan::resolve` in `dispatch`. |
 
-These opt-ins **fail closed** rather than silently degrading: a gate that declares a
-tier it cannot get must block, never run degraded and report a pass (see
-[`ensure_provisionable`](../../src/backend/mod.rs) and the
+The unprovisioned opt-ins **fail closed** rather than silently degrading: a gate that
+declares a tier it cannot get must block, never run degraded and report a pass (see
+[`ExecutionPlan::resolve`](../../src/backend/container/plan.rs) and the
 [core design](./design.md#aggregation--the-merge-gate)). As each tier is wired, its
 arm of the preflight is removed and this row flips to "honored".
 
-When you wire the container runner, this is the table to update, and with it the
-[authoring guide's note](../user-guide/authoring-reviewers.md#runner-and-capabilities-declared-not-yet-provisioned)
+When you wire the next tier (`mcp`, then `skills`), this is the table to update, and
+with it the
+[authoring guide's note](../user-guide/authoring-reviewers.md#runner-and-capabilities)
 and the [user-facing status](../user-guide/README.md#status).
 
 ## Adding a backend
@@ -153,5 +198,5 @@ verdict schema itself is specified in the
 
 ---
 
-Next: [Conventions](./conventions.md). The coding rules this crate holds itself
-to.
+Next: [Containers](./containers.md). How a reviewer with a `runner` block executes
+inside a container.

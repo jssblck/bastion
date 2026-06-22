@@ -89,7 +89,15 @@ The working approach is a self-hosted workflow that installs a published `bastio
 release plus your backend CLI, authenticates the backend, runs `bastion review`, and
 then runs `bastion github report` to post the results to the PR. The CLI exits
 non-zero if any gate blocks, so the job's pass/fail *is* your merge gate; the report
-step adds the sticky comment and the per-reviewer and aggregate check runs:
+step adds the sticky comment and the per-reviewer and aggregate check runs. That host
+backend CLI and its auth cover **native** reviewers (the default). A reviewer with a
+[`runner`](./authoring-reviewers.md#runner-and-capabilities) runs its backend
+*inside a container* instead, so for those the job needs a container engine on the
+runner (`docker` by default, or whatever `BASTION_CONTAINER_ENGINE` names) and the
+backend executable plus its auth inside the image, not on the host. The fixed provider
+credential variables are forwarded from the job into the container by name, so the host
+auth still reaches a containerized reviewer's provider even though the CLI itself lives
+in the image:
 
 ```yaml
 name: bastion
@@ -116,8 +124,12 @@ jobs:
           fetch-depth: 0          # full history; reviewers diff against the base
 
       # 1. Install a published bastion release (not built from the PR).
-      # 2. Install and authenticate your backend CLI (e.g. claude or codex),
-      #    ideally billed to the PR author; see the auth pattern referenced below.
+      # 2. For native reviewers: install and authenticate your backend CLI (e.g.
+      #    claude or codex) on the runner, ideally billed to the PR author; see the
+      #    auth pattern referenced below. For reviewers with a `runner`: ensure a
+      #    container engine is on the runner (docker by default, or set
+      #    BASTION_CONTAINER_ENGINE) and that the backend CLI and its auth live inside
+      #    the image; the provider credential variables are forwarded in by name.
       # 3. Stand up anything your reviewers consume (a preview env, a database).
 
       - name: Review
@@ -220,12 +232,21 @@ including the worked example of Bastion reviewing its own PRs.
 Bastion consumes environments; it does not provision them. A reviewer that needs a
 preview URL, a database, or any running dependency expects the workflow to have
 stood it up and exposed it. Typically an earlier job deploys a preview environment
-for the PR and passes its URL into the Bastion job as an environment variable; the
-reviewer process inherits the job environment, so the agent can see it. A reviewer's
-`env` and `inputs` values are literal (Bastion does not shell-expand them), so to
-put a dynamic value into the prompt itself you template the registry or have the
-prompt read the inherited variable. Standing up the environment is a deploy concern;
-Bastion's job starts once it exists. (See
+for the PR and passes its URL into the Bastion job as an environment variable. How
+that variable reaches the agent depends on where the reviewer runs. A **native**
+reviewer inherits the job environment, so the agent can see it directly. A
+**containerized** reviewer (one with a
+[`runner`](./authoring-reviewers.md#runner-and-capabilities)) runs in a container and
+does *not* inherit the arbitrary job environment. Only the reviewer's literal `env`
+pairs cross that boundary (plus a fixed provider-credential set, except that a
+credential name set in the reviewer's own `env` wins and is not also forwarded from the
+job environment), so a per-PR value reaches a containerized reviewer only if you write
+its value into the registry,
+typically by templating `reviewers.yaml` before the Bastion job runs. A reviewer's
+`env` and `inputs` values are literal (Bastion does not shell-expand them), so to put
+a dynamic value into the prompt itself you template the registry or have the prompt
+read the variable. Standing up the environment is a deploy concern; Bastion's job
+starts once it exists. (See
 [Authoring reviewers](./authoring-reviewers.md#env) for the reviewer side.)
 
 ## Self-hosting note

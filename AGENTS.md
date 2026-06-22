@@ -95,8 +95,18 @@ version:
 - `src/backend/`: the agent execution boundary. `mod.rs` defines the `Backend`
   trait, the deterministic `MockBackend`, and `dispatch`; `command.rs` is the
   injectable `CommandRunner` subprocess seam; `claude_code.rs` and `codex.rs` are
-  the real backends driven against a fake executable in tests. The `Pi` arm of
-  `dispatch` is still unwired and bails.
+  the real backends driven against a fake executable in tests. `container/` is the
+  container runner, split by concern (`plan.rs` resolves the `ExecutionPlan` and
+  builds/resolves the image, `runner.rs` is the `ContainerRunner` decorator and its
+  env-file forwarding, `credentials.rs` the provider-credential passthrough,
+  `teardown.rs` the timeout force-removal guard): `dispatch` first fails an unwired
+  backend closed (`ensure_backend_wired`, so a `backend: pi` reviewer causes no side
+  effects), then resolves an `ExecutionPlan` (the single place an unprovisioned
+  capability tier fails closed), and a reviewer with a `runner` block runs its backend
+  inside a built/named image via a `ContainerRunner` decorator over the `CommandRunner`
+  seam (the backend code is untouched; the named container is force-removed on a
+  timeout). `network: true` is honored in-container but not yet scoped; `mcp`/`skills`
+  still fail closed. The `Pi` backend is still unwired and bails.
 - `src/github/`: the GitHub adapter (the CI surface). `codeowners.rs` generates
   the governance block (pure text, no network); `client.rs` is the REST seam,
   modeled on the backend's `CommandRunner`: a proof-carrying `ApiRequest`, a
@@ -121,14 +131,19 @@ version:
   `.claude/skills/` (Claude Code's native path), kept as exact copies so every
   skill is available through either surface; `tests/skills_mirror.rs` fails the
   build if the two trees drift.
-- `tests/integration.rs`: the end-to-end suite. It drives the *real compiled
+- `tests/integration/`: the end-to-end suite (one `integration` test target).
+  `main.rs` holds the scenarios; the reusable support is split into sibling modules
+  (`fakes.rs` for the `rustc`-compiled fake agent and fake container engine,
+  `fixtures.rs` for the throwaway `git` repo / `Reviewer` / registry / run-event
+  helpers, `github.rs` for the in-process fake GitHub). It drives the *real compiled
   `bastion` binary* (`CARGO_BIN_EXE_bastion`), each scenario in its own throwaway
-  `git` repo and private `BASTION_DATA_DIR`, against a `rustc`-compiled fake agent
-  wired in via `BASTION_CLAUDE_BIN`/`BASTION_CODEX_BIN`. The fake reads per-reviewer
+  `git` repo and private `BASTION_DATA_DIR`, against the fake agent wired in via
+  `BASTION_CLAUDE_BIN`/`BASTION_CODEX_BIN` (and the fake engine via
+  `BASTION_CONTAINER_ENGINE` for the container scenarios). The fake reads per-reviewer
   `env` (which Bastion propagates into the child) to stage passes, blocks, malformed
   output, crashes, and hangs, so the suite exercises the full subprocess path,
   fail-closed/fail-open aggregation, concurrency, persistence, and the read-back
-  commands at scale. One scenario also drives `bastion github report` against an
+  commands at scale. One scenario also drives `bastion github report` against the
   in-process fake GitHub (the binary's `GITHUB_API_URL` is pointed at it), asserting
   the real comment and check-run requests with no network. It detect-and-skips when
   `rustc`/`git` are absent.

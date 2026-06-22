@@ -113,13 +113,37 @@ env:
 ```
 
 Values are **literal**: Bastion does not perform shell `$VAR` expansion, so write
-the actual value, not `${SOMETHING}`. The reviewer process also inherits Bastion's
-own environment, so a variable your shell or CI has already exported is visible to
-the agent even without listing it here; the `env` block is for setting additional
-values explicitly. Bastion consumes environments, it does not provision them:
-locally the value must already exist (a precommit script might boot the service and
-export it), and in CI the workflow stands it up. See
+the actual value, not `${SOMETHING}`. Bastion consumes environments, it does not
+provision them: locally the value must already exist (a precommit script might boot
+the service and export it), and in CI the workflow stands it up. See
 [Continuous integration](./continuous-integration.md#environments--inputs).
+
+How the value reaches the agent depends on where the reviewer runs:
+
+- **Native reviewers** (no `runner`) also inherit Bastion's own environment, so a
+  variable your shell or CI has already exported is visible to the agent even
+  without listing it here; the `env` block sets additional values explicitly.
+- **Containerized reviewers** (with a `runner`) do *not* inherit Bastion's
+  arbitrary environment. Into the container go exactly the `env` pairs written here
+  (as literal values, the same as everywhere else) plus a fixed set of
+  model-provider credential variables (see [Backends](./concepts.md#the-backend)).
+  Nothing else crosses, so a value an outer shell or CI job exported reaches a
+  containerized reviewer only if its literal value is written into this `env` block
+  (template the registry if the value is dynamic, for example a per-PR preview URL).
+  For a containerized reviewer the `env` pairs are written to a temporary file handed
+  to the engine as `--env-file`, so their values never appear on the `docker run`
+  command line (a secret in `env` stays out of a process listing) and their names
+  never touch the engine *client* process; the provider credentials are the only
+  variables forwarded by name from Bastion's own environment. If you set one of those
+  provider credential names in this `env` block, your value wins: Bastion does not also
+  forward the host's value for that name, so the reviewer's `env` overrides it (matching
+  how a native reviewer's `env` overrides the inherited environment). One container-only
+  constraint follows from that env-file format (one `KEY=VALUE` per line, no escaping):
+  a containerized reviewer's `env` cannot carry a key containing a newline or `=`, or a
+  value containing a newline. Such a pair is rejected and the reviewer fails closed
+  rather than receive a corrupted value; a multiline value (a PEM key, say) has to
+  reach a containerized reviewer some other way (a file in the image, or one its
+  Dockerfile copies in). Native reviewers have no such limit.
 
 ### `inputs`
 
@@ -141,26 +165,48 @@ the agent should read in its instructions. Input values are literal as well: a
 `${name}` in the prompt is substituted only from this `inputs` map, never from your
 shell environment.
 
-### `runner` and `capabilities` (declared, not yet provisioned)
+### `runner` and `capabilities`
 
-The schema also accepts a `runner` block (`dockerfile` / `image`, to run a reviewer
-in a container) and a `capabilities` block (`network`, `mcp`, `skills`, to opt into
-privileges beyond the least-privilege default). These describe the design's intended
-execution model and parse correctly today, **but this build executes every reviewer
-natively and does not yet provision containers, extra network, MCP servers, or
-skills.** Because a gate that quietly ran without a privilege it asked for would be a
-silent fail-open, a reviewer that opts into one of these **fails closed**: a gate
-blocks and an advisor is skipped, with a message naming the unprovisioned field,
-rather than running degraded. So leave these out until the tier you need has landed.
-The least-privilege default (no `runner`, `network: false`, no `mcp` or `skills`) is
-what runs today. The authoritative description of the intended behavior is in the
+The schema also accepts a `runner` block (`dockerfile` / `image`) and a
+`capabilities` block (`network`, `mcp`, `skills`) to opt into an execution
+environment beyond the least-privilege default. Where these stand today:
+
+- **`runner` is provisioned.** A reviewer with a `runner` block runs its backend
+  inside a container: a `dockerfile` is built (tagged by a content hash of the
+  Dockerfile, so an unchanged file reuses the engine's layer cache), an `image` is used
+  as-is (the engine pulls it on demand at run time). If both are set, `dockerfile`
+  wins; a `runner` with neither
+  fails closed. The `dockerfile` path is relative to the repository root and must
+  resolve inside it: an absolute path, any path with a `..` component (rejected
+  outright, even one that would resolve back inside), or one that canonicalizes outside
+  the repo through a symlink all fail closed. The build runs
+  with the repository root as its build context, so the Dockerfile's `COPY` and `ADD`
+  can reference files anywhere in the repo. An `image` reference beginning with `-`
+  fails closed, since the engine would read it as a command-line option rather than an
+  image name. The selected backend's executable must exist inside the image on `PATH`
+  (`claude` for `claude-code`, `codex` for `codex`). This lets a reviewer carry tools
+  or a pinned toolchain the host does not have.
+- **`capabilities.network: true` is honored inside a container, but not yet
+  scoped.** A containerized reviewer's container has outbound network. The
+  `network: false` default is not yet restricted to the model provider (egress
+  allowlisting is a later milestone), so today it does not tighten anything; treat
+  it as a forward-looking declaration. A *native* `network: true` (no `runner`)
+  fails closed, since with no container there is nothing to scope.
+- **`capabilities.mcp` and `capabilities.skills` are not yet provisioned.** A
+  reviewer that declares either **fails closed**: a gate blocks and an advisor is
+  skipped, with a message naming the unprovisioned field, rather than running
+  degraded (a gate that quietly ran without a privilege it asked for would be a
+  silent fail-open). Leave them out until those tiers land.
+
+The least-privilege default (no `runner`, `network: false`, no `mcp` or `skills`)
+runs natively on the host. The authoritative description is in the
 [core design](../developer-guide/design.md#the-reviewer).
 
 ## A fully-loaded example
 
-Putting the optional fields together (the `runner` and `capabilities` blocks are
-shown for schema completeness; as written, this reviewer **fails closed** today
-because it opts into tiers this build does not provision yet):
+Putting the optional fields together. As written, this reviewer runs in the container
+built from its Dockerfile, with network, and Bastion forwards its `env` into that
+container.
 
 ```yaml
 reviewers:
@@ -173,15 +219,19 @@ reviewers:
       PREVIEW_URL: http://localhost:3000     # literal value, no shell expansion
     inputs:
       preview_url: http://localhost:3000     # substituted into the prompt as ${preview_url}
-    runner:                                  # not yet provisioned: fails the gate closed
+    runner:                                  # provisioned: runs the backend in this image
       dockerfile: ./bastion/e2e.Dockerfile
-    capabilities:                            # not yet provisioned: fails the gate closed
-      network: true
-      mcp: [playwright]
+    capabilities:
+      network: true                          # honored in the container (not yet scoped)
     prompt: |
       Run the e2e checkout flow against the preview environment at `${preview_url}`
       using Playwright. If it fails, block the PR and explain; otherwise approve it.
 ```
+
+Adding an unprovisioned capability flips the whole reviewer to fail closed. For
+example, adding `mcp: [playwright]` under `capabilities` would block this gate before
+it ever reaches the container, since `mcp` is checked first. Leave `mcp` and `skills`
+out until those tiers land.
 
 ## Writing a good prompt
 

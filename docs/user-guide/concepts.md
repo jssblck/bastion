@@ -16,8 +16,10 @@ each idea has a deeper home later, linked as it comes up.
 
 A **reviewer** is the unit of the system: a focused agent prompt responsible for
 exactly one property of a changeset. It is a bundle of *prompt + trigger + mode*,
-plus an optional execution profile (backend, timeout, environment, inputs). All of
-it is declared statically in `bastion/reviewers.yaml`.
+plus an optional execution profile (backend, timeout, environment, inputs, a
+container `runner`, and `capabilities`, among others). All of it is declared
+statically in `bastion/reviewers.yaml`; [Authoring reviewers](./authoring-reviewers.md)
+is the full field reference.
 
 Two properties matter most:
 
@@ -128,6 +130,21 @@ You pin a backend when a subscription's terms require a specific harness, or whe
 one model is better at a given concern. See
 [Authoring reviewers](./authoring-reviewers.md#backend) and, for CI
 billing, [Continuous integration](./continuous-integration.md#authentication--billing).
+
+By default the backend CLI runs **natively** on the host, using the `claude` or
+`codex` already on your `PATH` and the auth and billing that CLI is configured with.
+A reviewer that declares a [`runner`](./authoring-reviewers.md#runner-and-capabilities)
+instead runs that same backend **inside a container**: Bastion invokes the container
+engine on the host, and the backend CLI resolves inside the image. A fixed set of
+model-provider credential variables (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+`ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`,
+`OPENAI_BASE_URL`, `CODEX_API_KEY`) is forwarded from Bastion's environment into the
+container by name, so the in-container agent can still reach its provider; an image
+can also bake in its own auth. If the reviewer's own `env` sets one of those names,
+that value wins and the host's is not also forwarded, so the reviewer can pin a
+specific credential. Nothing else from your host environment crosses that boundary. To
+give the in-container agent another value, set it as a literal in the reviewer's `env`,
+which is forwarded in alongside the credentials.
 
 ## How it all fits
 
