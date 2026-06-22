@@ -236,18 +236,38 @@ reviewers:
       (or already cover the change), approve. When you block, name the exact code
       element and the doc section that must change.
 
-  # Prose voice. Keeps user-facing copy (the marketing site, the guides, the
-  # top-level docs) free of AI-register "slop". The tells are structural, not
-  # lexical, so the prompt spells them out and the reviewer is self-contained on
-  # any backend. The companion `stop-slop` skill (.claude/skills/stop-slop) holds
-  # the full reference and before/after examples; the `skills` capability below is
-  # the forward hook for backends that load skills into the agent's context
-  # (declarative until provisioned; see docs/developer-guide/design.md). A gate:
-  # prose voice is a judgment call, but this project treats slop in user-facing
-  # prose as a merge blocker, biased toward catching it since a false block is
-  # cheap to override.
+  # Prose voice. Keeps first-party copy free of AI-register "slop": the marketing
+  # site, the guides, the developer docs, and the top-level project markdown. The
+  # tells are structural, not lexical, so the prompt spells them out and the
+  # reviewer is self-contained on any backend. The companion `stop-slop` skill
+  # (.claude/skills/stop-slop) holds the full reference and before/after examples;
+  # the `skills` capability below is the forward hook for backends that load skills
+  # into the agent's context (declarative until provisioned; see
+  # docs/developer-guide/design.md). A gate: prose voice is a judgment call, but
+  # this project treats slop in user-facing prose as a merge blocker, biased toward
+  # catching it since a false block is cheap to override.
+  #
+  # The trigger covers all first-party authored markdown (the roots are enumerated
+  # because trigger globs are OR-combined with no negation). It deliberately omits
+  # the vendored skill trees under .agents/skills/** and the stop-slop skill's own
+  # reference files under .claude/skills/**: those are third-party or generated, and
+  # the stop-slop references carry intentional "before" slop the gate must not flag.
+  # The bundled skill source under skills/** is first-party and is covered.
   - name: prose-anti-slop
-    trigger: [site/src/**/*.astro, docs/**/*.md, README.md, CONTRIBUTING.md]
+    trigger:
+      [
+        site/src/**/*.astro,
+        docs/**/*.md,
+        site/**/*.md,
+        skills/**/*.md,
+        ".github/**/*.md",
+        README.md,
+        CONTRIBUTING.md,
+        SECURITY.md,
+        CODE_OF_CONDUCT.md,
+        AGENTS.md,
+        CLAUDE.md,
+      ]
     mode: gate
     backend: codex
     capabilities:
