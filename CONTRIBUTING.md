@@ -73,11 +73,11 @@ To cut a release:
    opens a **draft** GitHub Release whose notes are generated from the pull
    requests merged since the previous tag (`--generate-notes`).
 4. Review the draft and its generated notes, edit if needed, and publish.
-5. Nothing to bump: Bastion's own review gate adopts the new engine automatically.
-   The [`bastion.yml`](.github/workflows/bastion.yml) workflow downloads the *latest*
-   published release rather than building from each PR's sources, so the engine that
-   judges a PR is never the engine the PR edits, yet it tracks releases without a
-   manual pin. Once you publish a release that includes `bastion github report`, the
+5. Bastion's own review gate adopts the new engine automatically; there is no version
+   pin to bump. The [`bastion.yml`](.github/workflows/bastion.yml) workflow downloads
+   the *latest* published release rather than building from each PR's sources, so the
+   engine that judges a PR is never the engine the PR edits, yet it tracks releases
+   without a manual pin. Once you publish a release that includes `bastion github report`, the
    `Report the review to the pull request` step (which self-skips on older engines)
    starts posting the PR comment and per-reviewer checks on the next run.
 

@@ -71,6 +71,13 @@ struct RunDigest {
     /// The reviewers `run.started` announced, with their modes. Kept so the report
     /// can detect a started gate that never produced a resolved row and fail closed.
     started: Vec<(String, Mode)>,
+    /// How many `run.started` events the stream carried. A well-formed run announces
+    /// its plan exactly once; anything else (zero, or a duplicated/forged plan) means
+    /// the reviewer set cannot be trusted, so the aggregate must fail closed.
+    started_count: u32,
+    /// How many `run.completed` events the stream carried. A well-formed run reports
+    /// completion exactly once.
+    completed_count: u32,
     rows: Vec<ReviewerRow>,
     aggregate: Option<Decision>,
     gates: Option<Gates>,
@@ -100,6 +107,7 @@ fn digest(events: &[RunEvent]) -> RunDigest {
                 digest.branch = Some(branch.clone());
                 digest.base = Some(base.clone());
                 digest.changed = *changed;
+                digest.started_count = digest.started_count.saturating_add(1);
                 started = reviewers.iter().map(|r| (r.name.clone(), r.mode)).collect();
             }
             RunEvent::ReviewerStarted {
@@ -140,6 +148,7 @@ fn digest(events: &[RunEvent]) -> RunDigest {
                 cost_usd,
                 ..
             } => {
+                digest.completed_count = digest.completed_count.saturating_add(1);
                 digest.aggregate = Some(*verdict);
                 digest.gates = Some(*gates);
                 digest.duration_ms = Some(*duration_ms);
@@ -169,11 +178,19 @@ fn gate_row_blocks(row: &ReviewerRow) -> bool {
 ///
 /// The report replays a persisted (and therefore untrusted) `run.jsonl`, so it must
 /// not publish a green aggregate check just because the recorded aggregate says
-/// pass. It reports success only when the recorded aggregate is `pass` *and* the
-/// rows independently agree: every started gate produced a resolved row, no gate row
-/// blocks or contradicts itself, and the recorded gate tally matches the rows. Any
-/// inconsistency (a tampered, truncated, or malformed run) fails closed.
+/// pass. It reports success only when the run is structurally well-formed (exactly
+/// one `run.started` announcing the plan and exactly one `run.completed`), the
+/// recorded aggregate is `pass`, *and* the rows independently agree: every started
+/// gate produced a resolved row, no gate row blocks or contradicts itself, and the
+/// recorded gate tally matches the rows. Any inconsistency (a tampered, truncated, or
+/// malformed run, including one missing its reviewer plan) fails closed.
 fn is_clean_pass(digest: &RunDigest) -> bool {
+    // A well-formed run announces its plan once and completes once. A stream with no
+    // `run.started` (or a duplicated one) cannot prove which reviewers were meant to
+    // run, so omitted gates cannot be ruled out: fail closed before trusting anything.
+    if digest.started_count != 1 || digest.completed_count != 1 {
+        return false;
+    }
     if digest.aggregate != Some(Decision::Pass) {
         return false;
     }
@@ -1169,6 +1186,71 @@ mod tests {
                 },
             ),
         );
+        let digest = digest(&events);
+        assert!(!is_clean_pass(&digest));
+        assert_eq!(
+            check_runs(&ctx(), &digest)
+                .iter()
+                .find(|c| c.name == "bastion")
+                .unwrap()
+                .conclusion,
+            Conclusion::Failure
+        );
+    }
+
+    #[test]
+    fn trivial_pass_with_a_plan_but_no_reviewers_concludes_success() {
+        // The legitimate zero-reviewer run: the plan was announced (one run.started
+        // with no reviewers) and completed clean. This must stay a green aggregate;
+        // the missing-plan guard below must not mistake it for a malformed stream.
+        let events = vec![
+            RunEvent::RunStarted {
+                run: RunId("r-forge".into()),
+                branch: "feat".into(),
+                base: "main".into(),
+                changed: 1,
+                reviewers: vec![],
+            },
+            RunEvent::RunCompleted {
+                run: RunId("r-forge".into()),
+                verdict: Decision::Pass,
+                gates: Gates {
+                    total: 0,
+                    passed: 0,
+                    blocked: 0,
+                },
+                duration_ms: 1000,
+                cost_usd: Money::from_cents(0),
+            },
+        ];
+        let digest = digest(&events);
+        assert!(is_clean_pass(&digest));
+        assert_eq!(
+            check_runs(&ctx(), &digest)
+                .iter()
+                .find(|c| c.name == "bastion")
+                .unwrap()
+                .conclusion,
+            Conclusion::Success
+        );
+    }
+
+    #[test]
+    fn aggregate_fails_closed_on_a_missing_run_plan() {
+        // A forged stream with only a passing run.completed and a zero-gate tally, but
+        // no run.started to announce the reviewer plan. Without the plan, omitted gates
+        // cannot be ruled out, so success must not be representable.
+        let events = vec![RunEvent::RunCompleted {
+            run: RunId("r-forge".into()),
+            verdict: Decision::Pass,
+            gates: Gates {
+                total: 0,
+                passed: 0,
+                blocked: 0,
+            },
+            duration_ms: 1000,
+            cost_usd: Money::from_cents(0),
+        }];
         let digest = digest(&events);
         assert!(!is_clean_pass(&digest));
         assert_eq!(

@@ -206,7 +206,9 @@ pub fn clean(layout: &Layout, keep: Option<usize>, older_than: Option<Duration>)
 ///
 /// Returns an error if writing to stdout fails.
 pub fn codeowners(owners: &[String]) -> Result<()> {
-    print!("{}", crate::github::codeowners::block(owners));
+    io::stdout()
+        .write_all(crate::github::codeowners::block(owners).as_bytes())
+        .wrap_err("writing CODEOWNERS block")?;
     Ok(())
 }
 
@@ -251,7 +253,11 @@ pub async fn github_report(
     let client = crate::github::client::RestClient::from_env()?;
     let summary = crate::github::report::report(&client, &ctx, &events).await?;
 
-    println!("Reported run {run} to {slug}#{pr}: {summary}.");
+    writeln!(
+        io::stdout(),
+        "Reported run {run} to {slug}#{pr}: {summary}."
+    )
+    .wrap_err("writing report summary")?;
     Ok(())
 }
 
