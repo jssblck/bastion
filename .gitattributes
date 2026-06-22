@@ -2,3 +2,9 @@
 
 Justfile text eol=lf
 *.sh text eol=lf
+
+# Bundled skill assets are embedded with include_str! and compared byte for byte
+# by `bastion skills check`. They must stay LF on every platform, or a Windows
+# checkout (core.autocrlf) would hand the binary CRLF source and make the drift
+# guard misfire.
+skills/**/SKILL.md text eol=lf
