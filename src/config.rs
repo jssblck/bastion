@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use color_eyre::eyre::{Context, Result, bail, eyre};
 use serde::{Deserialize, Serialize};
 
-use crate::reviewer::Reviewer;
+use crate::reviewer::{Backend, Effort, ModelId, Reviewer};
 
 /// The registry file name searched for within the `bastion/` config directory.
 pub const REGISTRY_FILE: &str = "reviewers.yaml";
@@ -20,9 +20,40 @@ pub const CONFIG_DIR: &str = "bastion";
 /// The parsed reviewer registry.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
+    /// Registry-wide defaults inherited by every reviewer that does not set the
+    /// field itself.
+    #[serde(default, skip_serializing_if = "Defaults::is_empty")]
+    pub defaults: Defaults,
     /// The reviewers defined for this repository.
     #[serde(default)]
     pub reviewers: Vec<Reviewer>,
+}
+
+/// Registry-wide defaults applied to every reviewer at load time.
+///
+/// A reviewer's own field always wins; these fill the gaps. They sit *above* each
+/// backend's built-in default (Opus 4.8 at high effort for Claude Code), so a repo
+/// can set a house model and effort in one place without repeating them on every
+/// reviewer.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct Defaults {
+    /// Default model for reviewers that do not pin one. Like a reviewer's own
+    /// `model`, this is backend-specific: a reviewer that inherits it must pin a
+    /// backend (the registry rejects an inherited model under `backend: any`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelId>,
+    /// Default reasoning effort for reviewers that do not set one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<Effort>,
+}
+
+impl Defaults {
+    /// Whether no registry-wide default is set (the serialized-form skip guard).
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.model.is_none() && self.effort.is_none()
+    }
 }
 
 impl Config {
@@ -32,8 +63,9 @@ impl Config {
     ///
     /// Returns an error if the YAML is malformed or two reviewers share a name.
     pub fn from_yaml(yaml: &str) -> Result<Self> {
-        let config: Config =
+        let mut config: Config =
             serde_yaml_ng::from_str(yaml).wrap_err("reviewer registry is not valid YAML")?;
+        config.apply_defaults();
         config.validate()?;
         Ok(config)
     }
@@ -63,11 +95,40 @@ impl Config {
         Self::load(&path)
     }
 
+    /// Fold the registry-wide [`Defaults`] into each reviewer: a reviewer's own
+    /// `model`/`effort` wins, and the default fills the gap. Resolving here, once,
+    /// means every downstream consumer (and the persisted run record) sees the
+    /// effective values rather than re-deriving them, and the `model`-under-`any`
+    /// guard in [`Config::validate`] catches an inherited model too.
+    fn apply_defaults(&mut self) {
+        let Defaults { model, effort } = &self.defaults;
+        for reviewer in &mut self.reviewers {
+            if reviewer.model.is_none() {
+                reviewer.model = model.clone();
+            }
+            if reviewer.effort.is_none() {
+                reviewer.effort = effort.clone();
+            }
+        }
+    }
+
     fn validate(&self) -> Result<()> {
         let mut seen = std::collections::BTreeSet::new();
         for reviewer in &self.reviewers {
             if !seen.insert(reviewer.name.as_str()) {
                 bail!("duplicate reviewer name: {}", reviewer.name);
+            }
+            // A model id means something only to the backend it names, so it only
+            // makes sense once the backend is pinned. Reject a model under
+            // `backend: any` (fail closed at the boundary) rather than letting, say,
+            // a Codex id reach Claude Code once `any` resolves. This fires for an
+            // inherited default model too, since `apply_defaults` ran first.
+            if reviewer.model.is_some() && reviewer.backend == Backend::Any {
+                bail!(
+                    "reviewer '{}' sets a model but leaves backend: any; a model id is \
+                     backend-specific, so pin a backend (claude-code or codex)",
+                    reviewer.name
+                );
             }
         }
         Ok(())
@@ -126,6 +187,72 @@ reviewers:
 ";
         let err = Config::from_yaml(yaml).unwrap_err();
         assert!(err.to_string().contains("duplicate reviewer name"));
+    }
+
+    #[test]
+    fn registry_defaults_fill_unset_reviewer_fields_and_explicit_values_win() {
+        let yaml = r"
+defaults:
+  model: gpt-5
+  effort: high
+reviewers:
+  - name: inherits
+    trigger: [src/**]
+    mode: gate
+    backend: codex
+    prompt: p
+  - name: overrides
+    trigger: [src/**]
+    mode: gate
+    backend: codex
+    model: gpt-5-codex
+    effort: low
+    prompt: p
+";
+        let config = Config::from_yaml(yaml).expect("valid registry");
+        let inherits = &config.reviewers[0];
+        assert_eq!(inherits.model.as_ref().map(ModelId::as_str), Some("gpt-5"));
+        assert_eq!(inherits.effort.as_ref().map(Effort::as_str), Some("high"));
+        let overrides = &config.reviewers[1];
+        assert_eq!(
+            overrides.model.as_ref().map(ModelId::as_str),
+            Some("gpt-5-codex")
+        );
+        assert_eq!(overrides.effort.as_ref().map(Effort::as_str), Some("low"));
+    }
+
+    #[test]
+    fn a_model_under_backend_any_is_rejected() {
+        let yaml = r"
+reviewers:
+  - name: stray
+    trigger: [src/**]
+    mode: gate
+    model: gpt-5
+    prompt: p
+";
+        let err = Config::from_yaml(yaml).unwrap_err();
+        assert!(
+            err.to_string().contains("backend: any"),
+            "error should explain the model needs a pinned backend, got: {err}"
+        );
+    }
+
+    #[test]
+    fn an_inherited_default_model_under_backend_any_is_also_rejected() {
+        // The guard fires after defaults resolve, so a default model folded into a
+        // `backend: any` reviewer is caught too.
+        let yaml = r"
+defaults:
+  model: gpt-5
+reviewers:
+  - name: stray
+    trigger: [src/**]
+    mode: gate
+    prompt: p
+";
+        let err = Config::from_yaml(yaml).unwrap_err();
+        assert!(err.to_string().contains("backend: any"));
     }
 
     #[test]

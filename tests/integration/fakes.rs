@@ -112,6 +112,30 @@ fn main() {
         }
     }
 
+    // If asked, assert the model/effort selectors reached the argv, so a test can
+    // prove the registry's model/effort (own or inherited from `defaults`) is
+    // honored end to end. The selectors differ per backend.
+    if let Ok(model) = std::env::var("FAKE_EXPECT_MODEL") {
+        if !model.is_empty() {
+            let flag = if is_codex { "-m" } else { "--model" };
+            if !has(&args, flag) || !has(&args, &model) {
+                fail(&format!("expected model `{model}` via `{flag}` not on the argv"));
+            }
+        }
+    }
+    if let Ok(effort) = std::env::var("FAKE_EXPECT_EFFORT") {
+        if !effort.is_empty() {
+            let needle = if is_codex {
+                format!("model_reasoning_effort=\"{effort}\"")
+            } else {
+                effort.clone()
+            };
+            if !has(&args, &needle) {
+                fail(&format!("expected effort `{effort}` (needle `{needle}`) not on the argv"));
+            }
+        }
+    }
+
     // Every turn carries the verdict schema instruction; the first turn also
     // carries the changeset preamble. (A reprompt re-sends only the schema ask.)
     if !prompt.contains("verdict") {

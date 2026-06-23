@@ -38,7 +38,7 @@ use bastion::store::{self, RunSummary};
 use bastion::verdict::{Decision, FindingKind, Money, Verdict};
 
 use fakes::{container_tooling, tooling};
-use fixtures::{Reviewer, TestRepo, event_kind, parse_events, registry};
+use fixtures::{Reviewer, TestRepo, event_kind, parse_events, registry, registry_with_defaults};
 use github::{CapturedRequest, FakeGitHub};
 
 // ---------------------------------------------------------------------------
@@ -72,6 +72,49 @@ fn all_gates_pass_across_both_backends() {
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].verdict, Some(Decision::Pass));
     assert_eq!(runs[0].reviewers, 3);
+}
+
+/// Model and effort reach each backend's argv end to end, resolved through the real
+/// binary: an explicit per-reviewer value, a value inherited from the registry
+/// `defaults` block, and the Claude selectors as well as the Codex ones. The fake
+/// agent fails its contract (non-zero exit) if a selector is missing, which would
+/// fail the gate closed; a clean `pass` across all three proves the flags arrived.
+#[test]
+fn model_and_effort_reach_each_backend_through_the_real_binary() {
+    let Some(fake) = tooling() else { return };
+
+    let repo = TestRepo::new(&registry_with_defaults(
+        &[("model", "gpt-5"), ("effort", "high")],
+        &[
+            // Explicit Codex model/effort overrides the registry default.
+            Reviewer::new("codex-explicit", "codex", "gate")
+                .model("gpt-5-codex")
+                .effort("high")
+                .behavior("pass")
+                .env("FAKE_EXPECT_MODEL", "gpt-5-codex")
+                .env("FAKE_EXPECT_EFFORT", "high"),
+            // No model/effort: inherits both from the `defaults` block.
+            Reviewer::new("codex-inherits", "codex", "gate")
+                .behavior("pass")
+                .env("FAKE_EXPECT_MODEL", "gpt-5")
+                .env("FAKE_EXPECT_EFFORT", "high"),
+            // The Claude selectors (`--model`/`--effort`) on a pinned model; `medium`
+            // maps identically on both backends.
+            Reviewer::new("claude-explicit", "claude-code", "gate")
+                .model("claude-sonnet-4-6")
+                .effort("medium")
+                .behavior("pass")
+                .env("FAKE_EXPECT_MODEL", "claude-sonnet-4-6")
+                .env("FAKE_EXPECT_EFFORT", "medium"),
+        ],
+    ));
+    let run = repo.review(fake);
+
+    assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
+    let (decision, gates, _cost) = run.completed();
+    assert_eq!(decision, Decision::Pass);
+    assert_eq!(gates.total, 3);
+    assert_eq!(gates.passed, 3);
 }
 
 /// A single blocking gate makes the binary exit non-zero (so an agent loop and CI

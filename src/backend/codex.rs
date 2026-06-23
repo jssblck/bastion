@@ -159,6 +159,23 @@ impl<R: CommandRunner> CodexBackend<R> {
         for arg in &leading {
             spec.arg(arg);
         }
+        // Pin model and reasoning effort when set. Codex has no Bastion house
+        // default model (it resolves its own), so a model only appears when a
+        // reviewer or the registry default pins one. Effort always applies: absent,
+        // the house default (high) flows through. The effort value rides `-c
+        // model_reasoning_effort=...`, whose RHS is parsed as TOML, so it is quoted
+        // to land as a string literal.
+        if let Some(model) = &request.reviewer.model {
+            spec.arg("-m").arg(model.as_str());
+        }
+        spec.arg("-c").arg(format!(
+            "model_reasoning_effort=\"{}\"",
+            request
+                .reviewer
+                .effort
+                .as_ref()
+                .map_or(reviewer::DEFAULT_EFFORT, reviewer::Effort::as_str)
+        ));
         spec.arg("-");
         spec.stdin(prompt);
         for (key, value) in &request.reviewer.env {
@@ -714,6 +731,8 @@ mod tests {
             trigger: vec!["**".into()],
             mode: Mode::Gate,
             backend: reviewer::Backend::Codex,
+            model: None,
+            effort: None,
             timeout: None,
             runner: None,
             env: Default::default(),
@@ -743,6 +762,37 @@ mod tests {
         let outcome = backend.review(&req).await;
         let specs = backend.runner.specs();
         (outcome, specs)
+    }
+
+    #[tokio::test]
+    async fn applies_house_default_effort_and_no_model_when_unset() {
+        let message = "```yaml\nverdict: pass\nsummary: ok\nfindings: []\n```";
+        let (_, specs) = review_with(&reviewer(), [ok_output(stream(&[message], None))]).await;
+        let args = args_of(&specs[0]);
+        // No model pinned: Codex resolves its own, so `-m` is absent.
+        assert!(!args.iter().any(|a| a == "-m"), "got args: {args:?}");
+        // Effort always applies; absent, the house default (high) flows through.
+        assert!(
+            args.contains(&"model_reasoning_effort=\"high\"".to_string()),
+            "got args: {args:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn pins_model_and_forwards_effort_verbatim() {
+        let message = "```yaml\nverdict: pass\nsummary: ok\nfindings: []\n```";
+        let mut rev = reviewer();
+        rev.model = Some(serde_yaml_ng::from_str("gpt-5").unwrap());
+        // A Codex-specific level: forwarded as-is, no remapping.
+        rev.effort = Some(serde_yaml_ng::from_str("minimal").unwrap());
+        let (_, specs) = review_with(&rev, [ok_output(stream(&[message], None))]).await;
+        let args = args_of(&specs[0]);
+        let m = args
+            .iter()
+            .position(|a| a == "-m")
+            .expect("model flag present");
+        assert_eq!(args[m + 1], "gpt-5");
+        assert!(args.contains(&"model_reasoning_effort=\"minimal\"".to_string()));
     }
 
     #[tokio::test]

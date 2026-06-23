@@ -55,6 +55,8 @@ pub(crate) fn reviewer() -> Reviewer {
         trigger: vec!["**".into()],
         mode: Mode::Gate,
         backend: Backend::ClaudeCode,
+        model: None,
+        effort: None,
         timeout: None,
         runner: None,
         env: Default::default(),
