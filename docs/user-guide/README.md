@@ -44,7 +44,7 @@ The chapters build on each other. If you read them top to bottom you will go fro
 ## The one-paragraph version
 
 You declare **reviewers** (focused agent prompts, one concern each) in
-`bastion/reviewers.yaml`. Each reviewer has a **trigger** (file globs) and a
+`.bastion.yaml`. Each reviewer has a **trigger** (file globs) and a
 **mode** (`gate` blocks the merge, `advisor` only comments). `bastion review`
 finds the reviewers whose triggers match your working-tree changes, runs them in
 parallel, and aggregates their verdicts into one decision: all gates must pass.
