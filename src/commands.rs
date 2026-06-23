@@ -448,9 +448,8 @@ mod tests {
 
         // A registry whose reviewers only trigger on docs, committed so it is not
         // itself a pending change.
-        std::fs::create_dir_all(dir.join("bastion")).unwrap();
         std::fs::write(
-            dir.join("bastion/reviewers.yaml"),
+            dir.join(".bastion.yaml"),
             "reviewers:\n  - name: docs-only\n    trigger: [docs/**]\n    mode: gate\n    prompt: p\n",
         )
         .unwrap();

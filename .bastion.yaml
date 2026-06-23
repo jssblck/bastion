@@ -6,8 +6,10 @@
 # `bastion github codeowners`). The schema is documented in
 # docs/developer-guide/design.md (and, task-first, docs/user-guide/authoring-reviewers.md).
 #
-# This is the live registry Bastion uses to review its own changes, both in the
-# local loop (`bastion review`) and in CI (`.github/workflows/bastion.yml`). Every
+# This file lives at the repository root as `.bastion.yaml` (the `.bastion.yml`
+# spelling is also honored). This is the live registry Bastion uses to review its
+# own changes, both in the local loop (`bastion review`) and in CI
+# (`.github/workflows/bastion.yml`). Every
 # reviewer runs on the Codex backend, billed to the maintainer's subscription; see
 # the authentication notes in docs/developer-guide/github-adapter.md. Adapt it to your repository.
 
@@ -224,7 +226,7 @@ reviewers:
         exist, or to a `#heading` anchor that does not exist in the target
         chapter. Once rewritten to a `/guide` route it would 404.
       - A relative link that leaves the guide (e.g. `../developer-guide/x.md`,
-        `../../bastion/reviewers.yaml`) resolves to a repository path that does
+        `../../.bastion.yaml`) resolves to a repository path that does
         not exist. The build turns these into GitHub links, so a dead path is a
         dead link.
 
@@ -554,11 +556,11 @@ reviewers:
   # the provisioned set in this prompt as each remaining tier lands. The
   # honored-fields table in docs/developer-guide/backends.md is the source of truth.
   - name: unprovisioned-capabilities
-    trigger: [bastion/reviewers.yaml]
+    trigger: [.bastion.yaml, .bastion.yml]
     mode: gate
     backend: codex
     prompt: |
-      Review changes to the reviewer registry (bastion/reviewers.yaml) for
+      Review changes to the reviewer registry (.bastion.yaml) for
       unprovisioned capability opt-ins. No reviewer may opt into an execution tier
       this build does not yet provision. You are running in the repository, so read
       the changed registry directly.

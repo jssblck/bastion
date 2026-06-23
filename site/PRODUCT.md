@@ -43,7 +43,7 @@ marks and growth-hack superlatives are not.
 
 ## Design Principles
 
-- **Show the artifact, not the claim.** The hero is a real `reviewers.yaml` and a
+- **Show the artifact, not the claim.** The hero is a real `.bastion.yaml` and a
   real verdict, not a mockup of a bot talking. Inspectability substitutes for the
   scale metrics we can't (and shouldn't) fake.
 - **Color is the product concept.** The verdict triad (pass / block / advisor) is

@@ -11,7 +11,7 @@ name: bastion
 # always adopts the *latest* published release, so the engine stays outside the
 # PR's reach yet picks up improvements with no per-PR pin bump; releases are
 # maintainer-cut tags, so the engine is only ever a maintainer-published artifact.
-# Reviewer *policy* (bastion/reviewers.yaml) is still read from the checkout so
+# Reviewer *policy* (.bastion.yaml) is still read from the checkout so
 # prompt and trigger changes take effect in the same PR; those paths are
 # CODEOWNERS-protected too.
 #

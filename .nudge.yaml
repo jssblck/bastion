@@ -15,7 +15,7 @@
 # `bash -s -- -b`), which appears throughout the install and CI command examples,
 # and Nudge has no Markdown tree-sitter grammar to scope a query to prose. So
 # that one stays at the judgment layer: the `prose-anti-slop` gate in
-# bastion/reviewers.yaml flags it, since it can tell a separator from a dash.
+# .bastion.yaml flags it, since it can tell a separator from a dash.
 
 version: 1
 

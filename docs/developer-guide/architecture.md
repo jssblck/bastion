@@ -21,7 +21,7 @@ through it.
 | [`src/cli.rs`](../../src/cli.rs) | The clap derive command tree and dispatch; maps a `block` aggregate to a non-zero exit. |
 | [`src/commands.rs`](../../src/commands.rs) | One handler per subcommand. |
 | [`src/reviewer.rs`](../../src/reviewer.rs) | The declarative reviewer schema (`Reviewer`, `Mode`, `Backend`, `Capabilities`, `RunnerSpec`). |
-| [`src/config.rs`](../../src/config.rs) | Registry loading and discovery (walk up for `bastion/reviewers.yaml`; validate name uniqueness). |
+| [`src/config.rs`](../../src/config.rs) | Registry loading and discovery (walk up for `.bastion.yaml` or `.bastion.yml`, with a deprecated `bastion/reviewers.yaml` fallback that warns; validate name uniqueness). |
 | [`src/routing.rs`](../../src/routing.rs) | Compiling trigger globs and matching them against changed files. |
 | [`src/verdict.rs`](../../src/verdict.rs) | The structured verdict (`Decision`, `Verdict`, `Finding`, `Usage`, and `Money`, which carries cents but serializes as dollars). |
 | [`src/event.rs`](../../src/event.rs) | The run-event schema streamed as JSONL and persisted to `run.jsonl`. |
@@ -59,8 +59,8 @@ Following one review top to bottom touches most of the crate:
    resolved into a `Layout` (`paths.rs`), from `--data-dir`/`BASTION_DATA_DIR` or
    the platform default.
 2. **Load policy** (`config.rs`). The registry is discovered by walking up from the
-   cwd for `bastion/reviewers.yaml`, parsed into `Config`, and validated (unique
-   reviewer names). Malformed input fails here, before any agent runs.
+   cwd for `.bastion.yaml` (or `.bastion.yml`), parsed into `Config`, and validated
+   (unique reviewer names). Malformed input fails here, before any agent runs.
 3. **Compute the changeset** (`git.rs`). Bastion asks git for the files that differ
    from `--base` (tracked edits *and* untracked files, committed or not) plus the
    current branch and repo root.
