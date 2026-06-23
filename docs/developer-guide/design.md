@@ -8,7 +8,7 @@ adapter](./github-adapter.md) and the [local surface](./local-surface.md) are th
 two concrete surfaces built on top of it. For a task-oriented introduction aimed
 at people *using* Bastion, see the [user guide](../user-guide/README.md).
 
-Bastion is a formalization of a pattern already in use privately: GitHub Actions that run focused agent prompts as reviewers, plus a CLI that can comment on a PR and mark its check blocked or approved. v1 is _that, made into a real system_. Complexity beyond the existing pattern is deferred to the Known limitations section and must justify itself before entering v1.
+Bastion is a formalization of a pattern already in use privately: GitHub Actions that run focused agent prompts as reviewers, plus a CLI that can comment on a PR and mark its check blocked or approved. v1 is _that, made into a real system_. Complexity beyond the existing pattern must justify itself before entering v1.
 
 ---
 
@@ -254,16 +254,3 @@ The local CLI surface makes reviewers fitness functions agent authors can optimi
 `bastion review` runs the relevant reviewers (by `trigger`) against the local working tree / branch, exactly as CI would. Progress and verdicts are rendered in the CLI output for agents to read. Since Bastion is CI-agnostic, things like environment variables are expected to be provided to Bastion in the local environment. For example, a `precommit` script might boot and run the service being reviewed locally to provide the `PREVIEW_URL` to Bastion-based reviewers, but the preview URL is just something like `http://localhost:3000` instead of something more formal. A native reviewer inherits that local environment directly. A containerized reviewer (one with a `runner`) inherits none of it; only its literal `env` pairs plus the fixed provider-credential set cross into the container, so a dynamic local value must be written into the reviewer's `env` (templated, if it is not known at authoring time). See [Containers](./containers.md).
 
 The intention is that an authoring agent loops `bastion review` until green, then opens a PR that CI largely just confirms.
-
----
-
-## Non-goals
-
-Out of scope for the current design:
-
-- Sampling for flaky reviewers.
-- Quorum for reviewer councils.
-- Reviewer graph ordering expensive and slow reviews behind cheap and fast reviews.
-- Reviewer marketplace.
-- Observability and statistics.
-- Coverage visibility per reviewer.
