@@ -8,8 +8,10 @@ const ciGuide = "/guide/continuous-integration";
 
 // The manifest GitHub pre-fills the app-creation form from. It requests exactly
 // the permissions the report step needs and no webhook: Bastion runs in your CI,
-// it does not receive events. The name is only a suggestion; GitHub requires app
-// names to be globally unique, so it may ask you to adjust it on the next screen.
+// it does not receive events. The name is only a suggestion: the submit handler
+// below rewrites it to "<account>'s Bastion" from the account field, and GitHub
+// requires app names to be globally unique, so it may ask you to adjust it on the
+// next screen. This static value is only the fallback when the field is blank.
 const manifest = {
   name: "Bastion",
   url: repo,
@@ -34,17 +36,10 @@ const description =
   <main id="main">
     <section class="section app">
       <div class="container container-narrow">
-        <p class="marker" data-reveal>GitHub App</p>
         <h1 class="app-title" data-reveal>Set up the Bastion GitHub App</h1>
         <p class="app-lede" data-reveal>
-          Bastion posts a check run per reviewer plus an aggregate
-          <span class="mono">bastion</span> check. Created under the shared
-          GitHub Actions identity, those checks cannot claim a group of their own,
-          so GitHub files them beneath a sibling workflow (you see them rendered as
-          <span class="mono">Security / fail-closed-gates</span> rather than together).
-          A dedicated app gives them their own named group. This is a one-time setup
-          per account. You create and hold the app, the same way you hold your
-          backend-credential secrets.
+          Bastion can optionally post checks and comments through a GitHub App.
+          This page shows how to set it up.
         </p>
 
         <!-- Step 1: create the app from the manifest. -->
@@ -52,21 +47,16 @@ const description =
           <div class="app-rule" aria-hidden="true"></div>
           <h2 class="app-card-title">1. Create the app on GitHub</h2>
           <p class="app-card-text">
-            This opens GitHub with the app's permissions already filled in
-            (<span class="mono">checks: write</span>,
-            <span class="mono">pull&nbsp;requests: write</span>,
-            <span class="mono">contents: read</span>, and no webhook). You only
-            confirm. To create it inside an organization, enter its login; leave it
-            blank to create it on your personal account. Pick the account whose
-            repositories run Bastion.
+            App names are globally unique, so if it is taken GitHub asks you to
+            pick another on the confirmation screen.
           </p>
 
           <form id="manifest-form" method="post" class="app-form">
-            <label class="app-label" for="org">Organization login</label>
+            <label class="app-label" for="account">Account</label>
             <input
               type="text"
-              id="org"
-              name="org"
+              id="account"
+              name="account"
               class="app-input"
               autocomplete="off"
               autocapitalize="off"
@@ -78,12 +68,6 @@ const description =
               Create the app on GitHub
             </button>
           </form>
-          <p class="app-card-note">
-            The suggested name <span class="mono">Bastion</span> is what the checks
-            group under. App names are globally unique, so if it is taken GitHub
-            asks you to pick another on the confirmation screen; the app name appears
-            in the checks list, for example <span class="mono">Bastion (yourorg)</span>.
-          </p>
         </div>
 
         <!-- Step 2: capture credentials. -->
@@ -95,7 +79,7 @@ const description =
             (a <span class="mono">.pem</span> file downloads) and note the numeric
             <strong>App ID</strong> near the top. Then open the
             <strong>Install App</strong> tab and install it on the repositories
-            that run Bastion.
+            that run Bastion (or at the organization level).
           </p>
         </div>
 
@@ -155,15 +139,6 @@ const description =
 
         <!-- Done. -->
         <div class="app-done" data-reveal>
-          <p>
-            The workflow mints a token from those secrets with
-            <span class="mono">actions/create-github-app-token</span> and hands it
-            to the report step, so the per-reviewer and aggregate checks render
-            under your app's name. The step is optional: with the secrets unset it
-            is skipped and reporting falls back to the default
-            <span class="mono">GITHUB_TOKEN</span>, which still posts everything,
-            only grouped under whichever checks GitHub picks.
-          </p>
           <div class="app-links">
             <a href={ciGuide} class="btn btn--ghost">Continuous integration guide</a>
             <a
@@ -179,16 +154,27 @@ const description =
   <Footer />
 
   <!-- The manifest POSTs to a different URL for an org vs a personal account, so
-       set the form action from the org field just before submitting. -->
+       set the form action from the account field just before submitting. The same
+       field also names the app "<account>'s Bastion" in the posted manifest. An
+       account login here is read as an organization; leave it blank for the
+       personal account you are signed in as. -->
   <script is:inline>
     (function () {
       var form = document.getElementById("manifest-form");
       if (!form) return;
       form.addEventListener("submit", function () {
-        var org = document.getElementById("org").value.trim();
-        form.action = org
+        var account = document.getElementById("account").value.trim();
+        var manifestField = form.querySelector('input[name="manifest"]');
+        if (manifestField) {
+          try {
+            var manifest = JSON.parse(manifestField.value);
+            manifest.name = account ? account + "'s Bastion" : "Bastion";
+            manifestField.value = JSON.stringify(manifest);
+          } catch (e) {}
+        }
+        form.action = account
           ? "https://github.com/organizations/" +
-            encodeURIComponent(org) +
+            encodeURIComponent(account) +
             "/settings/apps/new"
           : "https://github.com/settings/apps/new";
       });
@@ -338,11 +324,6 @@ const description =
     margin-top: 2rem;
     padding-top: 1.5rem;
     border-top: 1px solid var(--line);
-  }
-  .app-done p {
-    max-width: var(--measure);
-    font-size: var(--text-base);
-    color: var(--ink-2);
   }
   .app-links {
     margin-top: 1.5rem;
