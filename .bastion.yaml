@@ -468,13 +468,19 @@ reviewers:
         layout marked "target" / "forward-looking" / "when it lands" / "would".
       - A roadmap or "future" list of features that might be built later.
 
-      The one allowed exception (do NOT flag): a short "not implemented" or "fails
-      closed" note tied to a CONFIG or SCHEMA surface a reader can set but that does
-      not work, so the note prevents a surprise. The `pi` backend ("named but not
-      wired; selecting it fails closed"), the `mcp` and `skills` capabilities ("not
-      provisioned; declaring one fails closed"), and network scoping ("`network:
-      true` is honored but unscoped") are the standing cases. State these in present
-      tense; do not pad them into a roadmap.
+      The one allowed exception (do NOT flag): a note about future or incomplete
+      behavior that hangs off a configuration or schema option a user can already
+      set. When a reader can write the field today (a `capabilities` flag like
+      `network` / `mcp` / `skills`, a `backend` value, a `runner` block, any registry
+      key), a short note that it is not yet implemented, fails closed, or will behave
+      differently later prevents a surprise, so it is allowed even though it points
+      forward. The test is whether the prose is tied to a real, user-facing surface
+      the doc is documenting, not whether it mentions the future: "you can set X, but
+      today it fails closed / is unscoped / does nothing" is fine; "a packaged action
+      / GitHub App / live progress is coming" is not, because there is no option a
+      reader can set behind it. Keep the allowed note short and present tense (one
+      line: "settable, but not implemented / fails closed / changes later"), never a
+      roadmap or a dated promise.
 
       Also do NOT flag:
 
@@ -641,49 +647,3 @@ reviewers:
       site copy the card does not mirror, are not violations, so approve them. When
       you block, name the file and string that drifted and the generator string that
       must change.
-
-  # Unprovisioned capability opt-ins. A reviewer's execution profile must not opt
-  # into an execution tier this build cannot provision. The schema models `mcp` and
-  # `skills` capabilities this build does not yet honor, but a reviewer that declares
-  # one would run degraded: a gate relying on a tool it never received is a fail-open
-  # hole. Bastion fails such a reviewer closed at run time (`ExecutionPlan::resolve`
-  # in src/backend/container/plan.rs); this gate catches it earlier, at authoring time,
-  # with a clearer message than a reviewer that simply blocks itself. The container
-  # `runner` is now provisioned, and `network` is honored inside a container; widen
-  # the provisioned set in this prompt as each remaining tier lands. The
-  # honored-fields table in docs/developer-guide/backends.md is the source of truth.
-  - name: unprovisioned-capabilities
-    trigger: [.bastion.yaml, .bastion.yml]
-    mode: gate
-    backend: codex
-    prompt: |
-      Review changes to the reviewer registry (.bastion.yaml) for
-      unprovisioned capability opt-ins. No reviewer may opt into an execution tier
-      this build does not yet provision. You are running in the repository, so read
-      the changed registry directly.
-
-      This build provisions these fields: name, trigger, mode, prompt, backend
-      (claude-code, codex, and pi; `any` maps to claude-code), timeout, inputs,
-      env, and the container `runner` block (a `dockerfile` or an
-      `image`). A reviewer with a `runner` runs its backend inside that container.
-      It does NOT yet provision the `mcp` or `skills` capability opt-ins, and it does
-      not scope network egress.
-
-      This is a gate. Block the PR if any reviewer entry, after this change,
-      declares one of the following; otherwise approve it.
-
-      - `capabilities.network: true` on a reviewer that has NO `runner` block:
-        network can only be honored inside a container, so a native reviewer cannot
-        get it. `network: true` together with a `runner` block is fine (the
-        container has network). The default `network: false` (or omitting it) is
-        always fine.
-      - A non-empty `capabilities.mcp` list: MCP servers are not provisioned.
-      - A non-empty `capabilities.skills` list: skills are not loaded into the
-        agent's context.
-
-      When you block, name the reviewer and the exact field, and say it declares a
-      capability this build does not yet provision. Judge only unprovisioned
-      capability opt-ins. A reviewer that stays within the provisioned set above is
-      fine (including a `runner` block, with or without `network: true`), and
-      ordinary prompt, trigger, mode, or backend edits are not violations, so approve
-      them.

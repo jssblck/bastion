@@ -62,9 +62,11 @@ non-zero if any gate blocks, so the job's pass/fail *is* your merge gate; the re
 step adds the sticky comment and the per-reviewer and aggregate check runs. That host
 backend CLI and its auth cover **native** reviewers (the default). A reviewer with a
 [`runner`](./authoring-reviewers.md#runner-and-capabilities) runs its backend
-*inside a container* instead, so for those the job needs a container engine on the
-runner (`docker` by default, or whatever `BASTION_CONTAINER_ENGINE` names) and the
-backend executable plus its auth inside the image, not on the host. The fixed provider
+*inside a container* instead (and must declare `capabilities.network: true`; without it
+the reviewer is rejected before it runs, so a gate blocks and an advisor is skipped), so
+for those the job needs a container engine on the runner (`docker` by default, or
+whatever `BASTION_CONTAINER_ENGINE` names) and the backend executable plus its auth
+inside the image, not on the host. The fixed provider
 credential variables are forwarded from the job into the container by name, so the host
 auth still reaches a containerized reviewer's provider even though the CLI itself lives
 in the image:
@@ -247,8 +249,9 @@ for the PR and passes its URL into the Bastion job as an environment variable. H
 that variable reaches the agent depends on where the reviewer runs. A **native**
 reviewer inherits the job environment, so the agent can see it directly. A
 **containerized** reviewer (one with a
-[`runner`](./authoring-reviewers.md#runner-and-capabilities)) runs in a container and
-does *not* inherit the arbitrary job environment. Only the reviewer's literal `env`
+[`runner`](./authoring-reviewers.md#runner-and-capabilities) and
+`capabilities.network: true`) runs in a container and does *not* inherit the arbitrary
+job environment. Only the reviewer's literal `env`
 pairs cross that boundary (plus a fixed provider-credential set, except that a
 credential name set in the reviewer's own `env` wins and is not also forwarded from the
 job environment), so a per-PR value reaches a containerized reviewer only if you write

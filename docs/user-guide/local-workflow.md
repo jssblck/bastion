@@ -189,8 +189,9 @@ reads values your shell or CI already exported; it does not stand them up. This 
 the same boundary CI honors, which keeps the local and CI surfaces in agreement.
 
 A **containerized** reviewer (one with a
-[`runner`](./authoring-reviewers.md#runner-and-capabilities)) does not inherit your
-shell environment, since it runs in a container. Into it go the reviewer's literal
+[`runner`](./authoring-reviewers.md#runner-and-capabilities), which today must also set
+`capabilities.network: true` to run) does not inherit your shell environment, since it
+runs in a container. Into it go the reviewer's literal
 `env` pairs plus a fixed provider-credential set, and nothing else. (If the reviewer's
 `env` sets one of those credential names, its value wins and the host's is not also
 forwarded.) So an exported `PREVIEW_URL` that a native reviewer would see for free
