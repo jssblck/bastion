@@ -588,11 +588,12 @@ findings: []
     fn the_shipped_registry_is_fully_provisionable() {
         // Every reviewer in the shipped registry must resolve to an execution plan:
         // a declaration this build cannot honor would fail that reviewer closed at
-        // review time. Reintroducing an unprovisioned `mcp`/`skills`, or a native
-        // `network: true`, parses fine and loads fine, so without this guard it would
-        // slip past the registry-load test and only surface as a self-wedged gate.
-        // (The `unprovisioned-capabilities` reviewer guards new edits in review; this
-        // guards the already-shipped set in the build.)
+        // review time. Reintroducing an unprovisioned `mcp`/`skills`, a native
+        // `network: true`, or a containerized `network: false` parses fine and loads
+        // fine, so without this guard it would slip past the registry-load test and
+        // only surface as a self-wedged gate. With no in-review gate over the
+        // registry, this build-time check is the guard against an unprovisionable
+        // reviewer reaching the shipped set.
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(crate::config::REGISTRY_FILE);
         let config = crate::config::Config::load(&path).expect("shipped registry loads");
