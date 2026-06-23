@@ -62,11 +62,11 @@ non-zero if any gate blocks, so the job's pass/fail *is* your merge gate; the re
 step adds the sticky comment and the per-reviewer and aggregate check runs. That host
 backend CLI and its auth cover **native** reviewers (the default). A reviewer with a
 [`runner`](./authoring-reviewers.md#runner-and-capabilities) runs its backend
-*inside a container* instead (and must declare `capabilities.network: true` to run; a
-container with the default `network: false` fails closed), so for those the job needs a
-container engine on the runner (`docker` by default, or whatever
-`BASTION_CONTAINER_ENGINE` names) and the backend executable plus its auth inside the
-image, not on the host. The fixed provider
+*inside a container* instead (and must declare `capabilities.network: true`; without it
+the reviewer is rejected before it runs, so a gate blocks and an advisor is skipped), so
+for those the job needs a container engine on the runner (`docker` by default, or
+whatever `BASTION_CONTAINER_ENGINE` names) and the backend executable plus its auth
+inside the image, not on the host. The fixed provider
 credential variables are forwarded from the job into the container by name, so the host
 auth still reaches a containerized reviewer's provider even though the CLI itself lives
 in the image:

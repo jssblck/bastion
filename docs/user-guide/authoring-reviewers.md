@@ -256,14 +256,17 @@ environment beyond the least-privilege default. Where these stand:
   image name. The selected backend's executable must exist inside the image on `PATH`
   (`claude` for `claude-code`, `codex` for `codex`). This lets a reviewer carry tools
   or a pinned toolchain the host does not have.
-- **`capabilities.network` is binary in a container, and the default fails closed.**
-  `network: true` gives a containerized reviewer general (unscoped) outbound network.
-  A container's egress cannot be scoped to the model provider yet (the allowlisting
-  proxy is unbuilt), so the default `network: false` reads as restricted but cannot be
-  enforced: rather than silently attach general egress, a container with
-  `network: false` **fails closed**. A containerized reviewer must opt into
-  `network: true` to run, accepting general egress for now. A *native* `network: true`
-  (no `runner`) also fails closed, since with no container there is nothing to scope.
+- **`capabilities.network: true` is required to run a container; the default
+  `network: false` fails closed.** `network: true` gives a containerized reviewer
+  general (unscoped) outbound network. A container's egress cannot be scoped to the
+  model provider yet (the allowlisting proxy is unbuilt), so the default
+  `network: false` reads as restricted but cannot be enforced: rather than silently
+  attach general egress, `ExecutionPlan::resolve` rejects a container with
+  `network: false` before it runs. As with `mcp`/`skills`, that rejection **fails
+  closed**: a gate blocks and an advisor is skipped, with a message naming the field. A
+  containerized reviewer must opt into `network: true` to run, accepting general egress
+  for now. A *native* `network: true` (no `runner`) also fails closed, since with no
+  container there is nothing to scope.
 - **`capabilities.mcp` and `capabilities.skills` are not provisioned.** A
   reviewer that declares either **fails closed**: a gate blocks and an advisor is
   skipped, with a message naming the unprovisioned field, rather than running

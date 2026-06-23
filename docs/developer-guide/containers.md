@@ -90,8 +90,8 @@ failure: a gate blocks and an advisor is skipped.
 
 ## Network
 
-Network is binary today. `network: true` gives a containerized reviewer general
-outbound network (the container attaches the engine's default network). The default
+`network: true` gives a containerized reviewer general outbound network (the container
+attaches the engine's default network). The default
 `network: false` **fails closed in a container**: scoping egress to the model provider
 needs an allowlisting proxy that is unbuilt, so rather than silently grant general
 egress under a flag that reads as restricted, `ExecutionPlan::resolve` rejects a
