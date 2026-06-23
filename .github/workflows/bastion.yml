@@ -94,7 +94,9 @@ jobs:
           node-version: 20
 
       - name: Install the Pi CLI
-        run: npm install -g @earendil-works/pi-coding-agent
+        run: |
+          set -euo pipefail
+          npm install -g @earendil-works/pi-coding-agent
 
       - name: Authenticate Pi as the PR author
         env:
