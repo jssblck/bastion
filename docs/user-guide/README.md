@@ -35,8 +35,8 @@ The chapters build on each other. If you read them top to bottom you will go fro
    depth: human output vs. the JSONL agent stream, exit codes, and inspecting
    saved runs (`runs`, `show`, `transcript`, `clean`).
 6. **[Continuous integration](./continuous-integration.md)**: promoting the
-   same reviewers into GitHub Actions: checks, the aggregate gate, live progress,
-   and per-author billing.
+   same reviewers into GitHub Actions: checks, the aggregate gate, and per-author
+   billing.
 7. **[Governance](./governance.md)**: keeping humans at the policy layer with
    CODEOWNERS and branch protection, the escape-to-improvement loop, and what
    Bastion deliberately does not guarantee.

@@ -112,8 +112,8 @@ verdicts into a single decision:
 
 Locally, that aggregate is the exit code of `bastion review`. In CI it is the result
 of the Bastion review job, and `bastion github report` also posts it as a single
-always-present check named `bastion` (the packaged adapter would make that check the
-required one). Either way, the same reviewers compute the same decision in both places.
+always-present check named `bastion`. Either way, the same reviewers compute the
+same decision in both places.
 
 ## The backend
 

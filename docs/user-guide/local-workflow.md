@@ -72,7 +72,7 @@ The event types:
 | Event | Meaning |
 | --- | --- |
 | `run.started` | The run began; lists the reviewers that matched and will run. |
-| `reviewer.started` | One reviewer was dispatched (the "spinner"). |
+| `reviewer.started` | One reviewer was dispatched. |
 | `reviewer.resolved` | One reviewer finished; carries its `verdict`, `summary`, `findings`, `usage`, and a `has_transcript` flag. |
 | `run.completed` | The aggregate decision and the gate tally. |
 

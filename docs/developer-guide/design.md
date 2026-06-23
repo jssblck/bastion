@@ -257,9 +257,9 @@ The intention is that an authoring agent loops `bastion review` until green, the
 
 ---
 
-## Known limitations & future
+## Non-goals
 
-Deferred from v1 on purpose, but may be added in the future.
+Out of scope for the current design:
 
 - Sampling for flaky reviewers.
 - Quorum for reviewer councils.

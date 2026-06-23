@@ -47,11 +47,10 @@ generated block is a correct starting suggestion.
 ### Branch protection requires the check
 
 Require Bastion's review on your default branch. That is the review job from
-[Continuous integration](./continuous-integration.md#what-is-implemented), which
+[Continuous integration](./continuous-integration.md#the-workflow), which
 also posts the always-present aggregate check named `bastion` (with a check run per
 reviewer alongside it), so you can require either the job or that `bastion` check.
-The fully packaged action on the target list would expose the aggregate check as the
-single thing to require. A PR then cannot merge with the gate switched off, and
+A PR then cannot merge with the gate switched off, and
 because the workflow file and the registry are themselves owned paths, switching it
 off is itself a policy change a human sees.
 

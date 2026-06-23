@@ -395,80 +395,92 @@ reviewers:
         reference and the before/after examples.
 
   # Documentation as a snapshot. The guides under docs/ are reference material for
-  # one release, not a changelog: a reader on any version should see the tool
-  # described as it is, not narrated relative to a moving "now". Wording like "X now
-  # ships", "currently", "recently added", "not yet", "going forward", or
-  # "forward-looking" frames functionality as change over time, so it reads as wrong
-  # the moment a later release lands (or as stale roadmap that was never trimmed).
-  # The fix is to state current behavior plainly, and to anchor any "this release
-  # does not do Y" to the release ("in this release", "this build") rather than to a
-  # floating present. The implemented-versus-target distinction itself is legitimate
-  # and must stay (an honest doc says what is not built); only the moving-present
-  # phrasing is the defect. A gate, like the prose-voice one above: a false block is
-  # cheap to override, and temporal drift in docs is a recurring, mechanical tell.
+  # one release, not a changelog or a roadmap: a reader on any version should see the
+  # tool described as it is. Two defects break that. (1) Temporal framing of current
+  # behavior: "X now ships", "currently", "recently added", floating "today", which
+  # reads as wrong the moment a later release lands; the fix is plain present tense.
+  # (2) Speculative future features: prose describing things that do not exist (a
+  # packaged action, a GitHub App, live progress, a planned rendering, a marketplace,
+  # anything labeled "forward-looking" or "the target shape"); the fix is to DELETE
+  # it, not soften it, because a doc should not advertise what was never built. The
+  # one legitimate forward-reference is a "not implemented / fails closed" note for a
+  # CONFIG or SCHEMA surface a reader can actually set but that does not work yet (the
+  # `pi` backend, the `mcp` and `skills` capabilities, network scoping): the config
+  # implies behavior that silently does not happen, so the note keeps a user from
+  # being burned. A gate, like the prose-voice one above: a false block is cheap to
+  # override, and both defects are recurring, mechanical tells.
   - name: docs-as-snapshot
     trigger: [docs/**/*.md]
     mode: gate
     backend: codex
     prompt: |
-      As a gate, review the changed documentation prose for temporal framing that
-      describes Bastion's functionality relative to a moving present or a roadmap,
-      rather than as a snapshot of the shipped release. Documentation is reference
-      material read on a specific version: it should describe the tool as it is, so
-      that wording does not silently go wrong when a later release changes behavior.
+      As a gate, review the changed documentation prose so that it reads as a
+      snapshot of the shipped release: it describes the tool as it is, does not
+      narrate functionality against a moving present, and does not advertise features
+      that do not exist. Documentation is reference material read on a specific
+      version. You are running in the repository, so you can check whether something
+      a doc describes actually exists in the code.
 
       Decision:
 
-      - If the changed prose frames functionality temporally with one or more of the
-        tells below, return verdict: block. Enumerate EVERY instance across all
-        changed docs in this single pass: emit one blocking finding per instance,
-        each naming the file, the line or sentence, which tell it is, and a snapshot
-        rewrite that keeps every fact. Do not stop after the first one.
+      - If the changed prose has one or more of the defects below, return verdict:
+        block. Enumerate EVERY instance across all changed docs in this single pass:
+        emit one blocking finding per instance, each naming the file, the line or
+        sentence, which defect it is, and the fix (a present-tense rewrite, or a
+        deletion). Do not stop after the first one.
       - If the changed prose is clean, return verdict: pass.
-      - Bias toward catching it: a false block is cheap to override, but temporal
-        narration that merges becomes the house voice. Still keep the gate signal,
-        not noise, by respecting the "do not flag" list below.
+      - Bias toward catching it: a false block is cheap to override. Still keep the
+        gate signal, not noise, by respecting the "do not flag" list below.
 
-      Flag these (when they describe what Bastion does or does not do):
+      Defect 1, temporal framing of current behavior. Flag wording that dates a
+      statement about what Bastion does against an unstated clock, and rewrite it in
+      plain present tense:
 
-      - Moving-present verbs about features: "X now ships / now posts / now does /
-        now supports", "is now", "as of today", "these days", "nowadays".
-      - Recency or novelty framing: "recently", "newly", "just added / just landed /
-        just shipped", "the latest addition".
-      - Roadmap or forward-looking framing of current state: "not yet", "soon",
-        "going forward", "forward-looking", "still on the target list", "in a future
-        release X will", "a later milestone", "coming", "for now", "until X lands".
-      - Floating "today" / "currently" used to mean "in the present version" while
-        describing behavior ("currently resolves to", "today it posts", "today both
-        attach"), which dates the statement against an unstated clock.
-      - Change-tracking headers or labels that bake the clock into the structure
-        ("What ships today", "Shipped today", a section titled by recency).
+      - Moving-present verbs: "X now ships / now posts / now does / now supports",
+        "is now", "as of today", "these days", "nowadays".
+      - Recency or novelty: "recently", "newly", "just added / just landed / just
+        shipped", "the latest addition".
+      - Floating "today" / "currently" meaning "in this version" while describing
+        behavior ("currently resolves to", "today it posts").
+      - Change-tracking headers that bake the clock into the structure ("What ships
+        today", "Shipped today").
 
-      Prefer the snapshot recast: state current behavior in plain present tense
-      ("Bastion posts ..."), state an absence in present tense ("inline comments are
-      not implemented", "egress is unscoped"), and anchor a release-relative caveat
-      to the release itself ("in this release", "this build") rather than to "now"
-      or "today".
+      Defect 2, speculative future features. Flag prose that describes functionality
+      that does not exist in this release as if it were designed, coming, or the
+      intended shape, and say to REMOVE it (do not soften it to present tense, since
+      the feature is not real):
 
-      Do NOT flag (these are not the defect):
+      - A named artifact that is not shipped (for example a packaged GitHub Action, a
+        GitHub App, a `review-action`), including example code that uses it.
+      - A described behavior that the code does not do: live progress, spinners, a
+        live-updating aggregate table, inline diff review comments, a rendering or
+        layout marked "target" / "forward-looking" / "when it lands" / "would".
+      - A roadmap or "future" list of features that might be built later.
 
-      - The implemented-versus-target distinction itself. An honest doc that says
-        what is built and what is only a design target must stay; rewrite only the
-        moving-present WORDING, never delete the truthful "this is not built yet"
-        content. "in this release X is not implemented" is the fixed form, not a
-        violation.
+      The one allowed exception (do NOT flag): a short "not implemented" or "fails
+      closed" note tied to a CONFIG or SCHEMA surface a reader can set but that does
+      not work, so the note prevents a surprise. The `pi` backend ("named but not
+      wired; selecting it fails closed"), the `mcp` and `skills` capabilities ("not
+      provisioned; declaring one fails closed"), and network scoping ("`network:
+      true` is honored but unscoped") are the standing cases. State these in present
+      tense; do not pad them into a roadmap.
+
+      Also do NOT flag:
+
       - Temporal words that are not about Bastion's feature evolution: "the latest
         run", "recent runs", "what ran recently" (the run index), the changeset
         definition (uncommitted/untracked edits), tutorial narration to the reader
         ("you now have a working reviewer"), dates in frontmatter, and general
         statements about the world or industry rather than the product.
+      - Honest present-tense scope or non-goal statements ("the adapter does not
+        integrate with merge queues", "out of scope for the current design") that
+        state a boundary without promising future work.
       - Anything inside code blocks, YAML, CLI examples, command flags, reviewer-
         prompt example text, quoted error strings, or other quoted or third-party
         material. Touch only prose.
 
-      When you block, name the file and the exact phrase, and give the snapshot
-      rewrite. When the changed prose reads as a clean snapshot of the release,
-      approve.
+      When you block, name the file and the exact phrase, and give the fix. When the
+      changed prose reads as a clean snapshot of the release, approve.
 
   # Table markup. A header-plus-rows tabular view must share one set of column
   # tracks (a real <table>, or one grid container whose rows are subgrids or use
