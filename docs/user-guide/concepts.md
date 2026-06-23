@@ -124,7 +124,7 @@ shells out to its CLI, reusing your local auth and billing.
 - `any` (the default): Bastion chooses; today that resolves to Claude Code.
 - `claude-code`: Anthropic's Claude Code CLI.
 - `codex`: OpenAI's Codex CLI.
-- `pi`: named but not yet wired; selecting it fails closed.
+- `pi`: the Pi CLI; uses whatever provider you have configured it with locally.
 
 You pin a backend when a subscription's terms require a specific harness, or when
 one model is better at a given concern. See

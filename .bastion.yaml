@@ -566,8 +566,8 @@ reviewers:
       the changed registry directly.
 
       This build provisions these fields: name, trigger, mode, prompt, backend
-      (claude-code and codex; `any` maps to claude-code; `pi` fails closed),
-      timeout, inputs, env, and the container `runner` block (a `dockerfile` or an
+      (claude-code, codex, and pi; `any` maps to claude-code), timeout, inputs,
+      env, and the container `runner` block (a `dockerfile` or an
       `image`). A reviewer with a `runner` runs its backend inside that container.
       It does NOT yet provision the `mcp` or `skills` capability opt-ins, and it does
       not scope network egress.

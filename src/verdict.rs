@@ -117,7 +117,7 @@ pub struct Finding {
 
 /// Token and cost accounting for a single reviewer run, when the backend
 /// reports it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {
     /// Input tokens consumed.
     pub tokens_in: u64,

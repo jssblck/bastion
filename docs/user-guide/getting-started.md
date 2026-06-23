@@ -90,13 +90,12 @@ auth come along for free. Install and sign in to one of:
   default when a reviewer does not pin a backend.
 - **[Codex](https://github.com/openai/codex)** (`codex`): pin it with
   `backend: codex` on a reviewer.
+- **[Pi](https://github.com/earendil-works/pi)** (`pi`): pin it with `backend: pi`.
+  Pi runs against whatever provider you have configured it with locally.
 
-(The `pi` backend is named in the schema but not wired in this build; selecting it
-fails closed.)
-
-Bastion invokes the backend as a plain executable on your `PATH` (`claude` or
-`codex`), so confirm the one you intend to use is installed and authenticated
-before running a review:
+Bastion invokes the backend as a plain executable on your `PATH` (`claude`,
+`codex`, or `pi`), so confirm the one you intend to use is installed and
+authenticated before running a review:
 
 ```sh
 claude --version    # for the Claude Code backend

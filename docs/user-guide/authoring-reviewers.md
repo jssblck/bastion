@@ -89,13 +89,15 @@ until you need them.
 
 Which agent harness runs the reviewer. Default `any` (resolves to Claude Code
 today). Pin `claude-code`, `codex`, or `pi` to force a specific harness, usually
-because a subscription's terms require it.
+because a subscription's terms require it, or because one model is better at a
+given concern.
 
 ```yaml
 backend: codex
 ```
 
-> `pi` parses but is not wired in this build; a reviewer pinned to it fails closed.
+> `pi` runs against whatever provider you have configured the Pi CLI with locally;
+> Bastion passes no provider or model flag, so your Pi default is used.
 
 ### `timeout`
 
