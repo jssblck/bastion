@@ -10,7 +10,7 @@ order: 6
 > billing.
 
 The local loop gets you to green before you open a PR. CI is the authoritative
-confirmation: it runs the *same* reviewers from the *same* `bastion/reviewers.yaml`
+confirmation: it runs the *same* reviewers from the *same* `.bastion.yaml`
 and reports one merge gate. Because routing and aggregation are shared, CI rarely
 surprises an author who looped locally. This chapter covers the GitHub adapter,
 the one forge Bastion targets.
@@ -193,7 +193,7 @@ pairs cross that boundary (plus a fixed provider-credential set, except that a
 credential name set in the reviewer's own `env` wins and is not also forwarded from the
 job environment), so a per-PR value reaches a containerized reviewer only if you write
 its value into the registry,
-typically by templating `reviewers.yaml` before the Bastion job runs. A reviewer's
+typically by templating `.bastion.yaml` before the Bastion job runs. A reviewer's
 `env` and `inputs` values are literal (Bastion does not shell-expand them), so to put
 a dynamic value into the prompt itself you template the registry or have the prompt
 read the variable. Standing up the environment is a deploy concern; Bastion's job

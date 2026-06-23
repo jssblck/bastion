@@ -31,8 +31,8 @@ anything, and keep gates failing closed.
   - `docs/developer-guide/local-surface.md`: the local CLI surface this crate
     implements. The local and GitHub surfaces are deliberate mirror images; keep
     them in sync.
-- `bastion/reviewers.yaml`: the example reviewer registry; update it when the
-  schema changes.
+- `.bastion.yaml`: the example reviewer registry at the repository root (the
+  `.bastion.yml` spelling is also honored); update it when the schema changes.
 - `.agents/skills/readme.md`: repo-local Rust coding skills and their provenance.
 - `CLAUDE.md` is a bare `@AGENTS.md` import so guidance does not drift between
   agent surfaces.
@@ -178,7 +178,7 @@ version:
 - When you fix an issue, consider whether the class of issue is one a Bastion
   reviewer could catch in future changesets (a recurring bug pattern, a convention
   that keeps getting violated, a footgun in the schema or CLI surface). If so,
-  suggest adding or extending a reviewer in `bastion/reviewers.yaml` and say what
+  suggest adding or extending a reviewer in `.bastion.yaml` and say what
   its concern and trigger would be. Do not add the reviewer yourself: reviewers are
   governed policy, so leave the decision to the user.
 - Gates fail closed. A gate that cannot produce a valid verdict is a block, never
@@ -194,7 +194,7 @@ version:
   AI-register slop: state mechanisms, not the product's character. Follow the
   `stop-slop` skill (under `.claude/skills/stop-slop/`, mirrored to
   `.agents/skills/`), which catches the structural tells. The `prose-anti-slop`
-  gate in `bastion/reviewers.yaml` blocks the merge on slop in changed prose.
+  gate in `.bastion.yaml` blocks the merge on slop in changed prose.
 - Use plain ASCII quotes in docs, comments, and generated text. No em dashes or
   en dashes, and no literal `--` used as a dash in prose; recast with a comma, a
   colon, or parentheses.
@@ -234,12 +234,12 @@ nudge check
 `nudge check` enforces the mechanical conventions in `.nudge.yaml` (today: no
 Unicode dashes in authored text). It runs in CI and as an agent-time hook, and
 gates the same way locally; the `prose-anti-slop` gate in
-`bastion/reviewers.yaml` covers the prose-voice judgment a regex cannot.
+`.bastion.yaml` covers the prose-voice judgment a regex cannot.
 
 Also run targeted checks when relevant:
 
 - Versioning changes: run `bastion --version`.
-- Schema changes: update `bastion/reviewers.yaml` and the docs under `docs/`.
+- Schema changes: update `.bastion.yaml` and the docs under `docs/`.
 - Public scaffolding changes: keep `README.md`, `CONTRIBUTING.md`, `SECURITY.md`,
   `NOTICE`, and the GitHub workflows in sync.
 - Rule changes: validate `.nudge.yaml` with `nudge validate` and confirm

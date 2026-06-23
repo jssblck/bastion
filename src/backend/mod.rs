@@ -469,9 +469,8 @@ mod tests {
         // slip past the registry-load test and only surface as a self-wedged gate.
         // (The `unprovisioned-capabilities` reviewer guards new edits in review; this
         // guards the already-shipped set in the build.)
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(crate::config::CONFIG_DIR)
-            .join(crate::config::REGISTRY_FILE);
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(crate::config::REGISTRY_FILE);
         let config = crate::config::Config::load(&path).expect("shipped registry loads");
         for reviewer in &config.reviewers {
             ExecutionPlan::resolve(reviewer).unwrap_or_else(|err| {

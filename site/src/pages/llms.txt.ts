@@ -19,7 +19,7 @@ export const GET: APIRoute = async () => {
   );
   out.push("");
   out.push(
-    "Bastion is a Rust CLI and GitHub CI adapter. You declare reviewers in `bastion/reviewers.yaml`; matched reviewers run over a changeset and return structured verdicts that Bastion aggregates into a single merge decision. Humans govern the reviewer policy rather than reviewing every diff."
+    "Bastion is a Rust CLI and GitHub CI adapter. You declare reviewers in `.bastion.yaml`; matched reviewers run over a changeset and return structured verdicts that Bastion aggregates into a single merge decision. Humans govern the reviewer policy rather than reviewing every diff."
   );
   out.push("");
   out.push("## User guide");

@@ -213,7 +213,7 @@ mode: gate
 backend: claude-code
 timeout: 15m
 runner:
-  dockerfile: ./bastion/e2e.Dockerfile
+  dockerfile: ./.bastion/e2e.Dockerfile
   image: ghcr.io/acme/e2e:latest
 env:
   PREVIEW_URL: http://localhost:3000

@@ -79,7 +79,7 @@ Run these in addition to the core checks above when relevant:
 - **Versioning changes:** `bastion --version` (the string is derived at build time
   by `build.rs` from `git describe --always --tags --dirty=-dirty`, overridable via
   the `BASTION_VERSION` env var, with a `Cargo.toml` fallback).
-- **Schema changes:** update [`bastion/reviewers.yaml`](../../bastion/reviewers.yaml)
+- **Schema changes:** update [`.bastion.yaml`](../../.bastion.yaml)
   and the affected docs. The local and GitHub surfaces are mirror images and must
   not drift; a schema change touches both surfaces, the user guide, and the design
   references.

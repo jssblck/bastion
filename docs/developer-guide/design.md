@@ -105,7 +105,7 @@ The schema is format-agnostic in principle, but YAML is the on-disk format we st
 
 The registry is a single top-level `reviewers:` list; each entry is one reviewer
 keyed by `name`. (This is the on-disk shape the loader expects; see
-[`src/config.rs`](../../src/config.rs) and [`bastion/reviewers.yaml`](../../bastion/reviewers.yaml).)
+[`src/config.rs`](../../src/config.rs) and [`.bastion.yaml`](../../.bastion.yaml).)
 
 ```yaml
 reviewers:
@@ -135,7 +135,7 @@ reviewers:
     backend: claude-code                     # pinned by user preference. optional; `any` by default.
     timeout: 15m
     runner:
-      dockerfile: ./bastion/e2e.Dockerfile   # builds a hermetic image with tools installed. optional within `runner`; if absent, falls back to `image`. (Omit the whole `runner` block to run native; a `runner` with neither source fails closed.)
+      dockerfile: ./.bastion/e2e.Dockerfile   # builds a hermetic image with tools installed. optional within `runner`; if absent, falls back to `image`. (Omit the whole `runner` block to run native; a `runner` with neither source fails closed.)
       image: ghcr.io/acme/e2e:latest         # alternative to `dockerfile` for a pre-built image. optional; if both `dockerfile` and `image` are present, `dockerfile` takes precedence.
     env:
       PREVIEW_URL: http://preview.internal   # literal environment variables injected into the reviewer process. optional.
