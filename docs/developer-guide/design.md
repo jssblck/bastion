@@ -91,7 +91,7 @@ Formalized, Bastion is built around the following threat model:
 
 A reviewer is a bundle: **prompt + trigger + mode + backend + (optional) model + (optional) effort + capabilities + (optional) runner + (optional) environment**. We call it the reviewer's _execution profile_. The optional `runner` provisions a container the backend runs inside (see the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile) and [Containers](./containers.md)); without it the reviewer runs natively on the host.
 
-**Least privilege is the default.** This isn't intended as anti-exfil hardening but as plain hygiene and to keep the common case fast: a reviewer gets no secrets and no tools unless it asks. Most reviewers are hermetic and need nothing but the checkout and a model. Access to the model provider is always permitted, since every reviewer needs it; `network: true` is the opt-in for _general_ outbound network beyond that. (One caveat in this build: network scoping is not enforced, so a containerized reviewer attaches the engine's default network whether or not it asks. The `network` flag is recorded but does not restrict egress; see the implementation-status note below and the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile).)
+**Least privilege is the default.** This isn't intended as anti-exfil hardening but as plain hygiene and to keep the common case fast: a reviewer gets no secrets and no tools unless it asks. Most reviewers are hermetic and need nothing but the checkout and a model. A native reviewer runs on the host and reaches the model provider over the host network; `network: true` is the opt-in for _general_ outbound network beyond that, and is honored only inside a container. (One caveat in this build: a container's egress cannot be scoped to the provider alone yet, because the allowlisting proxy that would do it is unbuilt. So the only network tier a container can be given is general egress, and a containerized reviewer must declare `network: true` to reach its provider at all. A container with the default `network: false` reads as restricted but cannot be enforced, so it _fails closed_ rather than silently attaching general egress; provider-only scoped egress is a later milestone. See the implementation-status note below and the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile).)
 
 Reviewers are **composable**. They run independently and asynchronously, and their verdicts are aggregated at the end. This means you can add a new reviewer for a concern without affecting the existing ones, and you can have some reviewers that run fast and others that run slow without blocking the whole process.
 
@@ -148,7 +148,7 @@ reviewers:
     env:
       PREVIEW_URL: http://preview.internal   # literal environment variables injected into the reviewer process. optional.
     capabilities:
-      network: true                          # containers always need some network for the model provider; this enables general network access.
+      network: true                          # required for a containerized reviewer: grants general egress (provider-only scoping is unbuilt, so a container's `network: false` fails closed).
       mcp: [playwright]                      # loads MCPs needed by the review into the agent's context, and gives permission to call them.
       skills: [checkout-flow, browser]       # loads skills needed by the review into the agent's context.
     inputs:
@@ -163,12 +163,14 @@ reviewers:
 > `defaults` block, `prompt`, `timeout`, `env`,
 > `inputs`, and `runner` (containers) are honored: a reviewer with a `runner` block
 > runs its backend inside the built or named image (see
-> [Containers](./containers.md)). `capabilities.network: true` is honored inside a
-> container but unscoped (egress allowlisting is unimplemented), and a
-> native `network: true` fails closed; `mcp` and `skills` parse but are **not
-> provisioned**, so a reviewer that declares one **fails closed** (a gate blocks, an
-> advisor is skipped) rather than running without it. The least-privilege default
-> (`network: false`, no `mcp`/`skills`, no `runner`) runs natively. `env` and
+> [Containers](./containers.md)). `capabilities.network: true` grants a containerized
+> reviewer general (unscoped) egress; a container with the default `network: false`
+> **fails closed** (provider-only scoped egress is unbuilt, so a flag that reads as
+> restricted cannot be enforced), as does a native `network: true`; `mcp` and `skills`
+> parse but are **not provisioned**, so a reviewer that declares one **fails closed**
+> (a gate blocks, an advisor is skipped) rather than running without it. The
+> least-privilege default (`network: false`, no `mcp`/`skills`, no `runner`) runs
+> natively. `env` and
 > `inputs` values are literal strings (no shell `$VAR` expansion). See the
 > [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile).
 

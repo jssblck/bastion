@@ -157,7 +157,7 @@ about what is honored, so the code does not over-promise:
 | `inputs` | Honored, interpolated into the prompt. |
 | `env` | Honored, injected into the child process environment. |
 | `runner` (`dockerfile`, `image`) | **Honored.** A reviewer with a `runner` block runs its backend inside a container; `dockerfile` is built (cached by content hash), `image` is used as-is. See [Containers](./containers.md). |
-| `capabilities.network: true` | **Honored in a container, but unscoped.** A containerized reviewer's container has outbound network. The `network: false` default is *not scoped* (egress allowlisting is unimplemented), so both attach the engine's default network. A *native* `network: true` (no `runner`) fails closed: with no container there is nothing to scope. |
+| `capabilities.network` | **Container egress is binary, and the default fails closed.** `network: true` gives a containerized reviewer general (unscoped) egress: the container attaches the engine's default network. The default `network: false` *fails closed in a container*: provider-only scoped egress (an allowlisting proxy) is unbuilt, so rather than silently grant general egress under a flag that reads as restricted, `ExecutionPlan::resolve` rejects it. A containerized reviewer must opt into `network: true` to run. A *native* `network: true` (no `runner`) also fails closed: with no container there is nothing to scope. |
 | `capabilities` (`mcp`, `skills`) | **Not provisioned: fails closed.** A reviewer that declares either is failed closed by `ExecutionPlan::resolve` in `dispatch`. |
 
 ### How `model` and `effort` reach each backend

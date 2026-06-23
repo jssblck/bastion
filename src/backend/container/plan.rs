@@ -26,10 +26,15 @@ impl ExecutionPlan {
     ///
     /// `mcp` and `skills` are container-provisioned tiers that are still unwired
     /// (a later PR each), so they fail closed whether or not a `runner` is present.
-    /// A native `network: true` also fails closed: with no container there is
-    /// nothing to scope a network into, so honoring it would be meaningless. A
-    /// containerized `network: true` is recorded on the plan and honored as general
-    /// egress.
+    /// Network scoping is likewise unbuilt: the only egress tier a container can be
+    /// given today is *general* outbound (`network: true`), so a containerized
+    /// reviewer must opt into it. A containerized `network: false` (the default)
+    /// fails closed rather than silently attaching general egress under a flag that
+    /// reads as restricted: Bastion cannot scope a container's egress to the model
+    /// provider yet, and granting everything would betray the least-privilege
+    /// contract the flag promises. A native `network: true` also fails closed: with
+    /// no container there is nothing to scope a network into, so honoring it would be
+    /// meaningless.
     ///
     /// # Errors
     ///
@@ -61,10 +66,23 @@ impl ExecutionPlan {
                 let source = ImageSource::resolve(runner).wrap_err_with(|| {
                     format!("reviewer '{}' has an unprovisionable runner", reviewer.name)
                 })?;
-                Ok(Self::Container(ContainerPlan {
-                    source,
-                    open_network: reviewer.capabilities.network,
-                }))
+                // A container's egress cannot be scoped to the provider yet, so the
+                // only tier it can be given is general outbound (`network: true`). The
+                // default `network: false` reads as restricted but Bastion has nothing
+                // to enforce it with, so it fails closed rather than silently attaching
+                // general egress. This mirrors the `mcp`/`skills` fail-closed arms: an
+                // unprovisioned tier is a block, never a quiet downgrade.
+                if !reviewer.capabilities.network {
+                    bail!(
+                        "reviewer '{}' runs in a container with the default `network: false`, \
+                         but this build cannot scope a container's egress to the model provider \
+                         (the allowlisting proxy is unbuilt); it fails closed rather than silently \
+                         attaching general egress under a flag that reads as restricted. Set \
+                         `network: true` to accept general egress until scoped egress lands.",
+                        reviewer.name
+                    );
+                }
+                Ok(Self::Container(ContainerPlan { source }))
             }
             None => {
                 if reviewer.capabilities.network {
@@ -81,24 +99,18 @@ impl ExecutionPlan {
     }
 }
 
-/// A resolved plan to run a reviewer in a container: which image, and whether it
-/// gets general outbound network.
+/// A resolved plan to run a reviewer in a container: which image to run.
+///
+/// A container plan is built only for a reviewer that opted into general egress
+/// (`network: true`); a containerized `network: false` fails closed in
+/// [`ExecutionPlan::resolve`], so the plan carries no network flag (the container
+/// always attaches the engine's default network).
 #[derive(Debug, Clone)]
 pub struct ContainerPlan {
     source: ImageSource,
-    open_network: bool,
 }
 
 impl ContainerPlan {
-    /// Whether the reviewer opted into general outbound network (`network: true`).
-    ///
-    /// Recorded for the egress-restriction milestone; today the container attaches
-    /// the engine's default network whether or not this is set.
-    #[must_use]
-    pub fn open_network(&self) -> bool {
-        self.open_network
-    }
-
     /// Build or resolve the image, returning the reference to run.
     ///
     /// A `dockerfile` source is built with the repo root as the build context; an
@@ -351,10 +363,11 @@ mod tests {
             dockerfile: Some("./e2e.Dockerfile".into()),
             image: None,
         });
+        // A container needs an explicit `network: true` to run today (general egress);
+        // the default `network: false` fails closed (see the test below).
         r.capabilities.network = true;
         match ExecutionPlan::resolve(&r).unwrap() {
             ExecutionPlan::Container(plan) => {
-                assert!(plan.open_network());
                 assert_eq!(
                     plan.source,
                     ImageSource::Dockerfile(PathBuf::from("./e2e.Dockerfile"))
@@ -362,6 +375,23 @@ mod tests {
             }
             ExecutionPlan::Native => panic!("expected a container plan"),
         }
+    }
+
+    #[test]
+    fn containerized_network_false_fails_closed() {
+        // A containerized reviewer with the default `network: false` cannot be given
+        // provider-only egress (the allowlist proxy is unbuilt), so it fails closed
+        // rather than silently attaching general egress under a flag that reads as
+        // restricted. Only an explicit `network: true` runs in a container today.
+        let mut r = reviewer();
+        r.runner = Some(RunnerSpec {
+            dockerfile: Some("./e2e.Dockerfile".into()),
+            image: None,
+        });
+        // `capabilities.network` defaults to false.
+        let err = ExecutionPlan::resolve(&r).unwrap_err();
+        assert!(err.to_string().contains("network: false"), "{err}");
+        assert!(err.to_string().contains("fails closed"), "{err}");
     }
 
     #[test]
@@ -475,7 +505,6 @@ mod tests {
     async fn ensure_image_uses_a_prebuilt_image_without_building() {
         let plan = ContainerPlan {
             source: ImageSource::Image("ghcr.io/acme/e2e:latest".into()),
-            open_network: false,
         };
         let runner = RecordingRunner::default();
         let engine = ContainerEngine::with_program("docker");
@@ -494,7 +523,6 @@ mod tests {
         std::fs::write(dir.path().join("e2e.Dockerfile"), b"FROM scratch\n").unwrap();
         let plan = ContainerPlan {
             source: ImageSource::Dockerfile(PathBuf::from("e2e.Dockerfile")),
-            open_network: false,
         };
         let runner = RecordingRunner::with(vec![CommandOutput {
             code: Some(0),
@@ -563,7 +591,6 @@ mod tests {
         std::fs::write(dir.path().join("Dockerfile"), b"FROM scratch\n").unwrap();
         let plan = ContainerPlan {
             source: ImageSource::Dockerfile(PathBuf::from("Dockerfile")),
-            open_network: false,
         };
         let runner = RecordingRunner::with(vec![CommandOutput {
             code: Some(1),
@@ -585,7 +612,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let plan = ContainerPlan {
             source: ImageSource::Dockerfile(PathBuf::from("does-not-exist.Dockerfile")),
-            open_network: false,
         };
         let runner = RecordingRunner::default();
         let engine = ContainerEngine::with_program("docker");
@@ -615,7 +641,6 @@ mod tests {
         .unwrap();
         let plan = ContainerPlan {
             source: ImageSource::Dockerfile(PathBuf::from("link.Dockerfile")),
-            open_network: false,
         };
         let runner = RecordingRunner::default();
         let engine = ContainerEngine::with_program("docker");

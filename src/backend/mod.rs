@@ -134,7 +134,6 @@ pub async fn dispatch(request: &ReviewRequest<'_>) -> Result<ReviewOutcome> {
             tracing::debug!(
                 reviewer = %request.reviewer.name,
                 image = %image,
-                open_network = plan.open_network(),
                 "running reviewer in a container"
             );
             let runner =

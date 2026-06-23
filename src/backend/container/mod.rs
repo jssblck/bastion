@@ -6,9 +6,10 @@
 //! - [`ExecutionPlan::resolve`] parses a reviewer's `runner` + `capabilities` into
 //!   either a [`Native`](ExecutionPlan::Native) or a
 //!   [`Container`](ExecutionPlan::Container) plan, failing closed on a capability
-//!   tier this build still does not provision (`mcp`, `skills`, and a native
-//!   `network: true`). A value of this type is the proof a reviewer is runnable
-//!   today, so [`dispatch`](super::dispatch) cannot reach a backend without one.
+//!   tier this build still does not provision (`mcp`, `skills`, a native
+//!   `network: true`, and a containerized `network: false`). A value of this type is
+//!   the proof a reviewer is runnable today, so [`dispatch`](super::dispatch) cannot
+//!   reach a backend without one.
 //! - [`ContainerPlan::ensure_image`] builds the image from a Dockerfile (or uses a
 //!   prebuilt `image`) through the same [`CommandRunner`](super::command::CommandRunner)
 //!   seam the backends use.
@@ -17,10 +18,13 @@
 //!   invocation. The backend above is untouched: it builds the same logical spec,
 //!   and this decorator decides it runs in a container.
 //!
-//! Network is only partially honored: a containerized `network: true` gets general
-//! egress (the container has a network), but egress *restriction* for the default
-//! `network: false` (a provider-only allowlist) is a later milestone, so both
-//! attach the engine's default network today. See the honored-fields table in
+//! Network is binary today. A containerized `network: true` gets general egress (the
+//! container attaches the engine's default network). The default `network: false`
+//! fails closed in a container: scoping egress to the model provider needs an
+//! allowlisting proxy that is unbuilt, so rather than silently grant general egress
+//! under a flag that reads as restricted, a container with `network: false` does not
+//! run. Provider-only scoped egress is the later milestone that will give
+//! `network: false` a real meaning. See the honored-fields table in
 //! `docs/developer-guide/backends.md`.
 
 mod credentials;

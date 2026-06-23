@@ -104,9 +104,12 @@ version:
   unprovisioned capability tier fails closed), then a reviewer with a `runner` block
   runs its backend inside a built/named image via a `ContainerRunner` decorator over
   the `CommandRunner` seam (the backend code is untouched; the named container is
-  force-removed on a timeout). `network: true` is honored in-container but not yet
-  scoped; `mcp`/`skills` still fail closed. All three backends (`claude-code`,
-  `codex`, `pi`; `any` maps to Claude Code) are wired and execute reviewers for real.
+  force-removed on a timeout). Container egress is binary: `network: true` grants
+  general (unscoped) egress, and a container with the default `network: false` fails
+  closed (provider-only scoped egress is unbuilt), so a containerized reviewer must opt
+  into `network: true`; `mcp`/`skills` still fail closed. All three backends
+  (`claude-code`, `codex`, `pi`; `any` maps to Claude Code) are wired and execute
+  reviewers for real.
 - `src/github/`: the GitHub adapter (the CI surface). `codeowners.rs` generates
   the governance block (pure text, no network); `client.rs` is the REST seam,
   modeled on the backend's `CommandRunner`: a proof-carrying `ApiRequest`, a

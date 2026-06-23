@@ -465,8 +465,9 @@ reviewers:
         // Pin the policy clauses the container-runner work changed, so a prompt edit
         // that silently re-broadened the guard (back to blocking a `runner`, or
         // forward to letting `mcp`/`skills` through) fails here. The runner block is
-        // now provisioned, a native `network: true` still fails closed, and `mcp` and
-        // `skills` remain unprovisioned.
+        // provisioned, a native `network: true` still fails closed, `mcp` and
+        // `skills` remain unprovisioned, and a containerized reviewer must opt into
+        // `network: true` (a container's default `network: false` fails closed).
         let prompt = &gate.prompt;
         assert!(
             prompt.contains("the container `runner` block"),
@@ -479,6 +480,10 @@ reviewers:
         assert!(
             prompt.contains("NO `runner` block"),
             "the gate prompt must still block native `network: true` (no `runner`)"
+        );
+        assert!(
+            prompt.contains("A `runner` block without `capabilities.network: true`"),
+            "the gate prompt must block a containerized reviewer that omits `network: true`"
         );
     }
 }
