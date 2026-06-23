@@ -83,6 +83,8 @@ mod tests {
             trigger: triggers.iter().map(|s| (*s).to_string()).collect(),
             mode: Mode::Gate,
             backend: crate::reviewer::Backend::Any,
+            model: None,
+            effort: None,
             timeout: None,
             runner: None,
             env: Default::default(),

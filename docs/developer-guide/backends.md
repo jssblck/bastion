@@ -21,6 +21,7 @@ stays pure orchestration.
 | [`command.rs`](../../src/backend/command.rs) | The `CommandRunner` subprocess seam: `CommandSpec` and `SystemCommandRunner`, plus a fake runner for tests. |
 | [`claude_code.rs`](../../src/backend/claude_code.rs) | The Claude Code backend. |
 | [`codex.rs`](../../src/backend/codex.rs) | The Codex backend. |
+| [`pi.rs`](../../src/backend/pi.rs) | The Pi backend. |
 | [`container/`](../../src/backend/container/) | The container runner, split by concern: `plan.rs` (`ExecutionPlan` and image resolution), `runner.rs` (the `CommandRunner` decorator), `credentials.rs`, and `teardown.rs`. See [Containers](./containers.md). |
 
 ## The trait
@@ -45,11 +46,10 @@ fabricated pass.
 
 ## Dispatch
 
-`dispatch` first rejects an unwired backend, then resolves the reviewer's
-[`ExecutionPlan`](./containers.md), then selects a concrete backend:
+`dispatch` resolves the reviewer's [`ExecutionPlan`](./containers.md), then selects
+a concrete backend:
 
 ```rust
-ensure_backend_wired(request.reviewer.backend, &request.reviewer.name)?;
 match ExecutionPlan::resolve(request.reviewer)? {
     ExecutionPlan::Native        => run_backend(request, SystemCommandRunner, Program::HostDefault).await,
     ExecutionPlan::Container(plan) => {
@@ -59,12 +59,9 @@ match ExecutionPlan::resolve(request.reviewer)? {
 }
 ```
 
-The `ensure_backend_wired` preflight runs **before** plan resolution, so an
-unimplemented backend (`Pi`) fails closed before any side effect. A `backend: pi`
-reviewer with a `runner` fails at backend selection, before Bastion builds or pulls a
-container image. Resolving the plan is then the **single place an unprovisioned
-capability tier fails closed** (see [Containers](./containers.md)), so a backend is
-only ever reached for a reviewer this build can actually run. `run_backend` then maps `reviewer::Backend` to
+Resolving the plan is the **single place an unprovisioned capability tier fails
+closed** (see [Containers](./containers.md)), so a backend is only ever reached for a
+reviewer this build can actually run. `run_backend` then maps `reviewer::Backend` to
 the concrete backend, shared by the native and container paths so backend selection
 lives in one place:
 
@@ -81,20 +78,24 @@ match request.reviewer.backend {
         Program::InContainer => CodexBackend::with_program(runner, codex::DEFAULT_PROGRAM)
             .review(request).await,
     },
-    Backend::Pi => bail!("the pi backend is not yet wired ..."),
+    Backend::Pi => match program {
+        Program::HostDefault => PiBackend::new(runner).review(request).await,
+        Program::InContainer => PiBackend::with_program(runner, pi::DEFAULT_PROGRAM)
+            .review(request).await,
+    },
 }
 ```
 
-`Any` defaults to Claude Code until routing by availability/subscription exists.
-**`Pi` fails closed**: it is named in the schema but not implemented, so selecting
-it errors rather than silently passing. This is load-bearing: an unimplemented
-backend must never claim to have reviewed anything. There is a test
-(`dispatch_rejects_unwired_backends`) guarding exactly that. The only difference
-between the native and container paths is how the program is resolved, the `program`
-branch above: natively `new` takes it from the host (`BASTION_CLAUDE_BIN` / `PATH`),
-while in a container `with_program` pins the bare default name (`claude` / `codex`)
-so it resolves on the image's `PATH` rather than a host path that means nothing
-inside the image.
+All three named backends are wired; the match is exhaustive with a real arm each,
+and `Any` defaults to Claude Code until routing by availability/subscription exists.
+A backend still **fails closed** when it cannot produce a valid, consistent verdict:
+it returns an error (never a fabricated pass) and the runner turns that into a block
+for a gate. The only difference between the native and container paths is how the
+program is resolved, the `program` branch above: natively `new` takes it from the
+host (`BASTION_CLAUDE_BIN` / `BASTION_CODEX_BIN` / `BASTION_PI_BIN` / `PATH`), while in
+a container `with_program` pins the bare default name (`claude` / `codex` / `pi`) so
+it resolves on the image's `PATH` rather than a host path that means nothing inside
+the image.
 
 ## The subprocess seam
 
@@ -148,13 +149,38 @@ about what is honored, so the code does not over-promise:
 | Field | Status in this build |
 | --- | --- |
 | `prompt`, `trigger`, `mode`, `name` | Fully honored. |
-| `backend` | Honored (`claude-code`, `codex`; `any` -> Claude Code; `pi` fails closed). |
+| `backend` | Honored (`claude-code`, `codex`, `pi`; `any` -> Claude Code). |
+| `model` | **Honored.** Forwarded to the backend's model selector (`--model` for Claude Code, `-m` for Codex). Backend-specific, so the registry rejects a `model` (own or inherited) under `backend: any`. Absent, Claude Code defaults to `claude-opus-4-8`; Codex resolves its own. |
+| `effort` | **Honored.** An opaque level forwarded verbatim to each backend's native control (see below). Default `high`. |
+| `defaults` (registry-wide `model`/`effort`) | **Honored.** Folded into each reviewer at load time (a reviewer's own field wins); resolution happens once, in `Config::from_yaml`, so the persisted run record carries the effective values. |
 | `timeout` | Honored by the runner. |
 | `inputs` | Honored, interpolated into the prompt. |
 | `env` | Honored, injected into the child process environment. |
 | `runner` (`dockerfile`, `image`) | **Honored.** A reviewer with a `runner` block runs its backend inside a container; `dockerfile` is built (cached by content hash), `image` is used as-is. See [Containers](./containers.md). |
 | `capabilities.network: true` | **Honored in a container, but unscoped.** A containerized reviewer's container has outbound network. The `network: false` default is *not scoped* (egress allowlisting is unimplemented), so both attach the engine's default network. A *native* `network: true` (no `runner`) fails closed: with no container there is nothing to scope. |
 | `capabilities` (`mcp`, `skills`) | **Not provisioned: fails closed.** A reviewer that declares either is failed closed by `ExecutionPlan::resolve` in `dispatch`. |
+
+### How `model` and `effort` reach each backend
+
+Model and effort are the two knobs Bastion sets on the agent CLI rather than
+leaving to its config, so a review is reproducible across machines. They resolve in
+three layers (highest first): the reviewer's own field, the registry `defaults`
+block (folded in by `Config::from_yaml`), then the backend's built-in default.
+
+Both are passed through **opaquely**: Bastion does not parse or remap either value,
+so a reviewer can use whatever vocabulary its backend accepts (Claude Code's
+`--effort` takes `low`/`medium`/`high`/`xhigh`/`max`; Codex's
+`model_reasoning_effort` takes `minimal`/`low`/`medium`/`high`). The shared
+`low`/`medium`/`high` levels are portable; the backend-specific ones are not, and a
+mismatch is the backend's problem, not a load error.
+
+`model` differs from `effort` in one respect: because a model id almost never
+overlaps across backends, a `model` under `backend: any` is a load error
+(`Config::validate`), whereas `effort` is allowed under `any` (its common values
+port). Claude Code always sends a `--model` (its built-in default is
+`claude-opus-4-8`) and always an `--effort` (default `high`); Codex always sends
+`model_reasoning_effort` (default `high`) and sends `-m` only when a model is
+pinned, otherwise it resolves its own.
 
 The unprovisioned opt-ins **fail closed** rather than silently degrading: a gate that
 declares a tier it cannot get must block, never run degraded and report a pass (see
@@ -175,10 +201,13 @@ and the [user-facing status](../user-guide/README.md#status).
    `CommandSpec` and parsing its CLI's structured-output envelope into a `Verdict`.
    Reuse `changeset_preamble`, `interpolate`, and `money_from_dollars`, and append
    `EXHAUSTIVE_FINDINGS_INSTRUCTION` to the prompt so the new backend enumerates
-   every finding in one pass like the others.
+   every finding in one pass like the others. If the CLI has no native
+   structured-output enforcement, reuse the shared fenced-YAML `SCHEMA_INSTRUCTION`,
+   `REPROMPT_SUFFIX`, and `extract_verdict` (as the Codex and Pi backends do) rather
+   than re-implementing verdict-block parsing.
 3. Wire the variant into `dispatch` in [`mod.rs`](../../src/backend/mod.rs).
-4. Test it against a fake `CommandRunner`, following `claude_code.rs` /
-   `codex.rs`: assert the args and env you build, and the parsing of a representative
+4. Test it against a fake `CommandRunner`, following `claude_code.rs` / `codex.rs` /
+   `pi.rs`: assert the args and env you build, and the parsing of a representative
    envelope, including the malformed-output retry path.
 
 `MockBackend` is *not* the template for a new backend; it is a deterministic
@@ -188,12 +217,13 @@ fake executable instead.
 ## The verdict round-trip
 
 Backends capture the agent's structured output, then validate it against the
-verdict schema: Claude Code via a JSON schema (`--json-schema`), Codex via a
-requested fenced verdict block parsed from its final message. If the agent does not produce
-complying output, the backend re-runs the *same session* with a turn that re-states
-the schema and asks for just the structured output of the work already done; only
-after that fails does it give up with an error (which the runner fails closed). The
-verdict schema itself is specified in the
+verdict schema: Claude Code via a JSON schema (`--json-schema`); Codex and Pi via a
+requested fenced YAML verdict block parsed from the final message (the shared
+`SCHEMA_INSTRUCTION` + `extract_verdict`). If the agent does not produce complying
+output, the backend re-runs the *same session* (resumed by its session/thread id)
+with a turn that re-states the schema and asks for just the structured output of the
+work already done; only after that fails does it give up with an error (which the
+runner fails closed). The verdict schema itself is specified in the
 [core design](./design.md#the-verdict).
 
 ---

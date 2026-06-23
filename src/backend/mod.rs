@@ -13,11 +13,12 @@ pub mod claude_code;
 pub mod codex;
 pub mod command;
 pub mod container;
+pub mod pi;
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use color_eyre::eyre::{Result, bail};
+use color_eyre::eyre::Result;
 
 use crate::event::RunId;
 use crate::reviewer::{self, Reviewer};
@@ -27,6 +28,7 @@ use self::claude_code::ClaudeCodeBackend;
 use self::codex::CodexBackend;
 use self::command::{CommandRunner, SystemCommandRunner};
 use self::container::{ContainerEngine, ContainerRunner, ExecutionPlan, credential_passthrough};
+use self::pi::PiBackend;
 
 /// Everything a backend is handed to run one reviewer.
 ///
@@ -113,18 +115,13 @@ impl Backend for MockBackend {
 ///
 /// # Errors
 ///
-/// Returns an error if the reviewer selects an unwired backend ([`Pi`](reviewer::Backend::Pi)),
-/// if it opts into a tier this build does not provision or declares an invalid `runner`
-/// (a `runner` with neither source, an absolute or repo-escaping `dockerfile`, or an
-/// option-like `image`; all from the [`ExecutionPlan::resolve`] preflight), if the
-/// container image cannot be built, or if the selected backend fails to run or cannot
-/// produce a verdict. The runner turns any of these into a fail-closed block for gates.
+/// Returns an error if the reviewer opts into a tier this build does not provision or
+/// declares an invalid `runner` (a `runner` with neither source, an absolute or
+/// repo-escaping `dockerfile`, or an option-like `image`; all from the
+/// [`ExecutionPlan::resolve`] preflight), if the container image cannot be built, or if
+/// the selected backend fails to run or cannot produce a verdict. The runner turns any
+/// of these into a fail-closed block for gates.
 pub async fn dispatch(request: &ReviewRequest<'_>) -> Result<ReviewOutcome> {
-    // Fail an unwired backend closed up front, before any side effects. Otherwise a
-    // `backend: pi` reviewer with a `runner` would build (and pull for) a container
-    // image only to bail at backend selection: an unimplemented backend must never
-    // cause work, let alone claim to have reviewed anything.
-    ensure_backend_wired(request.reviewer.backend, &request.reviewer.name)?;
     match ExecutionPlan::resolve(request.reviewer)? {
         ExecutionPlan::Native => {
             run_backend(request, SystemCommandRunner, Program::HostDefault).await
@@ -147,21 +144,6 @@ pub async fn dispatch(request: &ReviewRequest<'_>) -> Result<ReviewOutcome> {
     }
 }
 
-/// Fail closed if `backend` is named in the schema but not implemented in this
-/// build, so an unwired backend never causes side effects or claims a review.
-///
-/// # Errors
-///
-/// Returns an error for `Pi`, the remaining unwired backend.
-fn ensure_backend_wired(backend: reviewer::Backend, reviewer: &str) -> Result<()> {
-    match backend {
-        reviewer::Backend::Any | reviewer::Backend::ClaudeCode | reviewer::Backend::Codex => Ok(()),
-        reviewer::Backend::Pi => {
-            bail!("the pi backend is not yet wired in this build (reviewer '{reviewer}')")
-        }
-    }
-}
-
 /// How a backend resolves its program: from the host, or as the bare in-container
 /// name.
 #[derive(Debug, Clone, Copy)]
@@ -175,10 +157,9 @@ enum Program {
 /// Select the concrete backend for `request` and run it over `runner`.
 ///
 /// Shared by the native and container paths so backend selection lives in one place;
-/// only how the program is resolved differs. `dispatch` already rejected an unwired
-/// backend via [`ensure_backend_wired`], so the `Pi` arm here is an unreachable
-/// safety net kept for match exhaustiveness: an unimplemented backend must never
-/// claim to have reviewed anything.
+/// only how the program is resolved differs. The match is exhaustive over the wired
+/// backends; every named [`reviewer::Backend`] has a real implementation, so no arm
+/// fails closed for being unimplemented.
 async fn run_backend<R: CommandRunner>(
     request: &ReviewRequest<'_>,
     runner: R,
@@ -203,11 +184,14 @@ async fn run_backend<R: CommandRunner>(
                     .await
             }
         },
-        // Sibling backends implement the same trait; wire them here as they land.
-        reviewer::Backend::Pi => bail!(
-            "the pi backend is not yet wired in this build (reviewer '{}')",
-            request.reviewer.name
-        ),
+        reviewer::Backend::Pi => match program {
+            Program::HostDefault => PiBackend::new(runner).review(request).await,
+            Program::InContainer => {
+                PiBackend::with_program(runner, pi::DEFAULT_PROGRAM)
+                    .review(request)
+                    .await
+            }
+        },
     }
 }
 
@@ -317,6 +301,104 @@ fn money_from_dollars(dollars: f64) -> Money {
     Money::from_cents(cents)
 }
 
+/// The instruction appended to every review prompt pinning the verdict schema, for
+/// backends that have no native structured-output enforcement and instead ask the
+/// agent to end its final message with a fenced YAML verdict block (Codex, Pi).
+pub(super) const SCHEMA_INSTRUCTION: &str = "\
+When you are done reviewing, end your final message with the structured verdict \
+and nothing after it, as a fenced YAML code block matching exactly this schema:\n\
+```yaml\n\
+verdict: pass | block        # the authoritative gate decision\n\
+summary: \"...\"               # one-line human-friendly summary\n\
+findings:                    # list every issue you find; a block carries >=1 blocking\n\
+  - kind: blocking | optional\n\
+    path: relative/file/path\n\
+    line_start: 1\n\
+    line_end: 1\n\
+    detail: \"...\"\n\
+```";
+
+/// The instruction used when re-prompting a fenced-YAML backend for just the
+/// structured output, after its first message lacked a conforming verdict.
+pub(super) const REPROMPT_SUFFIX: &str = "\
+Your previous response did not contain a valid structured verdict. Do not perform \
+any further work. Reply with ONLY the fenced YAML verdict block described above, \
+for the review you already completed, and nothing else.";
+
+/// Extract a schema-conforming, internally-consistent [`Verdict`] from `message`.
+///
+/// Tries the last fenced code block, then the entire message, parsing each as
+/// YAML (a superset of JSON, so JSON verdicts parse too). A verdict that parses
+/// but is inconsistent (e.g. a `block` with no blocking finding) is rejected so
+/// the caller fails closed rather than trusting a malformed gate decision. Shared
+/// by the fenced-YAML backends (Codex, Pi) so they read an agent's final message
+/// identically.
+pub(super) fn extract_verdict(message: &str) -> Option<Verdict> {
+    for candidate in verdict_candidates(message) {
+        if let Ok(verdict) = serde_yaml_ng::from_str::<Verdict>(&candidate)
+            && verdict.is_consistent()
+        {
+            return Some(verdict);
+        }
+    }
+    None
+}
+
+/// Candidate verdict texts to attempt parsing, most-specific first: each fenced
+/// code block (last to first), then the whole message.
+fn verdict_candidates(message: &str) -> Vec<String> {
+    let mut candidates: Vec<String> = fenced_blocks(message);
+    candidates.reverse();
+    candidates.push(message.to_string());
+    candidates
+}
+
+/// Extract the contents of every fenced code block in `message`, in source
+/// order, following CommonMark fence matching: a fence opens with three or more
+/// backticks and only closes on a line with at least as many backticks. An
+/// optional info string (e.g. ```` ```yaml ````) on the opening fence is dropped.
+///
+/// Tracking the opening fence length means a longer outer fence can wrap a block
+/// that itself contains shorter ` ``` ` runs without being closed prematurely.
+fn fenced_blocks(message: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut open_len: Option<usize> = None;
+    let mut current = String::new();
+    for line in message.lines() {
+        let ticks = leading_backticks(line);
+        match open_len {
+            // Inside a block: close only on a fence at least as long, that is
+            // *only* backticks (a closing fence carries no info string).
+            Some(len) if ticks >= len && is_bare_fence(line) => {
+                blocks.push(std::mem::take(&mut current));
+                open_len = None;
+            }
+            Some(_) => {
+                current.push_str(line);
+                current.push('\n');
+            }
+            // Outside a block: a run of three or more backticks opens one.
+            None if ticks >= 3 => {
+                open_len = Some(ticks);
+                current.clear();
+            }
+            None => {}
+        }
+    }
+    blocks
+}
+
+/// The number of leading backticks on `line` after stripping indentation.
+fn leading_backticks(line: &str) -> usize {
+    line.trim_start().chars().take_while(|&c| c == '`').count()
+}
+
+/// Whether `line` (after indentation) is only backticks, a valid closing fence.
+fn is_bare_fence(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    !trimmed.is_empty() && trimmed.chars().all(|c| c == '`')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,12 +449,71 @@ mod tests {
         assert_eq!(money_from_dollars(f64::INFINITY).cents(), 0);
     }
 
+    // -- Shared fenced-YAML verdict extraction (used by the Codex and Pi backends) --
+
+    #[test]
+    fn fenced_blocks_extracts_last_block() {
+        let message = "intro\n```\nfirst\n```\nmiddle\n```yaml\nsecond\n```\n";
+        let blocks = fenced_blocks(message);
+        assert_eq!(blocks, vec!["first\n".to_string(), "second\n".to_string()]);
+    }
+
+    #[test]
+    fn fenced_blocks_respects_longer_outer_fences() {
+        let message = "````markdown\nhere is an example:\n```\ninner\n```\ndone\n````\n";
+        let blocks = fenced_blocks(message);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].contains("inner"));
+        assert!(blocks[0].contains("```"));
+        assert!(blocks[0].contains("done"));
+    }
+
+    #[test]
+    fn fenced_blocks_does_not_treat_info_string_lines_as_closers() {
+        let message = "```\nverdict: pass\n```yaml not a closer\nsummary: ok\n```\n";
+        let blocks = fenced_blocks(message);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].contains("```yaml not a closer"));
+        assert!(blocks[0].contains("summary: ok"));
+    }
+
+    #[test]
+    fn extract_verdict_prefers_last_fenced_block() {
+        let message = "\
+```text
+not a verdict
+```
+```yaml
+verdict: pass
+summary: chosen
+```";
+        let verdict = extract_verdict(message).expect("finds the verdict block");
+        assert_eq!(verdict.summary, "chosen");
+    }
+
+    #[test]
+    fn extract_verdict_falls_back_to_whole_message() {
+        let message = "verdict: pass\nsummary: bare yaml\n";
+        let verdict = extract_verdict(message).expect("parses bare yaml");
+        assert_eq!(verdict.summary, "bare yaml");
+    }
+
+    #[test]
+    fn extract_verdict_rejects_an_inconsistent_block() {
+        // A `block` with no blocking finding is internally inconsistent, so it must
+        // not be accepted: the caller reprompts and ultimately fails closed.
+        let message = "```yaml\nverdict: block\nsummary: no reason\nfindings: []\n```";
+        assert!(extract_verdict(message).is_none());
+    }
+
     fn reviewer(backend: reviewer::Backend) -> Reviewer {
         Reviewer {
             name: "demo".into(),
             trigger: vec!["**".into()],
             mode: Mode::Gate,
             backend,
+            model: None,
+            effort: None,
             timeout: None,
             runner: None,
             env: Default::default(),
@@ -398,46 +539,6 @@ mod tests {
         assert_eq!(outcome.verdict.decision, Decision::Pass);
         assert!(outcome.verdict.summary.contains("demo"));
         assert_eq!(MockBackend.id(), reviewer::Backend::Any);
-    }
-
-    #[tokio::test]
-    async fn dispatch_rejects_unwired_backends() {
-        // Pi is the remaining unwired backend; Claude Code and Codex are wired.
-        let reviewer = reviewer(reviewer::Backend::Pi);
-        let run = RunId("r".into());
-        let root = PathBuf::from(".");
-        let request = ReviewRequest {
-            reviewer: &reviewer,
-            run: &run,
-            repo_root: &root,
-            base: "main",
-        };
-        let err = dispatch(&request).await.unwrap_err();
-        assert!(err.to_string().contains("pi backend is not yet wired"));
-    }
-
-    #[tokio::test]
-    async fn dispatch_rejects_an_unwired_backend_before_building_a_container() {
-        // A `backend: pi` reviewer with a `runner` must fail closed *before* the
-        // engine is touched: dispatch checks the backend up front, so a Pi reviewer
-        // never builds or pulls an image. If it did reach `ensure_image`, on a host
-        // with no engine that would surface as a spawn failure, not the pi error, so
-        // asserting the pi error proves no build was attempted.
-        let mut reviewer = reviewer(reviewer::Backend::Pi);
-        reviewer.runner = Some(crate::reviewer::RunnerSpec {
-            dockerfile: Some("Dockerfile".into()),
-            image: None,
-        });
-        let run = RunId("r".into());
-        let root = PathBuf::from(".");
-        let request = ReviewRequest {
-            reviewer: &reviewer,
-            run: &run,
-            repo_root: &root,
-            base: "main",
-        };
-        let err = dispatch(&request).await.unwrap_err();
-        assert!(err.to_string().contains("pi backend is not yet wired"));
     }
 
     #[tokio::test]

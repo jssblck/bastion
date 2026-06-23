@@ -159,6 +159,23 @@ impl<R: CommandRunner> CodexBackend<R> {
         for arg in &leading {
             spec.arg(arg);
         }
+        // Pin model and reasoning effort when set. Codex has no Bastion house
+        // default model (it resolves its own), so a model only appears when a
+        // reviewer or the registry default pins one. Effort always applies: absent,
+        // the house default (high) flows through. The effort value rides `-c
+        // model_reasoning_effort=...`, whose RHS is parsed as TOML, so it is quoted
+        // to land as a string literal.
+        if let Some(model) = &request.reviewer.model {
+            spec.arg("-m").arg(model.as_str());
+        }
+        spec.arg("-c").arg(format!(
+            "model_reasoning_effort=\"{}\"",
+            request
+                .reviewer
+                .effort
+                .as_ref()
+                .map_or(reviewer::DEFAULT_EFFORT, reviewer::Effort::as_str)
+        ));
         spec.arg("-");
         spec.stdin(prompt);
         for (key, value) in &request.reviewer.env {
@@ -206,8 +223,8 @@ impl<R: CommandRunner> Backend for CodexBackend<R> {
         // already holds the review). Without a thread id we fall back to a fresh
         // session and must re-send the full prompt.
         let reprompt_text = match session.thread_id.as_deref() {
-            Some(_) => REPROMPT_SUFFIX.to_string(),
-            None => format!("{prompt}\n\n{REPROMPT_SUFFIX}"),
+            Some(_) => super::REPROMPT_SUFFIX.to_string(),
+            None => format!("{prompt}\n\n{}", super::REPROMPT_SUFFIX),
         };
         let retry = self.reprompt_spec(request, session.thread_id.as_deref(), &reprompt_text);
         let retry_session = self.run_once(&retry).await?;
@@ -244,27 +261,6 @@ fn outcome(verdict: Verdict, session: CodexSession, prior: Option<&CodexSession>
     }
 }
 
-/// The instruction appended to every review prompt pinning the verdict schema.
-const SCHEMA_INSTRUCTION: &str = "\
-When you are done reviewing, end your final message with the structured verdict \
-and nothing after it, as a fenced YAML code block matching exactly this schema:\n\
-```yaml\n\
-verdict: pass | block        # the authoritative gate decision\n\
-summary: \"...\"               # one-line human-friendly summary\n\
-findings:                    # list every issue you find; a block carries >=1 blocking\n\
-  - kind: blocking | optional\n\
-    path: relative/file/path\n\
-    line_start: 1\n\
-    line_end: 1\n\
-    detail: \"...\"\n\
-```";
-
-/// The instruction used when re-prompting for just the structured output.
-const REPROMPT_SUFFIX: &str = "\
-Your previous response did not contain a valid structured verdict. Do not perform \
-any further work. Reply with ONLY the fenced YAML verdict block described above, \
-for the review you already completed, and nothing else.";
-
 /// Build the full prompt handed to Codex for `request`: the shared changeset
 /// preamble (how to see the diff against the base branch), the interpolated review
 /// instruction, the shared exhaustive-findings instruction (report every issue in
@@ -274,7 +270,8 @@ fn build_prompt(request: &ReviewRequest<'_>) -> String {
     let preamble = super::changeset_preamble(request.base);
     let interpolated = super::interpolate(&reviewer.prompt, &reviewer.inputs);
     let exhaustive = super::EXHAUSTIVE_FINDINGS_INSTRUCTION;
-    format!("{preamble}\n\n{interpolated}\n\n{exhaustive}\n\n{SCHEMA_INSTRUCTION}")
+    let schema = super::SCHEMA_INSTRUCTION;
+    format!("{preamble}\n\n{interpolated}\n\n{exhaustive}\n\n{schema}")
 }
 
 /// A parsed Codex `exec --json` session: the reconstructed transcript, the final
@@ -343,80 +340,8 @@ impl CodexSession {
     /// Parse the final agent message into a [`Verdict`], if it carries one.
     fn parse_verdict(&self) -> Option<Verdict> {
         let message = self.last_message.as_deref()?;
-        extract_verdict(message)
+        super::extract_verdict(message)
     }
-}
-
-/// Extract a schema-conforming, internally-consistent [`Verdict`] from `message`.
-///
-/// Tries the last fenced code block, then the entire message, parsing each as
-/// YAML (a superset of JSON, so JSON verdicts parse too). A verdict that parses
-/// but is inconsistent (e.g. a `block` with no blocking finding) is rejected so
-/// the caller fails closed rather than trusting a malformed gate decision.
-fn extract_verdict(message: &str) -> Option<Verdict> {
-    for candidate in verdict_candidates(message) {
-        if let Ok(verdict) = serde_yaml_ng::from_str::<Verdict>(&candidate)
-            && verdict.is_consistent()
-        {
-            return Some(verdict);
-        }
-    }
-    None
-}
-
-/// Candidate verdict texts to attempt parsing, most-specific first: each fenced
-/// code block (last to first), then the whole message.
-fn verdict_candidates(message: &str) -> Vec<String> {
-    let mut candidates: Vec<String> = fenced_blocks(message);
-    candidates.reverse();
-    candidates.push(message.to_string());
-    candidates
-}
-
-/// Extract the contents of every fenced code block in `message`, in source
-/// order, following CommonMark fence matching: a fence opens with three or more
-/// backticks and only closes on a line with at least as many backticks. An
-/// optional info string (e.g. ```` ```yaml ````) on the opening fence is dropped.
-///
-/// Tracking the opening fence length means a longer outer fence can wrap a block
-/// that itself contains shorter ` ``` ` runs without being closed prematurely.
-fn fenced_blocks(message: &str) -> Vec<String> {
-    let mut blocks = Vec::new();
-    let mut open_len: Option<usize> = None;
-    let mut current = String::new();
-    for line in message.lines() {
-        let ticks = leading_backticks(line);
-        match open_len {
-            // Inside a block: close only on a fence at least as long, that is
-            // *only* backticks (a closing fence carries no info string).
-            Some(len) if ticks >= len && is_bare_fence(line) => {
-                blocks.push(std::mem::take(&mut current));
-                open_len = None;
-            }
-            Some(_) => {
-                current.push_str(line);
-                current.push('\n');
-            }
-            // Outside a block: a run of three or more backticks opens one.
-            None if ticks >= 3 => {
-                open_len = Some(ticks);
-                current.clear();
-            }
-            None => {}
-        }
-    }
-    blocks
-}
-
-/// The number of leading backticks on `line` after stripping indentation.
-fn leading_backticks(line: &str) -> usize {
-    line.trim_start().chars().take_while(|&c| c == '`').count()
-}
-
-/// Whether `line` (after indentation) is only backticks, a valid closing fence.
-fn is_bare_fence(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    !trimmed.is_empty() && trimmed.chars().all(|c| c == '`')
 }
 
 /// One event in a Codex `exec --json` stream.
@@ -714,6 +639,8 @@ mod tests {
             trigger: vec!["**".into()],
             mode: Mode::Gate,
             backend: reviewer::Backend::Codex,
+            model: None,
+            effort: None,
             timeout: None,
             runner: None,
             env: Default::default(),
@@ -743,6 +670,37 @@ mod tests {
         let outcome = backend.review(&req).await;
         let specs = backend.runner.specs();
         (outcome, specs)
+    }
+
+    #[tokio::test]
+    async fn applies_house_default_effort_and_no_model_when_unset() {
+        let message = "```yaml\nverdict: pass\nsummary: ok\nfindings: []\n```";
+        let (_, specs) = review_with(&reviewer(), [ok_output(stream(&[message], None))]).await;
+        let args = args_of(&specs[0]);
+        // No model pinned: Codex resolves its own, so `-m` is absent.
+        assert!(!args.iter().any(|a| a == "-m"), "got args: {args:?}");
+        // Effort always applies; absent, the house default (high) flows through.
+        assert!(
+            args.contains(&"model_reasoning_effort=\"high\"".to_string()),
+            "got args: {args:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn pins_model_and_forwards_effort_verbatim() {
+        let message = "```yaml\nverdict: pass\nsummary: ok\nfindings: []\n```";
+        let mut rev = reviewer();
+        rev.model = Some(serde_yaml_ng::from_str("gpt-5").unwrap());
+        // A Codex-specific level: forwarded as-is, no remapping.
+        rev.effort = Some(serde_yaml_ng::from_str("minimal").unwrap());
+        let (_, specs) = review_with(&rev, [ok_output(stream(&[message], None))]).await;
+        let args = args_of(&specs[0]);
+        let m = args
+            .iter()
+            .position(|a| a == "-m")
+            .expect("model flag present");
+        assert_eq!(args[m + 1], "gpt-5");
+        assert!(args.contains(&"model_reasoning_effort=\"minimal\"".to_string()));
     }
 
     #[tokio::test]
@@ -1073,53 +1031,6 @@ findings:
     }
 
     // -- Pure parsing-helper unit tests ---------------------------------------
-
-    #[test]
-    fn fenced_blocks_extracts_last_block() {
-        let message = "intro\n```\nfirst\n```\nmiddle\n```yaml\nsecond\n```\n";
-        let blocks = fenced_blocks(message);
-        assert_eq!(blocks, vec!["first\n".to_string(), "second\n".to_string()]);
-    }
-
-    #[test]
-    fn fenced_blocks_respects_longer_outer_fences() {
-        let message = "````markdown\nhere is an example:\n```\ninner\n```\ndone\n````\n";
-        let blocks = fenced_blocks(message);
-        assert_eq!(blocks.len(), 1);
-        assert!(blocks[0].contains("inner"));
-        assert!(blocks[0].contains("```"));
-        assert!(blocks[0].contains("done"));
-    }
-
-    #[test]
-    fn fenced_blocks_does_not_treat_info_string_lines_as_closers() {
-        let message = "```\nverdict: pass\n```yaml not a closer\nsummary: ok\n```\n";
-        let blocks = fenced_blocks(message);
-        assert_eq!(blocks.len(), 1);
-        assert!(blocks[0].contains("```yaml not a closer"));
-        assert!(blocks[0].contains("summary: ok"));
-    }
-
-    #[test]
-    fn extract_verdict_prefers_last_fenced_block() {
-        let message = "\
-```text
-not a verdict
-```
-```yaml
-verdict: pass
-summary: chosen
-```";
-        let verdict = extract_verdict(message).expect("finds the verdict block");
-        assert_eq!(verdict.summary, "chosen");
-    }
-
-    #[test]
-    fn extract_verdict_falls_back_to_whole_message() {
-        let message = "verdict: pass\nsummary: bare yaml\n";
-        let verdict = extract_verdict(message).expect("parses bare yaml");
-        assert_eq!(verdict.summary, "bare yaml");
-    }
 
     #[test]
     fn parse_rejects_empty_stream() {

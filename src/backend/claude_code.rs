@@ -27,6 +27,12 @@ pub const PROGRAM_ENV: &str = "BASTION_CLAUDE_BIN";
 /// The default program name, resolved on `PATH` when [`PROGRAM_ENV`] is unset.
 pub const DEFAULT_PROGRAM: &str = "claude";
 
+/// Bastion's house default model for this backend, used when a reviewer (and the
+/// registry default) pin none. Opus 4.8 at the default [`Effort`](reviewer::Effort)
+/// is the out-of-the-box experience; the explicit id keeps a review reproducible
+/// rather than following whatever `claude` would otherwise pick.
+const DEFAULT_MODEL: &str = "claude-opus-4-8";
+
 /// The JSON Schema Bastion asks `claude` to constrain its final output to. It is
 /// the wire form of [`Verdict`]: `verdict`, `summary`, and `findings`.
 const VERDICT_SCHEMA: &str = r#"{
@@ -104,6 +110,23 @@ impl<R: CommandRunner> ClaudeCodeBackend<R> {
             // headless run does not wedge.
             .arg("--permission-mode")
             .arg("bypassPermissions");
+
+        // Pin the model and reasoning effort. A reviewer (or the registry default)
+        // may set either; absent, Bastion's house default for this backend applies
+        // (Opus 4.8 at high effort) rather than deferring to the CLI's own config,
+        // so a review is reproducible across machines.
+        spec.arg("--model").arg(
+            reviewer
+                .model
+                .as_ref()
+                .map_or(DEFAULT_MODEL, reviewer::ModelId::as_str),
+        );
+        spec.arg("--effort").arg(
+            reviewer
+                .effort
+                .as_ref()
+                .map_or(reviewer::DEFAULT_EFFORT, reviewer::Effort::as_str),
+        );
 
         // The `mcp` and `skills` capability opt-ins are not provisioned in this
         // build, and a native `network: true` fails closed: `dispatch` rejects such a
@@ -481,6 +504,8 @@ mod tests {
             trigger: vec!["**".into()],
             mode: Mode::Gate,
             backend: reviewer::Backend::ClaudeCode,
+            model: None,
+            effort: None,
             timeout: None,
             runner: None,
             env: Default::default(),
@@ -505,6 +530,52 @@ mod tests {
             base: "main",
         };
         backend.review(&request).await
+    }
+
+    fn pass_envelope() -> String {
+        serde_json::json!({
+            "session_id": "s-1",
+            "structured_output": { "verdict": "pass", "summary": "ok", "findings": [] }
+        })
+        .to_string()
+    }
+
+    /// Run one review and return the recorded args of the first (and only) turn.
+    async fn first_turn_args(reviewer: &Reviewer) -> Vec<String> {
+        let runner = ScriptedRunner::with(vec![ok(&pass_envelope())]);
+        let backend = ClaudeCodeBackend::with_program(runner, "claude-fake");
+        let run = RunId("r-test".into());
+        let root = PathBuf::from(".");
+        let request = ReviewRequest {
+            reviewer,
+            run: &run,
+            repo_root: &root,
+            base: "main",
+        };
+        backend.review(&request).await.expect("verdict parses");
+        backend.runner.nth_args(0)
+    }
+
+    #[tokio::test]
+    async fn pins_the_house_default_model_and_effort_when_unset() {
+        let args = first_turn_args(&reviewer()).await;
+        let m = args.iter().position(|a| a == "--model").expect("--model");
+        assert_eq!(args[m + 1], "claude-opus-4-8");
+        let e = args.iter().position(|a| a == "--effort").expect("--effort");
+        assert_eq!(args[e + 1], "high");
+    }
+
+    #[tokio::test]
+    async fn explicit_model_and_effort_override_the_house_default() {
+        let mut rev = reviewer();
+        rev.model = Some(serde_yaml_ng::from_str("claude-sonnet-4-6").unwrap());
+        // A Claude-specific level: the opaque value is forwarded verbatim.
+        rev.effort = Some(serde_yaml_ng::from_str("xhigh").unwrap());
+        let args = first_turn_args(&rev).await;
+        let m = args.iter().position(|a| a == "--model").expect("--model");
+        assert_eq!(args[m + 1], "claude-sonnet-4-6");
+        let e = args.iter().position(|a| a == "--effort").expect("--effort");
+        assert_eq!(args[e + 1], "xhigh");
     }
 
     #[tokio::test]

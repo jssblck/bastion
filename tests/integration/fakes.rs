@@ -1,7 +1,7 @@
 //! The compiled fakes and the detect-and-skip tooling guards.
 //!
 //! These stand in for the heavyweight external programs the real backends shell
-//! out to: a deterministic, contract-checking fake agent for claude/codex, and a
+//! out to: a deterministic, contract-checking fake agent for claude/codex/pi, and a
 //! fake container engine for docker/podman. Both are compiled once with `rustc`
 //! and reused for the whole test process; scenarios that need a toolchain we
 //! cannot guarantee detect-and-skip through [`tooling`] / [`container_tooling`].
@@ -14,11 +14,12 @@ use std::sync::OnceLock;
 // The fake agent: a deterministic, contract-checking stand-in for claude/codex.
 // ---------------------------------------------------------------------------
 
-/// Source for a tiny native program that emulates both agent CLIs.
+/// Source for a tiny native program that emulates the three agent CLIs.
 ///
 /// It detects which protocol it is being driven as from its argv (Codex is
-/// invoked with an `exec` subcommand; Claude with `--output-format`), detects a
-/// reprompt turn (Codex `resume` / Claude `--resume`), validates the invocation
+/// invoked with an `exec` subcommand; Pi with `--mode`; Claude with
+/// `--output-format`), detects a reprompt turn (Codex `resume` / Pi `--session` /
+/// Claude `--resume`), validates the invocation
 /// against the contract each backend promises, and then chooses its output from
 /// the `FAKE_BEHAVIOR` environment variable Bastion propagates from the reviewer:
 ///
@@ -58,16 +59,20 @@ fn fail(reason: &str) -> ! {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let is_codex = has(&args, "exec");
-    let is_reprompt = has(&args, "resume") || has(&args, "--resume");
+    // Pi is driven in print mode with `--mode json`; neither Codex nor Claude uses
+    // `--mode`, so it is the unambiguous discriminator.
+    let is_pi = has(&args, "--mode");
+    let is_reprompt =
+        has(&args, "resume") || has(&args, "--resume") || has(&args, "--session");
 
     // Drain stdin so a parent piping a prompt over it never blocks on a full pipe.
     let mut stdin = String::new();
     let _ = std::io::stdin().read_to_string(&mut stdin);
 
-    // The prompt is delivered over stdin by Codex (the trailing `-`) and over argv
-    // by Claude (`-p <prompt>`). Recover whichever applies so the contract checks
-    // can confirm it actually arrived.
-    let prompt = if is_codex {
+    // The prompt is delivered over stdin by Codex (the trailing `-`) and Pi (print
+    // mode reads the task from stdin), and over argv by Claude (`-p <prompt>`).
+    // Recover whichever applies so the contract checks can confirm it arrived.
+    let prompt = if is_codex || is_pi {
         stdin.clone()
     } else {
         let mut found = String::new();
@@ -101,6 +106,18 @@ fn main() {
         if is_reprompt && !has(&args, "th-fake") {
             fail("codex: reprompt did not resume the reported thread id `th-fake`");
         }
+    } else if is_pi {
+        for flag in ["-p", "--mode", "json"] {
+            if !has(&args, flag) {
+                fail(&format!("pi: missing `{flag}`"));
+            }
+        }
+        if stdin.trim().is_empty() {
+            fail("pi: no prompt was piped over stdin");
+        }
+        if is_reprompt && !has(&args, "pi-fake") {
+            fail("pi: reprompt did not resume the reported session id `pi-fake`");
+        }
     } else {
         for flag in ["--output-format", "--json-schema", "--permission-mode", "bypassPermissions", "-p"] {
             if !has(&args, flag) {
@@ -109,6 +126,30 @@ fn main() {
         }
         if is_reprompt && !has(&args, "s-fake") {
             fail("claude: reprompt did not resume the reported session id `s-fake`");
+        }
+    }
+
+    // If asked, assert the model/effort selectors reached the argv, so a test can
+    // prove the registry's model/effort (own or inherited from `defaults`) is
+    // honored end to end. The selectors differ per backend.
+    if let Ok(model) = std::env::var("FAKE_EXPECT_MODEL") {
+        if !model.is_empty() {
+            let flag = if is_codex { "-m" } else { "--model" };
+            if !has(&args, flag) || !has(&args, &model) {
+                fail(&format!("expected model `{model}` via `{flag}` not on the argv"));
+            }
+        }
+    }
+    if let Ok(effort) = std::env::var("FAKE_EXPECT_EFFORT") {
+        if !effort.is_empty() {
+            let needle = if is_codex {
+                format!("model_reasoning_effort=\"{effort}\"")
+            } else {
+                effort.clone()
+            };
+            if !has(&args, &needle) {
+                fail(&format!("expected effort `{effort}` (needle `{needle}`) not on the argv"));
+            }
         }
     }
 
@@ -172,9 +213,54 @@ fn main() {
 
     if is_codex {
         emit_codex(effective, &summary, &dollars, tin, tout);
+    } else if is_pi {
+        emit_pi(effective, &summary, &dollars, tin, tout);
     } else {
         emit_claude(effective, &summary, &dollars, tin, tout);
     }
+}
+
+fn emit_pi(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64) {
+    // The session event carries the id the backend resumes by on a reprompt.
+    println!("{}", r#"{"type":"session","id":"pi-fake"}"#);
+
+    // The verdict travels as the text of an assistant `message_end`, a fenced YAML
+    // block. The `\n` are JSON string escapes: serde_json decodes them into real
+    // newlines when the backend parses the line, so the fenced block splits.
+    let mut text = String::new();
+    match behavior {
+        "block" => {
+            text.push_str(r#"```yaml\nverdict: block\nsummary: "#);
+            text.push_str(summary);
+            text.push_str(r#"\nfindings:\n  - kind: blocking\n    path: src/extra.rs\n    line_start: 1\n    line_end: 1\n    detail: simulated blocking finding\n```"#);
+        }
+        "inconsistent" => {
+            // A `block` with no blocking finding: internally inconsistent.
+            text.push_str(r#"```yaml\nverdict: block\nsummary: "#);
+            text.push_str(summary);
+            text.push_str(r#"\nfindings: []\n```"#);
+        }
+        "malformed" => {
+            text.push_str("I looked at the changeset but I will not give a verdict.");
+        }
+        _ => {
+            text.push_str(r#"```yaml\nverdict: pass\nsummary: "#);
+            text.push_str(summary);
+            text.push_str(r#"\nfindings: []\n```"#);
+        }
+    }
+
+    let mut line = String::new();
+    line.push_str(r#"{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":""#);
+    line.push_str(&text);
+    line.push_str(r#""}],"usage":{"input":"#);
+    line.push_str(&tin.to_string());
+    line.push_str(r#","output":"#);
+    line.push_str(&tout.to_string());
+    line.push_str(r#","cost":{"total":"#);
+    line.push_str(dollars);
+    line.push_str(r#"}}}}"#);
+    println!("{}", line);
 }
 
 fn emit_codex(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64) {

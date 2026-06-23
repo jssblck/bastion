@@ -59,6 +59,10 @@ pub(crate) struct Reviewer {
     runner_dockerfile: Option<&'static str>,
     /// A `runner.image` reference, when containerized off a prebuilt image.
     runner_image: Option<&'static str>,
+    /// A pinned `model`, when the reviewer selects one explicitly.
+    model: Option<&'static str>,
+    /// A pinned `effort`, when the reviewer selects one explicitly.
+    effort: Option<&'static str>,
     /// The prompt body (defaults to a generic instruction).
     prompt: Option<&'static str>,
 }
@@ -74,8 +78,22 @@ impl Reviewer {
             timeout: None,
             runner_dockerfile: None,
             runner_image: None,
+            model: None,
+            effort: None,
             prompt: None,
         }
+    }
+
+    /// Pin the reviewer's `model`.
+    pub(crate) fn model(mut self, model: &'static str) -> Self {
+        self.model = Some(model);
+        self
+    }
+
+    /// Pin the reviewer's `effort`.
+    pub(crate) fn effort(mut self, effort: &'static str) -> Self {
+        self.effort = Some(effort);
+        self
     }
 
     pub(crate) fn behavior(mut self, behavior: &'static str) -> Self {
@@ -122,6 +140,12 @@ impl Reviewer {
         s.push_str("    trigger: [src/**/*.rs]\n");
         s.push_str(&format!("    mode: {}\n", self.mode));
         s.push_str(&format!("    backend: {}\n", self.backend));
+        if let Some(model) = self.model {
+            s.push_str(&format!("    model: {model}\n"));
+        }
+        if let Some(effort) = self.effort {
+            s.push_str(&format!("    effort: {effort}\n"));
+        }
         if let Some(timeout) = self.timeout {
             s.push_str(&format!("    timeout: {timeout}\n"));
         }
@@ -155,6 +179,22 @@ impl Reviewer {
 
 pub(crate) fn registry(reviewers: &[Reviewer]) -> String {
     let mut yaml = String::from("reviewers:\n");
+    for reviewer in reviewers {
+        yaml.push_str(&reviewer.to_yaml());
+    }
+    yaml
+}
+
+/// A registry with a top-level `defaults:` block. Each `(key, value)` becomes one
+/// line under `defaults:` (for example `("model", "gpt-5")`, `("effort", "high")`),
+/// so a scenario can prove the block resolves into reviewers through the real load
+/// path.
+pub(crate) fn registry_with_defaults(defaults: &[(&str, &str)], reviewers: &[Reviewer]) -> String {
+    let mut yaml = String::from("defaults:\n");
+    for (key, value) in defaults {
+        yaml.push_str(&format!("  {key}: {value}\n"));
+    }
+    yaml.push_str("reviewers:\n");
     for reviewer in reviewers {
         yaml.push_str(&reviewer.to_yaml());
     }
@@ -267,6 +307,7 @@ impl TestRepo {
             .env("BASTION_DATA_DIR", self.data.path())
             .env("BASTION_CLAUDE_BIN", fake)
             .env("BASTION_CODEX_BIN", fake)
+            .env("BASTION_PI_BIN", fake)
             // Keep stdout pure JSONL; route library logging away from the stream.
             .env("RUST_LOG", "error")
             .stdin(Stdio::null());
