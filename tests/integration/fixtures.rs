@@ -59,6 +59,9 @@ pub(crate) struct Reviewer {
     runner_dockerfile: Option<&'static str>,
     /// A `runner.image` reference, when containerized off a prebuilt image.
     runner_image: Option<&'static str>,
+    /// `capabilities.network: true`, required for a containerized reviewer to run
+    /// (a container with the default `network: false` fails closed).
+    network: bool,
     /// A pinned `model`, when the reviewer selects one explicitly.
     model: Option<&'static str>,
     /// A pinned `effort`, when the reviewer selects one explicitly.
@@ -78,6 +81,7 @@ impl Reviewer {
             timeout: None,
             runner_dockerfile: None,
             runner_image: None,
+            network: false,
             model: None,
             effort: None,
             prompt: None,
@@ -134,6 +138,13 @@ impl Reviewer {
         self
     }
 
+    /// Opt into `capabilities.network: true`. A containerized reviewer must set this
+    /// to run (a container with the default `network: false` fails closed).
+    pub(crate) fn network(mut self) -> Self {
+        self.network = true;
+        self
+    }
+
     fn to_yaml(&self) -> String {
         let mut s = String::new();
         s.push_str(&format!("  - name: {}\n", self.name));
@@ -157,6 +168,9 @@ impl Reviewer {
             if let Some(image) = self.runner_image {
                 s.push_str(&format!("      image: {image}\n"));
             }
+        }
+        if self.network {
+            s.push_str("    capabilities:\n      network: true\n");
         }
         if !self.env.is_empty() {
             s.push_str("    env:\n");
