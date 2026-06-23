@@ -48,6 +48,19 @@ use super::client::{ApiRequest, ApiResponse, GitHubApi, IssueComment};
 /// rendered comment.
 pub const MARKER: &str = "<!-- bastion-report -->";
 
+/// The hosted walkthrough for creating the dedicated Bastion GitHub App. Linked
+/// from the comment footer when the report is posting under the shared
+/// `github-actions` identity (see [`SHARED_APP_SLUG`]).
+const SETUP_URL: &str = "https://bastion.jessica.black/github-app";
+
+/// The `app.slug` GitHub stamps on check runs created with the default Actions
+/// `GITHUB_TOKEN`. Check runs created by a distinct GitHub App carry that app's
+/// slug instead and form their own named check suite; ones created under this
+/// shared identity cannot, so with other workflows on the commit they cluster
+/// beneath one of those. Detecting this slug in a check-run response is how the
+/// report decides, on its own, whether to nudge toward a dedicated app.
+const SHARED_APP_SLUG: &str = "github-actions";
+
 /// GitHub accepts at most 50 annotations per check-run request. We cap to that and
 /// note any overflow in the check summary rather than silently dropping it.
 const MAX_ANNOTATIONS: usize = 50;
@@ -225,7 +238,10 @@ fn aggregate_conclusion(digest: &RunDigest) -> Conclusion {
 // ---------------------------------------------------------------------------
 
 /// Render the sticky PR comment body (Markdown), led by the hidden [`MARKER`].
-fn comment_body(digest: &RunDigest) -> String {
+///
+/// `suggest_dedicated_app` adds a one-line footer nudge; the caller computes it from
+/// the posting identity (see [`report`]).
+fn comment_body(digest: &RunDigest, suggest_dedicated_app: bool) -> String {
     let mut out = String::new();
     out.push_str(MARKER);
     out.push('\n');
@@ -235,7 +251,7 @@ fn comment_body(digest: &RunDigest) -> String {
 
     if digest.rows.is_empty() {
         out.push_str("No reviewers were triggered by this change.\n");
-        out.push_str(&footer());
+        out.push_str(&footer(suggest_dedicated_app));
         return out;
     }
 
@@ -256,7 +272,7 @@ fn comment_body(digest: &RunDigest) -> String {
         }
     }
 
-    out.push_str(&footer());
+    out.push_str(&footer(suggest_dedicated_app));
     out
 }
 
@@ -343,9 +359,22 @@ fn escape_cell(text: &str) -> String {
     text.replace('|', "\\|").replace(['\n', '\r'], " ")
 }
 
-/// The trailing note, identical on every comment.
-fn footer() -> String {
-    "\n<sub>Posted by Bastion. Full transcripts are attached to the workflow run as an artifact.</sub>\n".to_string()
+/// The trailing note. Always credits Bastion and points at the run artifact; when
+/// the report is posting under the shared Actions identity, it also nudges toward a
+/// dedicated app so the checks group on their own instead of under a sibling workflow.
+fn footer(suggest_dedicated_app: bool) -> String {
+    let mut out = String::from(
+        "\n<sub>Posted by Bastion. Full transcripts are attached to the workflow run as an artifact.",
+    );
+    if suggest_dedicated_app {
+        out.push_str(&format!(
+            " These checks were posted under the shared GitHub Actions app, so with other \
+             workflows on the commit they can cluster under one of those; [set up a dedicated \
+             app]({SETUP_URL}) to give them their own group."
+        ));
+    }
+    out.push_str("</sub>\n");
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -673,8 +702,16 @@ impl fmt::Display for ReportSummary {
 
 /// Post a finished run's results to its pull request.
 ///
-/// Upserts the sticky comment, then creates a check run per reviewer plus the
-/// aggregate `bastion` check. Any non-2xx response aborts with a legible error.
+/// Creates a check run per reviewer plus the aggregate `bastion` check, then upserts
+/// the sticky comment. Any non-2xx response aborts with a legible error.
+///
+/// The checks go first on purpose: GitHub stamps each created check run with the
+/// `app` that posted it, so the first response tells the report which identity it is
+/// acting under. When that is the shared `github-actions` app (the default
+/// `GITHUB_TOKEN`, with no dedicated app configured), the checks cannot form their
+/// own suite, so the comment closes with a nudge toward setting one up. This is
+/// decided here from GitHub's own response, independent of how the workflow is
+/// written.
 ///
 /// # Errors
 ///
@@ -686,18 +723,37 @@ pub async fn report<A: GitHubApi + ?Sized>(
 ) -> Result<ReportSummary> {
     let digest = digest(events);
 
-    let body = comment_body(&digest);
-    let comment = upsert_comment(api, ctx, &body).await?;
-
     let checks = check_runs(ctx, &digest);
+    // The identity we posted under, read from the first check-run response. `None`
+    // when the response omits it (an unexpected shape); we then leave the nudge off
+    // rather than guess.
+    let mut posted_slug: Option<String> = None;
     for check in &checks {
-        send_checked(api, &check_run_request(ctx, check)).await?;
+        let resp = send_checked(api, &check_run_request(ctx, check)).await?;
+        if posted_slug.is_none() {
+            posted_slug = app_slug(&resp.body);
+        }
     }
+    let suggest_dedicated_app = posted_slug.as_deref() == Some(SHARED_APP_SLUG);
+
+    let body = comment_body(&digest, suggest_dedicated_app);
+    let comment = upsert_comment(api, ctx, &body).await?;
 
     Ok(ReportSummary {
         comment,
         checks: checks.len(),
     })
+}
+
+/// The `app.slug` of a created check run, if the response carries it. This is the
+/// GitHub App that created the check (and so owns its check suite); GitHub always
+/// includes it on a real response, but a fake or truncated body may not.
+fn app_slug(check_run_body: &serde_json::Value) -> Option<String> {
+    check_run_body
+        .get("app")?
+        .get("slug")?
+        .as_str()
+        .map(str::to_owned)
 }
 
 /// Create the sticky comment, or update it in place if one already exists.
@@ -884,7 +940,7 @@ mod tests {
 
     #[test]
     fn comment_surfaces_every_finding_including_optional() {
-        let body = comment_body(&digest(&sample_events()));
+        let body = comment_body(&digest(&sample_events()), false);
         // Marker for in-place upsert, and the headline.
         assert!(body.starts_with(MARKER));
         assert!(body.contains("**Blocked.** 1 of 2 gate(s) passed."));
@@ -922,9 +978,44 @@ mod tests {
                 cost_usd: Money::from_cents(0),
             },
         ];
-        let body = comment_body(&digest(&events));
+        let body = comment_body(&digest(&events), false);
         assert!(body.contains("No gates were triggered."));
         assert!(body.contains("No reviewers were triggered"));
+        // With the nudge off, the footer carries no dedicated-app note.
+        assert!(!body.contains(SETUP_URL));
+    }
+
+    #[test]
+    fn comment_footer_nudges_to_a_dedicated_app_when_asked() {
+        // The nudge rides the footer in both the populated and the zero-reviewer
+        // shapes, so a passing trivial run still surfaces it.
+        let populated = comment_body(&digest(&sample_events()), true);
+        assert!(populated.contains(SETUP_URL));
+        assert!(populated.contains("shared GitHub Actions app"));
+
+        let empty_events = vec![
+            RunEvent::RunStarted {
+                run: RunId("r".into()),
+                branch: "b".into(),
+                base: "main".into(),
+                changed: 0,
+                reviewers: vec![],
+            },
+            RunEvent::RunCompleted {
+                run: RunId("r".into()),
+                verdict: Decision::Pass,
+                gates: Gates {
+                    total: 0,
+                    passed: 0,
+                    blocked: 0,
+                },
+                duration_ms: 0,
+                cost_usd: Money::from_cents(0),
+            },
+        ];
+        assert!(comment_body(&digest(&empty_events), true).contains(SETUP_URL));
+        // No Unicode dashes slipped into the nudge prose.
+        assert!(!populated.contains('\u{2014}') && !populated.contains('\u{2013}'));
     }
 
     #[test]
@@ -1098,7 +1189,7 @@ mod tests {
             Conclusion::Failure
         );
         // The comment headline reflects the recorded block.
-        assert!(comment_body(&digest).contains("**Blocked.** 0 of 1 gate(s) passed."));
+        assert!(comment_body(&digest, false).contains("**Blocked.** 0 of 1 gate(s) passed."));
     }
 
     #[test]
@@ -1137,7 +1228,7 @@ mod tests {
         assert_eq!(aggregate.conclusion, Conclusion::Failure);
         assert!(aggregate.title.contains("internally inconsistent"));
         // The comment headline fails closed rather than claiming a pass.
-        assert!(comment_body(&digest).contains("internally inconsistent"));
+        assert!(comment_body(&digest, false).contains("internally inconsistent"));
     }
 
     #[test]
@@ -1384,11 +1475,18 @@ mod tests {
     #[tokio::test]
     async fn report_creates_a_comment_then_posts_checks() {
         // No existing comment: the list returns empty, so the report POSTs a new one.
+        // The check-run responses carry the shared `github-actions` app, as the
+        // default GITHUB_TOKEN would, so the report should detect that and nudge.
         let api = RecordingClient::with_responder(|req| {
             if req.method == Method::Get {
                 ApiResponse {
                     status: 200,
                     body: serde_json::json!([]),
+                }
+            } else if req.path.ends_with("/check-runs") {
+                ApiResponse {
+                    status: 201,
+                    body: serde_json::json!({"id": 1, "app": {"slug": "github-actions"}}),
                 }
             } else {
                 ApiResponse {
@@ -1404,19 +1502,78 @@ mod tests {
         assert_eq!(summary.checks, 4);
 
         let calls = api.calls();
-        // GET list, POST comment, then 4 POST check-runs.
-        assert_eq!(calls[0].method, Method::Get);
-        assert_eq!(calls[1].method, Method::Post);
-        assert!(calls[1].path.ends_with("/issues/12/comments"));
+        // The checks are posted first (so the report can read its posting identity
+        // from a response), then the comment is upserted.
+        let last_check = calls
+            .iter()
+            .rposition(|c| c.path.ends_with("/check-runs"))
+            .expect("a check-run POST");
+        let first_comment = calls
+            .iter()
+            .position(|c| c.path.contains("/issues/"))
+            .expect("a comment request");
+        assert!(
+            last_check < first_comment,
+            "checks should be posted before the comment: {calls:?}"
+        );
         let check_calls = calls
             .iter()
             .filter(|c| c.path.ends_with("/check-runs"))
             .count();
         assert_eq!(check_calls, 4);
         // The created comment body carries the marker and the optional finding.
-        let body = calls[1].body.as_ref().unwrap()["body"].as_str().unwrap();
+        let comment_post = calls
+            .iter()
+            .find(|c| c.method == Method::Post && c.path.ends_with("/issues/12/comments"))
+            .expect("a comment POST");
+        let body = comment_post.body.as_ref().unwrap()["body"]
+            .as_str()
+            .unwrap();
         assert!(body.contains(MARKER));
         assert!(body.contains("rename foo"));
+        // Posted under the shared github-actions app, so the nudge is present.
+        assert!(body.contains(SETUP_URL));
+    }
+
+    #[tokio::test]
+    async fn report_omits_the_nudge_under_a_dedicated_app() {
+        // The check-run responses carry a distinct app slug, as a dedicated Bastion
+        // app would. The checks then form their own suite, so no nudge is needed.
+        let api = RecordingClient::with_responder(|req| {
+            if req.method == Method::Get {
+                ApiResponse {
+                    status: 200,
+                    body: serde_json::json!([]),
+                }
+            } else if req.path.ends_with("/check-runs") {
+                ApiResponse {
+                    status: 201,
+                    body: serde_json::json!({"id": 1, "app": {"slug": "bastion-acme"}}),
+                }
+            } else {
+                ApiResponse {
+                    status: 201,
+                    body: serde_json::json!({"id": 555}),
+                }
+            }
+        });
+        report(&api, &ctx(), &sample_events())
+            .await
+            .expect("reports");
+
+        let comment_post = api
+            .calls()
+            .into_iter()
+            .find(|c| c.method == Method::Post && c.path.ends_with("/issues/12/comments"))
+            .expect("a comment POST");
+        let body = comment_post.body.as_ref().unwrap()["body"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            !body.contains(SETUP_URL),
+            "dedicated app should not nudge: {body}"
+        );
     }
 
     #[tokio::test]
@@ -1437,15 +1594,20 @@ mod tests {
             .expect("reports");
         assert_eq!(summary.comment, CommentAction::Updated(909));
 
-        let calls = api.calls();
-        // The second call is a PATCH to the existing comment, not a POST.
-        assert_eq!(calls[1].method, Method::Patch);
-        assert!(calls[1].path.ends_with("/issues/comments/909"));
+        // The existing comment is updated in place with a PATCH (the checks are
+        // posted first, so the PATCH is no longer at a fixed index).
+        let patch = api
+            .calls()
+            .into_iter()
+            .find(|c| c.method == Method::Patch)
+            .expect("a PATCH to the existing comment");
+        assert!(patch.path.ends_with("/issues/comments/909"));
     }
 
     #[tokio::test]
     async fn report_fails_closed_on_a_rejected_request() {
-        // GitHub rejects the comment list: the report errors rather than pressing on.
+        // GitHub rejects the first request (a check-run POST): the report errors
+        // rather than pressing on.
         let api = RecordingClient::with_responder(|_| ApiResponse {
             status: 403,
             body: serde_json::json!({"message": "Resource not accessible by integration"}),

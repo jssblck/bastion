@@ -1435,6 +1435,14 @@ fn github_report_posts_a_comment_and_checks_for_a_blocked_run() {
     );
     assert!(comment.body.contains("Bastion review"));
     assert!(comment.body.contains("simulated blocking finding"));
+    // The fake stamps check runs with the shared `github-actions` app (as the
+    // default GITHUB_TOKEN does), so the report detects the missing dedicated app
+    // from the check-run response on its own and closes the comment with the nudge.
+    assert!(
+        comment.body.contains("bastion.jessica.black/github-app"),
+        "report should detect the shared app and nudge toward a dedicated one: {}",
+        comment.body
+    );
 
     // One check run per reviewer plus the always-present aggregate `bastion` check.
     let checks: Vec<&CapturedRequest> = requests

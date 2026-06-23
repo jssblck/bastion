@@ -85,6 +85,10 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
+    # Surface the optional dedicated-app id so the token-mint step's `if:` can test
+    # it: an `if:` expression can read `env` but not `secrets`. Empty when unset.
+    env:
+      BASTION_APP_ID: ${{ secrets.BASTION_APP_ID }}
     # Agentic backends run over the PR's code with live credentials, so restrict to
     # same-repo PRs; a maintainer re-runs a fork PR from a trusted branch.
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -108,13 +112,25 @@ jobs:
         # Non-zero exit on a blocked gate fails the job; that is the merge gate.
         run: bastion review --base "origin/${{ github.base_ref }}"
 
+      # Optional: mint a token for a dedicated Bastion app so the check runs get
+      # their own check suite and render under the app's name. Skipped (and the
+      # report falls back to the default GITHUB_TOKEN) when the app is not set up.
+      # See "Grouping the checks under their own app" below.
+      - id: app-token
+        if: ${{ always() && env.BASTION_APP_ID != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.BASTION_APP_ID }}
+          private-key: ${{ secrets.BASTION_APP_PRIVATE_KEY }}
+
       - name: Report to the PR
         # Runs even when the review blocked and failed the job, so the comment and
-        # checks always land. The default GITHUB_TOKEN is a GitHub App token, so it
-        # can create check runs (a classic PAT cannot).
+        # checks always land. Creating check runs needs a GitHub App installation
+        # token (a classic PAT cannot); both the dedicated-app token and the default
+        # GITHUB_TOKEN qualify, so use the dedicated one when present and fall back.
         if: always()
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
         run: |
           bastion github report \
@@ -143,11 +159,54 @@ bastion github report --repo <OWNER/NAME> --pr <N> --sha <SHA> [RUN]
 
 It needs a token with `pull-requests: write` and `checks: write` in `GITHUB_TOKEN`,
 and reads `GITHUB_API_URL` (Actions sets it; also the hook for GitHub Enterprise).
-Creating check runs requires a GitHub App installation token, which the Actions
-`GITHUB_TOKEN` is; a classic personal access token cannot. If the run cannot be
-found (an earlier failure persisted nothing), it prints a notice and exits 0 rather
-than failing the step a second time. The command is CI-facing and has no local
-mirror: locally you read findings straight from `bastion review --format jsonl`.
+Creating check runs requires a GitHub App installation token; both the default
+Actions `GITHUB_TOKEN` and a dedicated-app token (see below) are installation
+tokens and qualify, while a classic personal access token does not. If the run
+cannot be found (an earlier failure persisted nothing), it prints a notice and
+exits 0 rather than failing the step a second time. The command is CI-facing and
+has no local mirror: locally you read findings straight from
+`bastion review --format jsonl`.
+
+### Grouping the checks under their own app
+
+In the PR checks list, the name before the `/` is not the workflow that created a
+check; it is the **check suite** the check belongs to, and a check suite is keyed by
+`(GitHub App, commit)`. Every GitHub Actions workflow runs under the one shared
+`github-actions` app, so a commit that triggers several workflows has several
+`github-actions` suites. The check runs `bastion github report` creates through the
+REST API carry no suite id (the API does not accept one), so GitHub attaches them to
+one of those suites of its own choosing, often a sibling workflow's. The result is
+check runs that read like `Security / fail-closed-gates` instead of grouping on
+their own.
+
+A check run lands in its own named suite only when a **distinct GitHub App**
+creates it. So the fix is to post the report under a small app of your own rather
+than the shared Actions identity:
+
+1. Create the app. Go to
+   [bastion.jessica.black/github-app](https://bastion.jessica.black/github-app) and
+   follow the walkthrough; it uses GitHub's app-manifest flow to create an app with
+   exactly the permissions the report step needs (`checks: write`, `pull_requests:
+   write`, `contents: read`, no webhook), so you only confirm it. Or create the app
+   by hand with those permissions. The app's **name** is what the checks group
+   under, so something like `Bastion (yourorg)` reads well.
+2. Generate the app's private key, note its numeric App ID, and install the app on
+   the repositories that run Bastion.
+3. Store `BASTION_APP_ID` (the App ID) and `BASTION_APP_PRIVATE_KEY` (the `.pem`
+   contents) as Actions secrets. For Dependabot-triggered runs, set them in the
+   Dependabot secret store too.
+
+The workflow above mints a token from those secrets with
+[`actions/create-github-app-token`](https://github.com/actions/create-github-app-token)
+and hands it to the report step; the per-reviewer and aggregate checks then render
+under the app's name. The step is fully optional: with the secrets unset it is
+skipped and reporting falls back to the default `GITHUB_TOKEN`, which still posts
+the comment and checks, only grouped under whichever suite GitHub picks. When that
+happens, `bastion github report` notices (it reads back the app that GitHub stamped
+on the check runs it just created) and closes the PR comment with a short note
+linking here; once a dedicated app is configured the note disappears on its own. You
+do not pass anything to make this happen, so it works whatever your workflow looks
+like.
 
 For a complete, working example (latest-release install, per-author backend
 credentials, and fork-PR safety), see this repository's own
