@@ -122,8 +122,9 @@ given concern.
 backend: codex
 ```
 
-> `pi` runs against whatever provider you have configured the Pi CLI with locally;
-> Bastion passes no provider or model flag, so your Pi default is used.
+> `pi` is multi-provider. Pin its provider and model together in the [`model`](#model)
+> field using Pi's `provider/id` form (e.g. `openai-codex/gpt-5.5`); omit `model` to
+> run against whatever provider and model your local Pi CLI defaults to.
 
 ### `model`
 
@@ -137,27 +138,38 @@ backend: codex
 model: gpt-5
 ```
 
+Under `backend: pi` the model also names its **provider**, written in Pi's
+`provider/id` form, because Pi is multi-provider and its bare default provider is
+`google`. So a Pi reviewer that wants an OpenAI Codex model writes the provider into
+the id rather than a separate field:
+
+```yaml
+backend: pi
+model: openai-codex/gpt-5.5
+```
+
 Omit it to take the backend's default. On Claude Code that default is **Opus 4.8**;
-on Codex it is whatever Codex itself resolves. To set a model once for the whole
-registry rather than per reviewer, use the [`defaults`](#registry-wide-defaults)
-block.
+on Codex and Pi it is whatever the harness itself resolves (for Pi, its configured
+default provider and model). To set a model once for the whole registry rather than
+per reviewer, use the [`defaults`](#registry-wide-defaults) block.
 
 ### `effort`
 
 The reasoning-effort level, forwarded verbatim to the active backend's effort
-control (Claude Code's `--effort`, Codex's `model_reasoning_effort`). Like `model`,
-the value is opaque: use whatever vocabulary your backend accepts. Claude Code
-takes `low`, `medium`, `high`, `xhigh`, or `max`; Codex takes `minimal`, `low`,
-`medium`, or `high`. The shared `low`/`medium`/`high` levels work on either
-backend; the backend-specific ones (`xhigh`, `minimal`) do not, so a value that
-does not match the reviewer's backend is the backend's problem (Claude Code, for
-instance, warns and falls back to its own default).
+control (Claude Code's `--effort`, Codex's `model_reasoning_effort`, Pi's
+`--thinking`). Like `model`, the value is opaque: use whatever vocabulary your
+backend accepts. Claude Code takes `low`, `medium`, `high`, `xhigh`, or `max`; Codex
+takes `minimal`, `low`, `medium`, or `high`; Pi takes `off`, `minimal`, `low`,
+`medium`, `high`, or `xhigh`. The shared `low`/`medium`/`high` levels work on any
+backend; the backend-specific ones do not, so a value that does not match the
+reviewer's backend is the backend's problem (Claude Code, for instance, warns and
+falls back to its own default).
 
 ```yaml
 effort: high
 ```
 
-The default is **`high`** (accepted by both backends). Lower it on cheap,
+The default is **`high`** (accepted by every backend). Lower it on cheap,
 mechanical reviewers to save tokens; raise it on the ones that need to reason hard.
 
 ### `timeout`

@@ -21,8 +21,15 @@
 //! Pi runs unattended: in print mode it executes its tools (read, bash, edit,
 //! write) without an interactive approval prompt, the same latitude the Claude
 //! Code and Codex backends are given over a trusted checkout (see the threat model
-//! in `docs/developer-guide/design.md`). Bastion passes no `--provider`/`--model`,
-//! so Pi uses the operator's configured default provider and credentials.
+//! in `docs/developer-guide/design.md`). Bastion forwards a pinned `model` as
+//! `--model` and `effort` as `--thinking` (default `high`), so a review is
+//! reproducible across machines rather than deferring to Pi's own config. Pi is
+//! multi-provider, and its `--model` accepts a `provider/id` form (e.g.
+//! `openai-codex/gpt-5.5`) that selects the provider too, so the provider rides in
+//! the model string instead of a separate field. When no model is pinned Bastion
+//! sends no `--model`, and Pi falls back to its configured default provider/model;
+//! Pi's built-in default provider is `google`, so a Pi reviewer's `model` should
+//! carry its provider.
 //!
 //! # Fail-closed parsing
 //!
@@ -55,6 +62,13 @@ pub const PROGRAM_ENV: &str = "BASTION_PI_BIN";
 
 /// The default program name, resolved on `PATH` when [`PROGRAM_ENV`] is unset.
 pub const DEFAULT_PROGRAM: &str = "pi";
+
+/// Bastion's house default Pi thinking level, sent on `--thinking` when a reviewer
+/// (and the registry default) pin no `effort`. Pi's `--thinking` vocabulary is
+/// `off`/`minimal`/`low`/`medium`/`high`/`xhigh`; `high` mirrors the cross-backend
+/// [`DEFAULT_EFFORT`](reviewer::DEFAULT_EFFORT) so an unpinned Pi reviewer reasons
+/// at the same level as the other backends rather than following Pi's own config.
+const DEFAULT_THINKING: &str = reviewer::DEFAULT_EFFORT;
 
 /// The Pi agent backend.
 ///
@@ -155,6 +169,26 @@ impl<R: CommandRunner> PiBackend<R> {
         for arg in &leading {
             spec.arg(arg);
         }
+        // Pin the model and thinking level when set. Pi resolves its own default
+        // provider/model, so `--model` only appears when a reviewer (or the registry
+        // default) pins one; the value is opaque and may carry a `provider/id` prefix
+        // (e.g. `openai-codex/gpt-5.5`) that selects the provider too, so it is
+        // forwarded verbatim. `--thinking` always applies: absent an `effort`, the
+        // house default ([`DEFAULT_THINKING`], `high`) flows through, mirroring how
+        // Codex always sends `model_reasoning_effort`. Both ride the leading args and
+        // so apply to the reprompt/resume spec as well: Pi accepts them alongside
+        // `--session` (they re-select the model and thinking level for the resumed
+        // turn), so the recovery turn runs with the same configuration as the first.
+        if let Some(model) = &request.reviewer.model {
+            spec.arg("--model").arg(model.as_str());
+        }
+        spec.arg("--thinking").arg(
+            request
+                .reviewer
+                .effort
+                .as_ref()
+                .map_or(DEFAULT_THINKING, reviewer::Effort::as_str),
+        );
         spec.stdin(prompt);
         for (key, value) in &request.reviewer.env {
             spec.env.insert(key.clone(), value.clone());
@@ -684,6 +718,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn applies_house_default_thinking_and_no_model_when_unset() {
+        let message = "```yaml\nverdict: pass\nsummary: ok\nfindings: []\n```";
+        let (_, specs) =
+            review_with(&reviewer(), [ok_output(stream("s-1", &[message], None))]).await;
+        let args = args_of(&specs[0]);
+        // No model pinned: Pi resolves its own default provider/model, so `--model`
+        // is absent.
+        assert!(!args.iter().any(|a| a == "--model"), "got args: {args:?}");
+        // Thinking always applies; absent an effort, the house default (high) flows
+        // through, immediately after the `--thinking` flag.
+        let t = args
+            .iter()
+            .position(|a| a == "--thinking")
+            .expect("thinking flag present");
+        assert_eq!(args[t + 1], "high");
+    }
+
+    #[tokio::test]
+    async fn pins_model_and_forwards_thinking_verbatim() {
+        let message = "```yaml\nverdict: pass\nsummary: ok\nfindings: []\n```";
+        let mut rev = reviewer();
+        // Pi's `provider/id` form: the provider rides inside the model string and is
+        // forwarded verbatim (Bastion does not parse or split it).
+        rev.model = Some(serde_yaml_ng::from_str("openai-codex/gpt-5.5").unwrap());
+        // A Pi-specific level: forwarded as-is, no remapping.
+        rev.effort = Some(serde_yaml_ng::from_str("xhigh").unwrap());
+        let (_, specs) = review_with(&rev, [ok_output(stream("s-1", &[message], None))]).await;
+        let args = args_of(&specs[0]);
+        let m = args
+            .iter()
+            .position(|a| a == "--model")
+            .expect("model flag present");
+        assert_eq!(args[m + 1], "openai-codex/gpt-5.5");
+        let t = args
+            .iter()
+            .position(|a| a == "--thinking")
+            .expect("thinking flag present");
+        assert_eq!(args[t + 1], "xhigh");
+    }
+
+    #[tokio::test]
+    async fn reprompt_carries_model_and_thinking_on_resume() {
+        // Both selectors ride the leading args, so the resumed reprompt turn carries
+        // them too: a recovery turn runs with the same model and thinking level as
+        // the first pass, alongside `--session`.
+        let mut rev = reviewer();
+        rev.model = Some(serde_yaml_ng::from_str("openai-codex/gpt-5.5").unwrap());
+        rev.effort = Some(serde_yaml_ng::from_str("xhigh").unwrap());
+        let bad = ok_output(stream("s-r", &["no verdict yet"], None));
+        let good = ok_output(stream(
+            "s-r",
+            &["```yaml\nverdict: pass\nsummary: resumed\n```"],
+            None,
+        ));
+        let (outcome, specs) = review_with(&rev, [bad, good]).await;
+        assert_eq!(outcome.expect("recovers").verdict.summary, "resumed");
+        assert_eq!(specs.len(), 2);
+        let retry = args_of(&specs[1]);
+        assert!(retry.contains(&"--session".to_string()));
+        assert!(retry.contains(&"s-r".to_string()));
+        let m = retry
+            .iter()
+            .position(|a| a == "--model")
+            .expect("model on resume");
+        assert_eq!(retry[m + 1], "openai-codex/gpt-5.5");
+        let t = retry
+            .iter()
+            .position(|a| a == "--thinking")
+            .expect("thinking on resume");
+        assert_eq!(retry[t + 1], "xhigh");
+    }
+
+    #[tokio::test]
     async fn happy_path_pass_verdict_parses() {
         let message = "Looks fine.\n\n```yaml\nverdict: pass\nsummary: all good\nfindings: []\n```";
         let (outcome, specs) =
@@ -777,9 +884,10 @@ findings:
             ))],
         )
         .await;
-        // Print-mode JSON args, and the prompt rides stdin (no positional message).
+        // Print-mode JSON args, then the always-present thinking level, and the
+        // prompt rides stdin (no positional message).
         let args = args_of(&specs[0]);
-        assert_eq!(args, ["-p", "--mode", "json"]);
+        assert_eq!(args, ["-p", "--mode", "json", "--thinking", "high"]);
         let prompt = stdin_of(&specs[0]);
         assert!(prompt.contains("Report every issue you can identify"));
         assert!(prompt.contains("Do not stop after the"));
@@ -893,7 +1001,20 @@ findings:
         assert_eq!(outcome.expect("recovers").verdict.summary, "resumed");
         assert_eq!(specs.len(), 2);
         let retry = args_of(&specs[1]);
-        assert_eq!(retry, ["-p", "--mode", "json", "--session", "s-abc"]);
+        // The resume args carry the session id, then the thinking level rides along
+        // (Pi re-selects it for the resumed turn), exactly as on the first pass.
+        assert_eq!(
+            retry,
+            [
+                "-p",
+                "--mode",
+                "json",
+                "--session",
+                "s-abc",
+                "--thinking",
+                "high"
+            ]
+        );
         // On resume the new turn is only the reprompt suffix, not the full review.
         assert!(stdin_of(&specs[1]).contains("ONLY the fenced YAML"));
         assert!(!stdin_of(&specs[1]).contains("Check the thing."));
@@ -913,8 +1034,8 @@ findings:
         let (outcome, specs) = review_with(&reviewer(), [bad, good]).await;
         assert_eq!(outcome.expect("recovers").verdict.decision, Decision::Pass);
         let retry = args_of(&specs[1]);
-        // No `--session`: a fresh first-pass invocation.
-        assert_eq!(retry, ["-p", "--mode", "json"]);
+        // No `--session`: a fresh first-pass invocation (with the thinking level).
+        assert_eq!(retry, ["-p", "--mode", "json", "--thinking", "high"]);
         // Without a session id the fresh session must re-send the full prompt.
         assert!(stdin_of(&specs[1]).contains("Check the thing."));
         assert!(stdin_of(&specs[1]).contains("ONLY the fenced YAML"));
@@ -1051,7 +1172,10 @@ findings:
         backend.review(&req).await.expect("ok");
         let spec = &backend.runner.specs()[0];
         assert_eq!(spec.program, OsString::from(DEFAULT_PROGRAM));
-        assert_eq!(args_of(spec), ["-p", "--mode", "json"]);
+        assert_eq!(
+            args_of(spec),
+            ["-p", "--mode", "json", "--thinking", "high"]
+        );
         assert!(stdin_of(spec).contains("Check the thing."));
         assert_eq!(spec.cwd, root);
     }

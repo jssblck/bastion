@@ -71,10 +71,11 @@ impl Backend {
 /// selector (`--model` for Claude Code, `-m`/`--model` for Codex).
 ///
 /// Kept opaque on purpose: a model id means something only to the backend it
-/// names (an alias like `opus`, a full id like `gpt-5`), so Bastion neither parses
-/// nor validates it beyond requiring a pinned backend (the registry rejects a
-/// model under `backend: any`). Parse, don't validate: the registry boundary
-/// produces this newtype once, and the rest of the code passes it through.
+/// names (an alias like `opus`, a full id like `gpt-5`, or Pi's provider-bearing
+/// `provider/id` form like `openai-codex/gpt-5.5`), so Bastion neither parses nor
+/// validates it beyond requiring a pinned backend (the registry rejects a model
+/// under `backend: any`). Parse, don't validate: the registry boundary produces
+/// this newtype once, and the rest of the code passes it through.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ModelId(String);
@@ -94,14 +95,15 @@ impl std::fmt::Display for ModelId {
 }
 
 /// A reasoning-effort level, forwarded verbatim to the backend's effort control
-/// (`--effort` for Claude Code, `model_reasoning_effort` for Codex).
+/// (`--effort` for Claude Code, `model_reasoning_effort` for Codex, `--thinking`
+/// for Pi).
 ///
 /// Kept opaque, like [`ModelId`]: Bastion does not parse or remap the value, so a
 /// reviewer can use whatever vocabulary its backend accepts. Claude Code takes
-/// `low`/`medium`/`high`/`xhigh`/`max`; Codex takes `minimal`/`low`/`medium`/`high`.
-/// The shared `low`/`medium`/`high` levels are portable across both; the
-/// backend-specific ones (`xhigh`, `minimal`) are not. Absent, the house default
-/// [`DEFAULT_EFFORT`] applies.
+/// `low`/`medium`/`high`/`xhigh`/`max`; Codex takes `minimal`/`low`/`medium`/`high`;
+/// Pi takes `off`/`minimal`/`low`/`medium`/`high`/`xhigh`. The shared
+/// `low`/`medium`/`high` levels are portable across all three; the backend-specific
+/// ones are not. Absent, the house default [`DEFAULT_EFFORT`] applies.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Effort(String);
@@ -121,7 +123,8 @@ impl std::fmt::Display for Effort {
 }
 
 /// Bastion's house default reasoning effort, applied when a reviewer (and the
-/// registry default) set none. `high` is accepted by both backends.
+/// registry default) set none. `high` is accepted by every effort-aware backend
+/// (Claude Code, Codex, and Pi).
 pub const DEFAULT_EFFORT: &str = "high";
 
 /// Capabilities a reviewer opts into. Least privilege is the default: an empty
