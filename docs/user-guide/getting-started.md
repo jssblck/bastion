@@ -91,7 +91,8 @@ auth come along for free. Install and sign in to one of:
 - **[Codex](https://github.com/openai/codex)** (`codex`): pin it with
   `backend: codex` on a reviewer.
 - **[Pi](https://github.com/earendil-works/pi)** (`pi`): pin it with `backend: pi`.
-  Pi runs against whatever provider you have configured it with locally.
+  Pi runs against whatever provider you have configured it with locally, unless a
+  reviewer pins a `model` (Pi's `provider/id` form, which selects the provider too).
 
 Bastion invokes the backend as a plain executable on your `PATH` (`claude`,
 `codex`, or `pi`), so confirm the one you intend to use is installed and
