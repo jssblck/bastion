@@ -23,9 +23,10 @@ rather than fabricate a pass, and gates must fail closed on it.
 2. **[Backends](./backends.md)**: the agent execution boundary: the `Backend`
    trait, the `CommandRunner` subprocess seam, dispatch, `MockBackend`, and how to
    add a new backend.
-3. **[Containers](./containers.md)**: how a reviewer with a `runner` block runs its
-   backend inside a container: the `ExecutionPlan` parse, image resolution, and the
-   `CommandRunner` decorator that wraps a spec into a `docker run`.
+3. **[Containers](./containers.md)**: how a reviewer with a `runner` block (and
+   `capabilities.network: true`) runs its backend inside a container: the
+   `ExecutionPlan` parse, image resolution, and the `CommandRunner` decorator that
+   wraps a spec into a `docker run`.
 4. **[Conventions](./conventions.md)**: the repo-local Rust skills,
    parse-don't-validate at boundaries, newtypes over stringly-typed data, the
    clippy lint groups, fail-closed discipline, and the testing approach (real

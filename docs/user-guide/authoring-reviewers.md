@@ -205,8 +205,8 @@ How the value reaches the agent depends on where the reviewer runs:
 - **Native reviewers** (no `runner`) also inherit Bastion's own environment, so a
   variable your shell or CI has already exported is visible to the agent even
   without listing it here; the `env` block sets additional values explicitly.
-- **Containerized reviewers** (with a `runner`) do *not* inherit Bastion's
-  arbitrary environment. Into the container go exactly the `env` pairs written here
+- **Containerized reviewers** (with a `runner` and `capabilities.network: true`) do
+  *not* inherit Bastion's arbitrary environment. Into the container go exactly the `env` pairs written here
   (as literal values, the same as everywhere else) plus a fixed set of
   model-provider credential variables (see [Backends](./concepts.md#the-backend)).
   Nothing else crosses, so a value an outer shell or CI job exported reaches a
@@ -253,7 +253,8 @@ The schema also accepts a `runner` block (`dockerfile` / `image`) and a
 `capabilities` block (`network`, `mcp`, `skills`) to opt into an execution
 environment beyond the least-privilege default. Where these stand:
 
-- **`runner` is provisioned.** A reviewer with a `runner` block runs its backend
+- **`runner` is provisioned (paired with `network: true`).** A reviewer with a
+  `runner` block and `capabilities.network: true` runs its backend
   inside a container: a `dockerfile` is built (tagged by a content hash of the
   Dockerfile, so an unchanged file reuses the engine's layer cache), an `image` is used
   as-is (the engine pulls it on demand at run time). If both are set, `dockerfile`
@@ -268,12 +269,17 @@ environment beyond the least-privilege default. Where these stand:
   image name. The selected backend's executable must exist inside the image on `PATH`
   (`claude` for `claude-code`, `codex` for `codex`). This lets a reviewer carry tools
   or a pinned toolchain the host does not have.
-- **`capabilities.network: true` is honored inside a container, but unscoped.** A
-  containerized reviewer's container has outbound network. The `network: false`
-  default is not restricted to the model provider (egress allowlisting is
-  unimplemented), so it does not tighten anything; the field is a declaration with
-  no enforcement behind it. A *native* `network: true` (no `runner`) fails closed,
-  since with no container there is nothing to scope.
+- **`capabilities.network: true` is required to run a container; the default
+  `network: false` fails closed.** `network: true` gives a containerized reviewer
+  general (unscoped) outbound network. A container's egress cannot be scoped to the
+  model provider yet (the allowlisting proxy is unbuilt), so the default
+  `network: false` reads as restricted but cannot be enforced: rather than silently
+  attach general egress, `ExecutionPlan::resolve` rejects a container with
+  `network: false` before it runs. As with `mcp`/`skills`, that rejection **fails
+  closed**: a gate blocks and an advisor is skipped, with a message naming the field. A
+  containerized reviewer must opt into `network: true` to run, accepting general egress
+  for now. A *native* `network: true` (no `runner`) also fails closed, since with no
+  container there is nothing to scope.
 - **`capabilities.mcp` and `capabilities.skills` are not provisioned.** A
   reviewer that declares either **fails closed**: a gate blocks and an advisor is
   skipped, with a message naming the unprovisioned field, rather than running
@@ -287,8 +293,9 @@ runs natively on the host. The authoritative description is in the
 ## A fully-loaded example
 
 Putting the optional fields together. As written, this reviewer runs in the container
-built from its Dockerfile, with network, and Bastion forwards its `env` into that
-container.
+built from its Dockerfile. It must declare `network: true` to run (a containerized
+reviewer needs general egress, since provider-only scoping is unbuilt), and Bastion
+forwards its `env` into that container.
 
 ```yaml
 reviewers:
@@ -304,7 +311,7 @@ reviewers:
     runner:                                  # provisioned: runs the backend in this image
       dockerfile: ./.bastion/e2e.Dockerfile
     capabilities:
-      network: true                          # honored in the container (unscoped)
+      network: true                          # required to run a container; grants general (unscoped) egress
     prompt: |
       Run the e2e checkout flow against the preview environment at `${preview_url}`
       using Playwright. If it fails, block the PR and explain; otherwise approve it.

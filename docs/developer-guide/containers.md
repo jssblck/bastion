@@ -1,14 +1,15 @@
 # Containers
 
-> How a reviewer with a `runner` block executes inside a container.
+> How a reviewer with a `runner` block and `capabilities.network: true` executes inside a container.
 
 [<- Backends](./backends.md) | [Developer guide index](./README.md) | Next: [Conventions](./conventions.md) ->
 
 ---
 
 Most reviewers run natively, with Bastion shelling out to the agent CLI on the host.
-A reviewer that declares a `runner` block runs that same backend inside a container
-instead, in a pinned environment with tools the host does not have. The container path
+A reviewer that declares a `runner` block (and opts into `capabilities.network: true`,
+without which it fails closed before any container work) runs that same backend inside
+a container instead, in a pinned environment with tools the host does not have. The container path
 is confined to
 [`src/backend/container/`](../../src/backend/container/), and it reuses the
 backend boundary rather than forking it: the backend builds the same
@@ -20,7 +21,7 @@ backend boundary rather than forking it: the backend builds the same
 | --- | --- |
 | `ExecutionPlan` | Parsed once from a `Reviewer`. `Native` or `Container(ContainerPlan)`. Resolving it is the single place an unprovisioned tier fails closed, so reaching a backend is proof the reviewer is runnable. |
 | `ContainerEngine` | The engine CLI (`docker` by default; `podman` is a drop-in), resolved from `BASTION_CONTAINER_ENGINE`. |
-| `ContainerPlan` | The resolved image source and network policy; `ensure_image` builds or resolves the image. |
+| `ContainerPlan` | The resolved image source; `ensure_image` builds or resolves the image. A plan is built only for a container that opted into general egress (`network: true`), so it carries no network flag. |
 | `ContainerRunner` | A `CommandRunner` decorator that rewrites a backend's `CommandSpec` into a `docker run` invocation. |
 
 ## The flow
@@ -90,12 +91,17 @@ failure: a gate blocks and an advisor is skipped.
 
 ## Network
 
-`network: true` is honored in the sense that the container has outbound network (it
-attaches the engine's default network). The default `network: false` is **not
-restricted**: scoping egress to the model provider needs an allowlisting proxy,
-which is unimplemented, so both attach the default network and the distinction is
-recorded on the plan but not enforced. A native `network: true` fails closed: with
-no container there is nothing to scope, so honoring it would be meaningless. It does not provide adversarial isolation (see the
+`network: true` gives a containerized reviewer general outbound network (the container
+attaches the engine's default network). The default
+`network: false` **fails closed in a container**: scoping egress to the model provider
+needs an allowlisting proxy that is unbuilt, so rather than silently grant general
+egress under a flag that reads as restricted, `ExecutionPlan::resolve` rejects a
+container with `network: false` (a gate blocks, an advisor is skipped). A containerized
+reviewer must therefore opt into `network: true` to run, and accept that today that
+means general egress, not provider-only (provider-only scoped egress is unbuilt). A
+native `network: true` (no `runner`) also fails closed: with no container there is
+nothing to scope. The general egress `network: true` grants does not provide
+adversarial isolation (see the
 [threat model](./design.md#threat-model--trust-boundary)).
 
 ## Reprompt recovery is not persisted across turns

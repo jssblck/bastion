@@ -132,7 +132,10 @@ pub const DEFAULT_EFFORT: &str = "high";
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Capabilities {
-    /// General outbound network beyond the always-allowed model provider.
+    /// General outbound network beyond the model provider. In a container this is the
+    /// only egress tier Bastion can provision today, so `true` is required to run there
+    /// (it grants general egress); the default `false` fails closed in a container,
+    /// because provider-only scoped egress (an allowlisting proxy) is unbuilt.
     #[serde(default)]
     pub network: bool,
     /// MCP servers to load into the agent's context and permit it to call.
