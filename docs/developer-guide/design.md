@@ -89,7 +89,7 @@ Formalized, Bastion is built around the following threat model:
 
 ## The reviewer
 
-A reviewer is a bundle: **prompt + trigger + mode + backend + (optional) model + (optional) effort + capabilities + (optional) runner + (optional) environment**. We call it the reviewer's _execution profile_. The optional `runner` provisions a container the backend runs inside (see the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile) and [Containers](./containers.md)); without it the reviewer runs natively on the host.
+A reviewer is a bundle: **prompt + trigger + mode + backend + (optional) model + (optional) effort + capabilities + (optional) runner + (optional) environment**. We call it the reviewer's _execution profile_. The optional `runner` (paired with `capabilities.network: true`) provisions a container the backend runs inside (see the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile) and [Containers](./containers.md)); without a `runner` the reviewer runs natively on the host, and a `runner` without `network: true` fails closed.
 
 **Least privilege is the default.** This isn't intended as anti-exfil hardening but as plain hygiene and to keep the common case fast: a reviewer gets no secrets and no tools unless it asks. Most reviewers are hermetic and need nothing but the checkout and a model. A native reviewer runs on the host and reaches the model provider over the host network; `network: true` is the opt-in for _general_ outbound network beyond that, and is honored only inside a container. (One caveat in this build: a container's egress cannot be scoped to the provider alone yet, because the allowlisting proxy that would do it is unbuilt. So the only network tier a container can be given is general egress, and a containerized reviewer must declare `network: true` to reach its provider at all. A container with the default `network: false` reads as restricted but cannot be enforced, so it _fails closed_ rather than silently attaching general egress (provider-only scoped egress is unbuilt). See the implementation-status note below and the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile).)
 
@@ -162,8 +162,8 @@ reviewers:
 > build, `name`, `trigger`, `mode`, `backend`, `model`, `effort`, the registry
 > `defaults` block, `prompt`, `timeout`, `env`,
 > `inputs`, and `runner` (containers) are honored: a reviewer with a `runner` block
-> runs its backend inside the built or named image (see
-> [Containers](./containers.md)). `capabilities.network: true` grants a containerized
+> and `capabilities.network: true` runs its backend inside the built or named image
+> (see [Containers](./containers.md)). `capabilities.network: true` grants a containerized
 > reviewer general (unscoped) egress; a container with the default `network: false`
 > **fails closed** (provider-only scoped egress is unbuilt, so a flag that reads as
 > restricted cannot be enforced), as does a native `network: true`; `mcp` and `skills`

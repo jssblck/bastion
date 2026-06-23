@@ -102,7 +102,8 @@ version:
   `credentials.rs` the provider-credential passthrough, `teardown.rs` the timeout
   force-removal guard): `dispatch` resolves an `ExecutionPlan` (the single place an
   unprovisioned capability tier fails closed), then a reviewer with a `runner` block
-  runs its backend inside a built/named image via a `ContainerRunner` decorator over
+  and `capabilities.network: true` runs its backend inside a built/named image via a
+  `ContainerRunner` decorator over
   the `CommandRunner` seam (the backend code is untouched; the named container is
   force-removed on a timeout). `network: true` grants a containerized reviewer general
   (unscoped) egress; a container with the default `network: false` fails closed because

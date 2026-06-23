@@ -1,14 +1,15 @@
 # Containers
 
-> How a reviewer with a `runner` block executes inside a container.
+> How a reviewer with a `runner` block and `capabilities.network: true` executes inside a container.
 
 [<- Backends](./backends.md) | [Developer guide index](./README.md) | Next: [Conventions](./conventions.md) ->
 
 ---
 
 Most reviewers run natively, with Bastion shelling out to the agent CLI on the host.
-A reviewer that declares a `runner` block runs that same backend inside a container
-instead, in a pinned environment with tools the host does not have. The container path
+A reviewer that declares a `runner` block (and opts into `capabilities.network: true`,
+without which it fails closed before any container work) runs that same backend inside
+a container instead, in a pinned environment with tools the host does not have. The container path
 is confined to
 [`src/backend/container/`](../../src/backend/container/), and it reuses the
 backend boundary rather than forking it: the backend builds the same

@@ -193,8 +193,8 @@ How the value reaches the agent depends on where the reviewer runs:
 - **Native reviewers** (no `runner`) also inherit Bastion's own environment, so a
   variable your shell or CI has already exported is visible to the agent even
   without listing it here; the `env` block sets additional values explicitly.
-- **Containerized reviewers** (with a `runner`) do *not* inherit Bastion's
-  arbitrary environment. Into the container go exactly the `env` pairs written here
+- **Containerized reviewers** (with a `runner` and `capabilities.network: true`) do
+  *not* inherit Bastion's arbitrary environment. Into the container go exactly the `env` pairs written here
   (as literal values, the same as everywhere else) plus a fixed set of
   model-provider credential variables (see [Backends](./concepts.md#the-backend)).
   Nothing else crosses, so a value an outer shell or CI job exported reaches a

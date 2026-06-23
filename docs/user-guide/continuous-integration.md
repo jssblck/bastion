@@ -189,8 +189,9 @@ for the PR and passes its URL into the Bastion job as an environment variable. H
 that variable reaches the agent depends on where the reviewer runs. A **native**
 reviewer inherits the job environment, so the agent can see it directly. A
 **containerized** reviewer (one with a
-[`runner`](./authoring-reviewers.md#runner-and-capabilities)) runs in a container and
-does *not* inherit the arbitrary job environment. Only the reviewer's literal `env`
+[`runner`](./authoring-reviewers.md#runner-and-capabilities) and
+`capabilities.network: true`) runs in a container and does *not* inherit the arbitrary
+job environment. Only the reviewer's literal `env`
 pairs cross that boundary (plus a fixed provider-credential set, except that a
 credential name set in the reviewer's own `env` wins and is not also forwarded from the
 job environment), so a per-PR value reaches a containerized reviewer only if you write
