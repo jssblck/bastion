@@ -95,7 +95,7 @@ jobs:
 
       # 1. Install a published bastion release (not built from the PR).
       # 2. For native reviewers: install and authenticate your backend CLI (e.g.
-      #    claude or codex) on the runner, ideally billed to the PR author; see the
+      #    claude, codex, or pi) on the runner, ideally billed to the PR author; see the
       #    auth pattern referenced below. For reviewers with a `runner`: ensure a
       #    container engine is on the runner (docker by default, or set
       #    BASTION_CONTAINER_ENGINE) and that the backend CLI and its auth live inside
