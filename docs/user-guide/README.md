@@ -55,9 +55,9 @@ in the loop by owning the reviewer registry, not by reading every diff.
 ## Status
 
 Bastion is experimental and still partial. The routing, runner, verdict
-aggregation, and on-disk run store are implemented and tested, and the Claude Code
-and Codex backends execute reviewers for real, natively or inside a container when a
-reviewer declares a `runner`. The remaining capability fields (`mcp` and `skills`)
+aggregation, and on-disk run store are implemented and tested, and the Claude Code,
+Codex, and Pi backends execute reviewers for real, natively or inside a container
+when a reviewer declares a `runner`. The remaining capability fields (`mcp` and `skills`)
 are accepted but not yet provisioned, so a reviewer that opts into one fails closed
 rather than running without it, and `network` is honored inside a container but not
 yet scoped; those are called out where they appear in

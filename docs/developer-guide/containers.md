@@ -25,9 +25,9 @@ backend boundary rather than forking it: the backend builds the same
 
 ## The flow
 
-`dispatch` first fails an unwired backend closed (`ensure_backend_wired`, so a
-`backend: pi` reviewer never reaches the build below), then resolves
-`ExecutionPlan::resolve(reviewer)`. For a container plan it then:
+`dispatch` resolves `ExecutionPlan::resolve(reviewer)` (the single place an
+unprovisioned capability tier fails closed, before any image work). For a container
+plan it then:
 
 1. **Resolves the image** (`ContainerPlan::ensure_image`). A `dockerfile` source is
    built with the repo root as the build context (`docker build -t <tag> -f

@@ -49,9 +49,10 @@ marks and growth-hack superlatives are not.
 - **Color is the product concept.** The verdict triad (pass / block / advisor) is
   the only saturated color and it is always semantic. The brand accent sits outside
   the triad so the semantics stay legible.
-- **Honesty is the brand.** Say plainly what is partial (the `pi` backend is
-  stubbed and fails closed). "We'd rather block than pretend" is more persuasive
-  than any benchmark.
+- **Honesty is the brand.** Say plainly what is partial (the `mcp` and `skills`
+  capability tiers parse but are not yet provisioned, so a reviewer that opts into
+  one fails closed). "We'd rather block than pretend" is more persuasive than any
+  benchmark.
 - **Govern, don't tolerate.** Every section reinforces one thesis: you author and
   own the policy; the gate fails closed; nothing is a black box.
 - **Quiet confidence over volume.** Restraint, structural rules, and exact

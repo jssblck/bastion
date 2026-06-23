@@ -245,6 +245,7 @@ impl TestRepo {
             .env("BASTION_DATA_DIR", self.data.path())
             .env("BASTION_CLAUDE_BIN", fake)
             .env("BASTION_CODEX_BIN", fake)
+            .env("BASTION_PI_BIN", fake)
             // Keep stdout pure JSONL; route library logging away from the stream.
             .env("RUST_LOG", "error")
             .stdin(Stdio::null());

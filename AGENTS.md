@@ -12,11 +12,10 @@ gate. The human sits at the policy layer, authoring and governing reviewers.
 
 **This crate is past the walking-skeleton stage but still partial.** The data and
 routing layers are real and tested; the parallel, timeout-bounded runner
-(`src/runner.rs`) and the Claude Code and Codex backends (`src/backend/`) are
-implemented and execute reviewers for real over an injectable subprocess seam.
-The `Pi` backend is still stubbed and fails closed when selected. Keep that
-boundary honest: do not make an unimplemented backend claim to have reviewed
-anything, and keep gates failing closed.
+(`src/runner.rs`) and all three agent backends (Claude Code, Codex, and Pi, under
+`src/backend/`) are implemented and execute reviewers for real over an injectable
+subprocess seam. Keep that boundary honest: a backend that cannot produce a valid
+verdict returns an error, never a fabricated pass, and gates fail closed on it.
 
 ## Source of truth
 
@@ -93,20 +92,21 @@ version:
   out over a `JoinSet`, fails closed on error/timeout, streams run events, and
   persists each run.
 - `src/backend/`: the agent execution boundary. `mod.rs` defines the `Backend`
-  trait, the deterministic `MockBackend`, and `dispatch`; `command.rs` is the
-  injectable `CommandRunner` subprocess seam; `claude_code.rs` and `codex.rs` are
-  the real backends driven against a fake executable in tests. `container/` is the
-  container runner, split by concern (`plan.rs` resolves the `ExecutionPlan` and
-  builds/resolves the image, `runner.rs` is the `ContainerRunner` decorator and its
-  env-file forwarding, `credentials.rs` the provider-credential passthrough,
-  `teardown.rs` the timeout force-removal guard): `dispatch` first fails an unwired
-  backend closed (`ensure_backend_wired`, so a `backend: pi` reviewer causes no side
-  effects), then resolves an `ExecutionPlan` (the single place an unprovisioned
-  capability tier fails closed), and a reviewer with a `runner` block runs its backend
-  inside a built/named image via a `ContainerRunner` decorator over the `CommandRunner`
-  seam (the backend code is untouched; the named container is force-removed on a
-  timeout). `network: true` is honored in-container but not yet scoped; `mcp`/`skills`
-  still fail closed. The `Pi` backend is still unwired and bails.
+  trait, the deterministic `MockBackend`, `dispatch`, and the shared prompt helpers
+  (including the fenced-YAML `SCHEMA_INSTRUCTION`/`extract_verdict` that the Codex
+  and Pi backends share); `command.rs` is the injectable `CommandRunner` subprocess
+  seam; `claude_code.rs`, `codex.rs`, and `pi.rs` are the three real backends, each
+  driven against a fake executable in tests. `container/` is the container runner,
+  split by concern (`plan.rs` resolves the `ExecutionPlan` and builds/resolves the
+  image, `runner.rs` is the `ContainerRunner` decorator and its env-file forwarding,
+  `credentials.rs` the provider-credential passthrough, `teardown.rs` the timeout
+  force-removal guard): `dispatch` resolves an `ExecutionPlan` (the single place an
+  unprovisioned capability tier fails closed), then a reviewer with a `runner` block
+  runs its backend inside a built/named image via a `ContainerRunner` decorator over
+  the `CommandRunner` seam (the backend code is untouched; the named container is
+  force-removed on a timeout). `network: true` is honored in-container but not yet
+  scoped; `mcp`/`skills` still fail closed. All three backends (`claude-code`,
+  `codex`, `pi`; `any` maps to Claude Code) are wired and execute reviewers for real.
 - `src/github/`: the GitHub adapter (the CI surface). `codeowners.rs` generates
   the governance block (pure text, no network); `client.rs` is the REST seam,
   modeled on the backend's `CommandRunner`: a proof-carrying `ApiRequest`, a
@@ -138,7 +138,7 @@ version:
   helpers, `github.rs` for the in-process fake GitHub). It drives the *real compiled
   `bastion` binary* (`CARGO_BIN_EXE_bastion`), each scenario in its own throwaway
   `git` repo and private `BASTION_DATA_DIR`, against the fake agent wired in via
-  `BASTION_CLAUDE_BIN`/`BASTION_CODEX_BIN` (and the fake engine via
+  `BASTION_CLAUDE_BIN`/`BASTION_CODEX_BIN`/`BASTION_PI_BIN` (and the fake engine via
   `BASTION_CONTAINER_ENGINE` for the container scenarios). The fake reads per-reviewer
   `env` (which Bastion propagates into the child) to stage passes, blocks, malformed
   output, crashes, and hangs, so the suite exercises the full subprocess path,
