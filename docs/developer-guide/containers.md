@@ -97,14 +97,11 @@ needs an allowlisting proxy that is unbuilt, so rather than silently grant gener
 egress under a flag that reads as restricted, `ExecutionPlan::resolve` rejects a
 container with `network: false` (a gate blocks, an advisor is skipped). A containerized
 reviewer must therefore opt into `network: true` to run, and accept that today that
-means general egress, not provider-only. A native `network: true` (no `runner`) also
-fails closed: with no container there is nothing to scope. The general egress
-`network: true` grants does not provide adversarial isolation (see the
+means general egress, not provider-only (provider-only scoped egress is unbuilt). A
+native `network: true` (no `runner`) also fails closed: with no container there is
+nothing to scope. The general egress `network: true` grants does not provide
+adversarial isolation (see the
 [threat model](./design.md#threat-model--trust-boundary)).
-
-Provider-only scoped egress is the later milestone that gives `network: false` a real
-meaning: a container that reaches the model provider and nothing else. Until it lands
-the choice is binary, and the default denies rather than over-grants.
 
 ## Reprompt recovery is not persisted across turns
 

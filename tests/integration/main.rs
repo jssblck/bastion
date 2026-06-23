@@ -713,6 +713,59 @@ fn a_containerized_reviewer_without_network_fails_closed() {
     );
 }
 
+/// The advisor side of the same resolve-time rejection: a containerized *advisor*
+/// without `network: true` is failed *open*, not closed. The same
+/// `ExecutionPlan::resolve` error that blocks a gate is, for an advisor, skipped and
+/// kept out of the aggregate, so the run still passes and the binary exits zero. This
+/// pins that the new preflight error follows the gate/advisor policy split rather than
+/// wedging every containerized advisor, and (as on the gate path) never reaches the
+/// engine.
+#[test]
+fn a_containerized_advisor_without_network_is_skipped() {
+    let Some((fake, docker)) = container_tooling() else {
+        return;
+    };
+
+    // An advisor with a `runner` but no `capabilities.network: true`.
+    let repo = TestRepo::new(&registry(&[Reviewer::new(
+        "e2e-no-net-advisor",
+        "claude-code",
+        "advisor",
+    )
+    .behavior("pass")
+    .image("ghcr.io/acme/e2e:latest")]));
+
+    let engine = docker.to_str().unwrap();
+    let agent = fake.to_str().unwrap();
+    let log = repo.path().join("fake-docker.log");
+    let run = repo.review_base(
+        fake,
+        "main",
+        &[
+            ("BASTION_CONTAINER_ENGINE", engine),
+            ("FAKE_AGENT_BIN", agent),
+            ("FAKE_DOCKER_LOG", log.to_str().unwrap()),
+        ],
+    );
+
+    // The advisor fails open: it is skipped, the aggregate still passes, exit zero.
+    assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
+    assert_eq!(run.completed().0, Decision::Pass);
+    let resolved = run.resolved("e2e-no-net-advisor");
+    assert_eq!(resolved.0, Decision::Pass);
+    assert!(
+        resolved.1.contains("skipped"),
+        "a rejected advisor should be recorded as skipped, got: {:?}",
+        resolved.1
+    );
+    // The engine was never invoked, exactly as on the gate path.
+    let logged = std::fs::read_to_string(&log).unwrap_or_default();
+    assert!(
+        logged.is_empty(),
+        "the engine must not run for an advisor rejected at resolve time; engine log:\n{logged}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Accounting, env propagation, and concurrency.
 // ---------------------------------------------------------------------------

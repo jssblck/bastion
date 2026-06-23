@@ -107,8 +107,9 @@ If the binary lives elsewhere or you want to point at a wrapper, set
 
 That covers the default, **native** path. If you author a reviewer with a
 [`runner`](./authoring-reviewers.md#runner-and-capabilities), that reviewer runs its
-backend inside a container instead, so it needs a container engine on the host rather
-than the backend CLI: Bastion shells out to `docker` by default (set
+backend inside a container instead (and must opt into `capabilities.network: true` to
+run, since a container with the default `network: false` fails closed), so it needs a
+container engine on the host rather than the backend CLI: Bastion shells out to `docker` by default (set
 `BASTION_CONTAINER_ENGINE` to use another, for example `podman`), and the backend CLI
 (`claude` / `codex`) must be present inside the image. A fixed set of provider
 credential variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and the like) is forwarded

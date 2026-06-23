@@ -134,8 +134,10 @@ billing, [Continuous integration](./continuous-integration.md#authentication--bi
 By default the backend CLI runs **natively** on the host, using the `claude` or
 `codex` already on your `PATH` and the auth and billing that CLI is configured with.
 A reviewer that declares a [`runner`](./authoring-reviewers.md#runner-and-capabilities)
-instead runs that same backend **inside a container**: Bastion invokes the container
-engine on the host, and the backend CLI resolves inside the image. A fixed set of
+instead runs that same backend **inside a container** (which today requires
+`capabilities.network: true`: a container with the default `network: false` fails
+closed): Bastion invokes the container engine on the host, and the backend CLI resolves
+inside the image. A fixed set of
 model-provider credential variables (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`,
 `OPENAI_BASE_URL`, `CODEX_API_KEY`) is forwarded from Bastion's environment into the
