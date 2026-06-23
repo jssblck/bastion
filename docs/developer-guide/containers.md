@@ -91,15 +91,14 @@ failure: a gate blocks and an advisor is skipped.
 ## Network
 
 `network: true` is honored in the sense that the container has outbound network (it
-attaches the engine's default network). The default `network: false` is **not yet
+attaches the engine's default network). The default `network: false` is **not
 restricted**: scoping egress to the model provider needs an allowlisting proxy,
-which is a later milestone, so today both attach the default network and the
-distinction is recorded on the plan but not enforced. A native `network: true` still
-fails closed: with no container there is nothing to scope, so honoring it would be
-meaningless. It does not provide adversarial isolation (see the
+which is unimplemented, so both attach the default network and the distinction is
+recorded on the plan but not enforced. A native `network: true` fails closed: with
+no container there is nothing to scope, so honoring it would be meaningless. It does not provide adversarial isolation (see the
 [threat model](./design.md#threat-model--trust-boundary)).
 
-## Reprompt recovery is not yet persisted across turns
+## Reprompt recovery is not persisted across turns
 
 When a backend's first turn returns output that does not parse as a verdict, it
 reprompts once in the *same session* (`claude --resume`, `codex exec resume`) to ask

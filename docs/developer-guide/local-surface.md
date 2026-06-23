@@ -103,7 +103,7 @@ The local and GitHub surfaces carry the same data; only the transport differs. T
 | Tokens and cost table                        | `usage` in `reviewer.resolved`          |
 | Permanent run summary on the run page        | persisted `run.jsonl`, `bastion show`   |
 
-The data mapping is exact, but some left-column *renderings* are still target. `bastion github report` runs after the review, so today it posts *completed* checks with no live spinners, renders findings in one sticky PR comment plus check-run annotations (not inline review comments), keeps transcripts in the uploaded run artifact rather than a collapsed `<details>`, and writes the run summary into that artifact. Only how the GitHub side is drawn changes between today and the target; which event maps to which surface does not.
+The data mapping is exact, but some left-column *renderings* remain target. `bastion github report` runs after the review, so it posts *completed* checks with no live spinners, renders findings in one sticky PR comment plus check-run annotations (not inline review comments), keeps transcripts in the uploaded run artifact rather than a collapsed `<details>`, and writes the run summary into that artifact. Only how the GitHub side is drawn differs between this release and the target; which event maps to which surface does not.
 
 Anyone who understands one surface understands the other; this is deliberate, so that an agent's local loop and the CI gate never disagree about what a review means.
 

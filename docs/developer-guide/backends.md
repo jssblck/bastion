@@ -140,7 +140,7 @@ regardless of which agent runs it:
   `Money` (cents) type, clamping negative or non-finite values to zero so a
   malformed cost can never produce a nonsensical charge.
 
-## What a backend applies from the profile today
+## What a backend applies from the profile
 
 The reviewer schema is fuller than the current native execution path. Be precise
 about what is honored, so the code does not over-promise:
@@ -153,7 +153,7 @@ about what is honored, so the code does not over-promise:
 | `inputs` | Honored, interpolated into the prompt. |
 | `env` | Honored, injected into the child process environment. |
 | `runner` (`dockerfile`, `image`) | **Honored.** A reviewer with a `runner` block runs its backend inside a container; `dockerfile` is built (cached by content hash), `image` is used as-is. See [Containers](./containers.md). |
-| `capabilities.network: true` | **Honored in a container, not yet restricted.** A containerized reviewer's container has outbound network. The `network: false` default is *not yet scoped* (egress allowlisting is a later milestone), so today both attach the engine's default network. A *native* `network: true` (no `runner`) fails closed: with no container there is nothing to scope. |
+| `capabilities.network: true` | **Honored in a container, but unscoped.** A containerized reviewer's container has outbound network. The `network: false` default is *not scoped* (egress allowlisting is unimplemented), so both attach the engine's default network. A *native* `network: true` (no `runner`) fails closed: with no container there is nothing to scope. |
 | `capabilities` (`mcp`, `skills`) | **Not provisioned: fails closed.** A reviewer that declares either is failed closed by `ExecutionPlan::resolve` in `dispatch`. |
 
 The unprovisioned opt-ins **fail closed** rather than silently degrading: a gate that

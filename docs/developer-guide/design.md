@@ -16,7 +16,7 @@ Bastion is a formalization of a pattern already in use privately: GitHub Actions
 
 ### The problem
 
-Agents now write most of the code on a growing number of teams. Output volume is closer to _engineers x 100_ than _x 1_ when fully unlocked. Two things prevent teams from fully unlocking:
+Agents write most of the code on a growing number of teams. Output volume is closer to _engineers x 100_ than _x 1_ when fully unlocked. Two things prevent teams from fully unlocking:
 
 - **Human diff review does not scale.** Asking a 5-person team to review their agents' output is like asking 5 people in a 500-person org to review the other 495. You can't fix that by trying harder.
 - **Without review, codebases rot.** Things go great until they don't, and then you have a ball of mud no one can work in.
@@ -89,9 +89,9 @@ Formalized, Bastion is built around the following threat model:
 
 ## The reviewer
 
-A reviewer is a bundle: **prompt + trigger + mode + backend + capabilities + (optional) runner + (optional) environment**. We call it the reviewer's _execution profile_. The optional `runner` provisions a container the backend runs inside (see the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today) and [Containers](./containers.md)); without it the reviewer runs natively on the host.
+A reviewer is a bundle: **prompt + trigger + mode + backend + capabilities + (optional) runner + (optional) environment**. We call it the reviewer's _execution profile_. The optional `runner` provisions a container the backend runs inside (see the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile) and [Containers](./containers.md)); without it the reviewer runs natively on the host.
 
-**Least privilege is the default.** This isn't intended as anti-exfil hardening but as plain hygiene and to keep the common case fast: a reviewer gets no secrets and no tools unless it asks. Most reviewers are hermetic and need nothing but the checkout and a model. Access to the model provider is always permitted, since every reviewer needs it; `network: true` is the opt-in for _general_ outbound network beyond that. (One caveat in the current build: network scoping is not yet enforced, so a containerized reviewer attaches the engine's default network whether or not it asks. The `network` flag is recorded but does not yet restrict egress; see the implementation-status note below and the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today).)
+**Least privilege is the default.** This isn't intended as anti-exfil hardening but as plain hygiene and to keep the common case fast: a reviewer gets no secrets and no tools unless it asks. Most reviewers are hermetic and need nothing but the checkout and a model. Access to the model provider is always permitted, since every reviewer needs it; `network: true` is the opt-in for _general_ outbound network beyond that. (One caveat in this build: network scoping is not enforced, so a containerized reviewer attaches the engine's default network whether or not it asks. The `network` flag is recorded but does not restrict egress; see the implementation-status note below and the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile).)
 
 Reviewers are **composable**. They run independently and asynchronously, and their verdicts are aggregated at the end. This means you can add a new reviewer for a concern without affecting the existing ones, and you can have some reviewers that run fast and others that run slow without blocking the whole process.
 
@@ -150,18 +150,18 @@ reviewers:
       If it fails, block the PR and explain; otherwise, approve it.
 ```
 
-> **Implementation status.** This schema is the design target. In the current
+> **Implementation status.** This schema is the design target. In this
 > build, `name`, `trigger`, `mode`, `backend`, `prompt`, `timeout`, `env`,
 > `inputs`, and `runner` (containers) are honored: a reviewer with a `runner` block
 > runs its backend inside the built or named image (see
 > [Containers](./containers.md)). `capabilities.network: true` is honored inside a
-> container but not yet scoped (egress allowlisting is a later milestone), and a
-> native `network: true` fails closed; `mcp` and `skills` parse but are **not yet
+> container but unscoped (egress allowlisting is unimplemented), and a
+> native `network: true` fails closed; `mcp` and `skills` parse but are **not
 > provisioned**, so a reviewer that declares one **fails closed** (a gate blocks, an
 > advisor is skipped) rather than running without it. The least-privilege default
 > (`network: false`, no `mcp`/`skills`, no `runner`) runs natively. `env` and
 > `inputs` values are literal strings (no shell `$VAR` expansion). See the
-> [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today).
+> [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile).
 
 ---
 

@@ -111,7 +111,7 @@ verdicts into a single decision:
   decisions.
 
 Locally, that aggregate is the exit code of `bastion review`. In CI it is the result
-of the Bastion review job, and `bastion github report` now also posts it as a single
+of the Bastion review job, and `bastion github report` also posts it as a single
 always-present check named `bastion` (the packaged adapter would make that check the
 required one). Either way, the same reviewers compute the same decision in both places.
 
@@ -121,10 +121,10 @@ A **backend** is the agent harness a reviewer runs on. Bastion does not implemen
 its own agent loop; it translates the reviewer into the backend's native config and
 shells out to its CLI, reusing your local auth and billing.
 
-- `any` (the default): Bastion chooses; today that resolves to Claude Code.
+- `any` (the default): Bastion chooses; that resolves to Claude Code.
 - `claude-code`: Anthropic's Claude Code CLI.
 - `codex`: OpenAI's Codex CLI.
-- `pi`: named but not yet wired; selecting it fails closed.
+- `pi`: named but not wired; selecting it fails closed.
 
 You pin a backend when a subscription's terms require a specific harness, or when
 one model is better at a given concern. See

@@ -22,7 +22,7 @@ These are not style preferences; breaking one is a correctness bug.
   [`runner.rs`](../../src/runner.rs) and is the single most important property to
   preserve; the `fail-closed-gates` reviewer in the registry guards it.
 - **An unimplemented backend reviews nothing.** Selecting an unwired backend
-  (today, `pi`) errors rather than fabricating a pass. See
+  (`pi`) errors rather than fabricating a pass. See
   [Backends](./backends.md#dispatch).
 - **Don't preserve backwards compatibility by default.** If the clean solution
   means changing a schema, renaming a concept, or rewriting call sites, do it and
@@ -110,7 +110,7 @@ nudge check
 ```
 
 `just check` runs all four. `nudge check` enforces the mechanical conventions in
-`.nudge.yaml` (today: no Unicode dashes in authored text); it runs in CI and as an
+`.nudge.yaml` (no Unicode dashes in authored text); it runs in CI and as an
 agent-time hook, so the rule is a gate rather than a suggestion. Everything not
 mechanically enforced (parse-don't-validate, newtypes, fail-closed handling) is
 caught at review time: by a human and, fittingly, by Bastion's own reviewers

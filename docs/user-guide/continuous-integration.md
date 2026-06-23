@@ -19,16 +19,16 @@ the one forge Bastion targets.
 > preview environments, and the branch-protection rules are GitHub's. Bastion
 > reads and writes them through a thin adapter and otherwise stays out of the way.
 
-> **What ships today vs. the target.** Most of the adapter below now ships. The
-> self-hosted workflow runs `bastion review`, gates on its exit code, and then runs
+> **What is implemented vs. the target.** Most of the adapter below is implemented.
+> The self-hosted workflow runs `bastion review`, gates on its exit code, and then runs
 > `bastion github report` to post the results back: a sticky PR comment with every
 > reviewer's verdict and findings (optional ones included), one check run per
 > reviewer, and the always-present aggregate `bastion` check. The full run is also
-> uploaded as an artifact. Still on the target list: findings as *inline* diff
-> comments (today they ride the sticky comment and check annotations), the live
+> uploaded as an artifact. Not implemented: findings as *inline* diff
+> comments (in this release they ride the sticky comment and check annotations), the live
 > aggregate table and per-reviewer spinners (which need the engine to talk to the API
 > mid-run), and the packaged `bastion/review-action@v1`. Jump to
-> [What ships today](#what-ships-today) for a workflow you can use now; the rest of
+> [What is implemented](#what-is-implemented) for a usable workflow; the rest of
 > the chapter describes the target shape.
 
 ## How a run maps to GitHub
@@ -83,7 +83,7 @@ session transcript, and a tokens/cost table when the backend reports usage. That
 page is for humans and the occasional surprising decision, not part of the
 implementing agent's normal loop, which lives entirely in the comments.
 
-## What ships today
+## What is implemented
 
 The working approach is a self-hosted workflow that installs a published `bastion`
 release plus your backend CLI, authenticates the backend, runs `bastion review`, and
@@ -189,7 +189,7 @@ require review of the reviewer-policy paths; see [Governance](./governance.md)).
 Merging stays GitHub-native: an author enables auto-merge, and once the required
 job is green GitHub merges. A push re-triggers the workflow and it resolves again.
 
-## The target workflow (forward-looking)
+## The target workflow
 
 The design target is a packaged action that reports per-reviewer checks and inline
 comments and exposes the single aggregate `bastion` check
@@ -197,7 +197,7 @@ comments and exposes the single aggregate `bastion` check
 collapses to:
 
 ```yaml
-# Forward-looking: bastion/review-action@v1 is not yet published.
+# bastion/review-action@v1 is not published.
       - uses: bastion/review-action@v1
         with:
           author: ${{ github.event.pull_request.user.login }}

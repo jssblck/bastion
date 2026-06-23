@@ -57,7 +57,7 @@ nudge check
 ```
 
 `just check` runs all four; it is the gate to pass before opening a PR. `nudge
-check` enforces the mechanical conventions in `.nudge.yaml` (today: no Unicode
+check` enforces the mechanical conventions in `.nudge.yaml` (no Unicode
 dashes in authored text); install [`nudge`](https://github.com/attunehq/nudge)
 first (see CONTRIBUTING.md). The test suite is hermetic (no external services),
 using `tempfile` for filesystem fixtures and throwaway `git init` repositories.
