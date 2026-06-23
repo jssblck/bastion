@@ -18,7 +18,7 @@ A **reviewer** is the unit of the system: a focused agent prompt responsible for
 exactly one property of a changeset. It is a bundle of *prompt + trigger + mode*,
 plus an optional execution profile (backend, timeout, environment, inputs, a
 container `runner`, and `capabilities`, among others). All of it is declared
-statically in `bastion/reviewers.yaml`; [Authoring reviewers](./authoring-reviewers.md)
+statically in `.bastion.yaml`; [Authoring reviewers](./authoring-reviewers.md)
 is the full field reference.
 
 Two properties matter most:
@@ -124,7 +124,7 @@ shells out to its CLI, reusing your local auth and billing.
 - `any` (the default): Bastion chooses; today that resolves to Claude Code.
 - `claude-code`: Anthropic's Claude Code CLI.
 - `codex`: OpenAI's Codex CLI.
-- `pi`: named but not yet wired; selecting it fails closed.
+- `pi`: the Pi CLI; uses whatever provider you have configured it with locally.
 
 You pin a backend when a subscription's terms require a specific harness, or when
 one model is better at a given concern. See
@@ -149,7 +149,7 @@ which is forwarded in alongside the credentials.
 ## How it all fits
 
 ```text
-bastion/reviewers.yaml        you author this
+.bastion.yaml                 you author this
         |
         v
    bastion review  --->  compute changeset (working tree vs base)

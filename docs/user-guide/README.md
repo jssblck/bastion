@@ -44,7 +44,7 @@ The chapters build on each other. If you read them top to bottom you will go fro
 ## The one-paragraph version
 
 You declare **reviewers** (focused agent prompts, one concern each) in
-`bastion/reviewers.yaml`. Each reviewer has a **trigger** (file globs) and a
+`.bastion.yaml`. Each reviewer has a **trigger** (file globs) and a
 **mode** (`gate` blocks the merge, `advisor` only comments). `bastion review`
 finds the reviewers whose triggers match your working-tree changes, runs them in
 parallel, and aggregates their verdicts into one decision: all gates must pass.
@@ -55,9 +55,9 @@ in the loop by owning the reviewer registry, not by reading every diff.
 ## Status
 
 Bastion is experimental and still partial. The routing, runner, verdict
-aggregation, and on-disk run store are implemented and tested, and the Claude Code
-and Codex backends execute reviewers for real, natively or inside a container when a
-reviewer declares a `runner`. The remaining capability fields (`mcp` and `skills`)
+aggregation, and on-disk run store are implemented and tested, and the Claude Code,
+Codex, and Pi backends execute reviewers for real, natively or inside a container
+when a reviewer declares a `runner`. The remaining capability fields (`mcp` and `skills`)
 are accepted but not yet provisioned, so a reviewer that opts into one fails closed
 rather than running without it, and `network` is honored inside a container but not
 yet scoped; those are called out where they appear in

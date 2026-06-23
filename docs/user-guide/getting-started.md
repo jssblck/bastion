@@ -90,13 +90,12 @@ auth come along for free. Install and sign in to one of:
   default when a reviewer does not pin a backend.
 - **[Codex](https://github.com/openai/codex)** (`codex`): pin it with
   `backend: codex` on a reviewer.
+- **[Pi](https://github.com/earendil-works/pi)** (`pi`): pin it with `backend: pi`.
+  Pi runs against whatever provider you have configured it with locally.
 
-(The `pi` backend is named in the schema but not wired in this build; selecting it
-fails closed.)
-
-Bastion invokes the backend as a plain executable on your `PATH` (`claude` or
-`codex`), so confirm the one you intend to use is installed and authenticated
-before running a review:
+Bastion invokes the backend as a plain executable on your `PATH` (`claude`,
+`codex`, or `pi`), so confirm the one you intend to use is installed and
+authenticated before running a review:
 
 ```sh
 claude --version    # for the Claude Code backend
@@ -120,12 +119,13 @@ start using `runner` reviewers; the quickstart below stays native.
 
 ## 3. Write your first reviewer
 
-Reviewers live in a single declarative file: `bastion/reviewers.yaml`, in your
-repository root. Bastion discovers it by walking up from your current directory,
-so you can run `bastion` from anywhere inside the repo. Create the file:
+Reviewers live in a single declarative file at your repository root:
+`.bastion.yaml` (the `.bastion.yml` spelling is also honored). Bastion discovers it
+by walking up from your current directory, so you can run `bastion` from anywhere
+inside the repo. Create the file:
 
 ```yaml
-# bastion/reviewers.yaml
+# .bastion.yaml
 reviewers:
   - name: single-responsibility
     trigger: [src/**/*.rs]   # which changed files wake this reviewer
@@ -256,8 +256,8 @@ end-user feature.)
 
 The most common first-run snags and what they mean:
 
-- **"no reviewer registry found ..."**: there is no `bastion/reviewers.yaml` in
-  this repo or any ancestor. Create one (step 3).
+- **"no reviewer registry found ..."**: there is no `.bastion.yaml` (or
+  `.bastion.yml`) in this repo or any ancestor. Create one (step 3).
 - **A reviewer registry error (malformed YAML, duplicate name, missing field).**
   The registry is validated before any agent runs, so these fail fast with a clear
   message. Fix the file and re-run; see [Authoring reviewers](./authoring-reviewers.md).

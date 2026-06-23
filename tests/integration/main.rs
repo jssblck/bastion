@@ -5,11 +5,12 @@
 //! missing top: it drives the *real compiled `bastion` binary* (via
 //! `CARGO_BIN_EXE_bastion`) as a black box, each scenario in its own isolated
 //! environment -- a throwaway `git` repository, a private `BASTION_DATA_DIR`, and
-//! a compiled fake agent standing in for the heavyweight Claude Code / Codex
+//! a compiled fake agent standing in for the heavyweight Claude Code / Codex / Pi
 //! subprocesses the real backends shell out to.
 //!
 //! The fake agent ([`fakes::FAKE_AGENT_SRC`]) is compiled once with `rustc` and
-//! pointed at through `BASTION_CLAUDE_BIN` / `BASTION_CODEX_BIN`, so the binary takes
+//! pointed at through `BASTION_CLAUDE_BIN` / `BASTION_CODEX_BIN` / `BASTION_PI_BIN`,
+//! so the binary takes
 //! the genuine subprocess path: real spawn, real stdin/argv, real stdout capture, real
 //! parse, real fail-closed/fail-open aggregation, real persistence. The fake reads
 //! per-reviewer `env` (which Bastion propagates into the child) to choose how to
@@ -255,7 +256,7 @@ fn a_timed_out_advisor_is_skipped_not_blocked() {
     assert_eq!(gates.total, 1);
 }
 
-/// The single-reprompt recovery path works end to end on both backends.
+/// The single-reprompt recovery path works end to end on all three backends.
 #[test]
 fn the_reprompt_recovery_path_works_end_to_end() {
     let Some(fake) = tooling() else { return };
@@ -263,15 +264,17 @@ fn the_reprompt_recovery_path_works_end_to_end() {
     let repo = TestRepo::new(&registry(&[
         Reviewer::new("codex-recover", "codex", "gate").behavior("reprompt-recover"),
         Reviewer::new("claude-recover", "claude-code", "gate").behavior("reprompt-recover"),
+        Reviewer::new("pi-recover", "pi", "gate").behavior("reprompt-recover"),
     ]));
     let run = repo.review(fake);
 
     assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
     let (decision, gates, _cost) = run.completed();
     assert_eq!(decision, Decision::Pass);
-    assert_eq!(gates.passed, 2);
+    assert_eq!(gates.passed, 3);
     assert_eq!(run.resolved("codex-recover").0, Decision::Pass);
     assert_eq!(run.resolved("claude-recover").0, Decision::Pass);
+    assert_eq!(run.resolved("pi-recover").0, Decision::Pass);
 }
 
 /// A gate that never produces a parseable verdict, even after the reprompt, fails
@@ -315,23 +318,30 @@ fn an_inconsistent_verdict_gate_fails_closed() {
     assert_eq!(run.resolved("inconsistent-gate").0, Decision::Block);
 }
 
-/// The unwired Pi backend fails closed for a gate: dispatch bails, the runner
-/// turns that into a block, and the failure reason surfaces.
+/// The Pi backend runs a reviewer end to end through the real subprocess path: a
+/// clean changeset passes, a flawed one blocks with its finding, all via the
+/// `pi -p --mode json` protocol the fake agent emulates.
 #[test]
-fn the_unwired_pi_backend_fails_closed() {
+fn the_pi_backend_runs_end_to_end() {
     let Some(fake) = tooling() else { return };
 
     let repo = TestRepo::new(&registry(&[
-        Reviewer::new("pi-gate", "pi", "gate").behavior("pass")
+        Reviewer::new("pi-pass", "pi", "gate").behavior("pass"),
+        Reviewer::new("pi-block", "pi", "gate").behavior("block"),
     ]));
     let run = repo.review(fake);
 
+    // One gate blocks, so the aggregate blocks and the process exits non-zero.
     assert_eq!(run.code, Some(1));
     assert_eq!(run.completed().0, Decision::Block);
-    let (_verdict, _summary, findings, _usage) = run.resolved("pi-gate");
+    assert_eq!(run.resolved("pi-pass").0, Decision::Pass);
+    let (verdict, _summary, findings, _usage) = run.resolved("pi-block");
+    assert_eq!(verdict, Decision::Block);
     assert!(
-        findings.iter().any(|f| f.detail.contains("pi backend")),
-        "expected the pi-not-wired reason to surface; findings: {findings:?}"
+        findings
+            .iter()
+            .any(|f| f.detail.contains("simulated blocking finding")),
+        "expected the pi block finding to surface; findings: {findings:?}"
     );
 }
 
@@ -651,7 +661,8 @@ fn a_hung_containerized_reviewer_times_out_and_is_torn_down() {
 // ---------------------------------------------------------------------------
 
 /// Reported cost is summed across every reviewer that returned a verdict, across
-/// both backends, exactly; per-reviewer token usage also surfaces on the stream.
+/// all three backends, exactly; per-reviewer token usage also surfaces on the
+/// stream, parsed from each backend's native shape.
 #[test]
 fn cost_and_token_usage_are_reported_across_backends() {
     let Some(fake) = tooling() else { return };
@@ -670,12 +681,17 @@ fn cost_and_token_usage_are_reported_across_backends() {
         Reviewer::new("c3", "codex", "advisor")
             .behavior("pass")
             .env("FAKE_COST_CENTS", "7"),
+        Reviewer::new("c4", "pi", "gate")
+            .behavior("pass")
+            .env("FAKE_COST_CENTS", "13")
+            .env("FAKE_TOKENS_IN", "2000")
+            .env("FAKE_TOKENS_OUT", "150"),
     ]));
     let run = repo.review(fake);
 
     assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
     let (_decision, _gates, cost) = run.completed();
-    assert_eq!(cost, Money::from_cents(22));
+    assert_eq!(cost, Money::from_cents(35));
 
     // Per-reviewer token usage is parsed from each backend's native shape.
     let claude_usage = run.resolved("c1").3.expect("claude usage reported");
@@ -684,12 +700,16 @@ fn cost_and_token_usage_are_reported_across_backends() {
     let codex_usage = run.resolved("c2").3.expect("codex usage reported");
     assert_eq!(codex_usage.tokens_in, 900);
     assert_eq!(codex_usage.tokens_out, 40);
+    let pi_usage = run.resolved("c4").3.expect("pi usage reported");
+    assert_eq!(pi_usage.tokens_in, 2000);
+    assert_eq!(pi_usage.tokens_out, 150);
+    assert_eq!(pi_usage.cost_usd, Money::from_cents(13));
 }
 
 /// Reviewer `env` is propagated into the agent child and `${...}` inputs are
 /// interpolated into the prompt before the agent sees it. The fake asserts the
-/// interpolated marker arrived (on both backends) and fails closed if it did not,
-/// so a regression in propagation or interpolation turns this test red.
+/// interpolated marker arrived (on all three backends) and fails closed if it did
+/// not, so a regression in propagation or interpolation turns this test red.
 #[test]
 fn env_propagation_and_input_interpolation_reach_the_agent() {
     let Some(fake) = tooling() else { return };
@@ -705,13 +725,18 @@ fn env_propagation_and_input_interpolation_reach_the_agent() {
             .input("ticket", "ABC-4242")
             .prompt("Review for ticket ${ticket} carefully.")
             .env("FAKE_EXPECT_PROMPT_CONTAINS", "ABC-4242"),
+        Reviewer::new("pi-interp", "pi", "gate")
+            .behavior("pass")
+            .input("module", "auth/session")
+            .prompt("Scrutinize the ${module} module closely.")
+            .env("FAKE_EXPECT_PROMPT_CONTAINS", "auth/session"),
     ]));
     let run = repo.review(fake);
 
     assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
     let (decision, gates, _cost) = run.completed();
     assert_eq!(decision, Decision::Pass);
-    assert_eq!(gates.passed, 2);
+    assert_eq!(gates.passed, 3);
 }
 
 /// Reviewers run concurrently, not serially. Eight reviewers each sleep two
@@ -750,10 +775,10 @@ fn reviewers_run_concurrently_not_serially() {
     );
 }
 
-/// The headline stress scenario: a large, mixed registry across both backends and
-/// both modes, staging passes, blocks, crashes, timeouts, reprompts, and advisory
-/// noise all at once. Everything must resolve, the aggregate must block, and every
-/// reviewer's artifacts must land on disk.
+/// The headline stress scenario: a large, mixed registry across all three backends
+/// and both modes, staging passes, blocks, crashes, timeouts, reprompts, and
+/// advisory noise all at once. Everything must resolve, the aggregate must block,
+/// and every reviewer's artifacts must land on disk.
 #[test]
 fn a_large_mixed_registry_resolves_every_reviewer_and_persists() {
     let Some(fake) = tooling() else { return };
@@ -761,6 +786,7 @@ fn a_large_mixed_registry_resolves_every_reviewer_and_persists() {
     let reviewers = vec![
         Reviewer::new("g-claude-pass", "claude-code", "gate").behavior("pass"),
         Reviewer::new("g-codex-pass", "codex", "gate").behavior("pass"),
+        Reviewer::new("g-pi-pass", "pi", "gate").behavior("pass"),
         Reviewer::new("g-any-pass", "any", "gate").behavior("pass"),
         Reviewer::new("g-codex-block", "codex", "gate").behavior("block"),
         Reviewer::new("g-claude-crash", "claude-code", "gate").behavior("crash"),
@@ -769,8 +795,10 @@ fn a_large_mixed_registry_resolves_every_reviewer_and_persists() {
             .env("FAKE_SLEEP_MS", "30000")
             .timeout("500ms"),
         Reviewer::new("g-claude-recover", "claude-code", "gate").behavior("reprompt-recover"),
+        Reviewer::new("g-pi-recover", "pi", "gate").behavior("reprompt-recover"),
         Reviewer::new("a-codex-pass", "codex", "advisor").behavior("pass"),
         Reviewer::new("a-claude-block", "claude-code", "advisor").behavior("block"),
+        Reviewer::new("a-pi-block", "pi", "advisor").behavior("block"),
         Reviewer::new("a-codex-crash", "codex", "advisor").behavior("crash"),
     ];
     let total = reviewers.len();
@@ -780,18 +808,20 @@ fn a_large_mixed_registry_resolves_every_reviewer_and_persists() {
     assert_eq!(run.code, Some(1), "stderr:\n{}", run.stderr);
     let (decision, gates, _cost) = run.completed();
     assert_eq!(decision, Decision::Block);
-    assert_eq!(gates.total, 7);
+    assert_eq!(gates.total, 9);
     assert_eq!(
         gates.blocked, 3,
         "block + crash + timeout should each block"
     );
-    assert_eq!(gates.passed, 4);
+    assert_eq!(gates.passed, 6);
 
     assert_eq!(run.started_count(), total);
     assert_eq!(run.resolved_count(), total);
 
     assert_eq!(run.resolved("g-claude-pass").0, Decision::Pass);
     assert_eq!(run.resolved("g-claude-recover").0, Decision::Pass);
+    assert_eq!(run.resolved("g-pi-pass").0, Decision::Pass);
+    assert_eq!(run.resolved("g-pi-recover").0, Decision::Pass);
     assert_eq!(run.resolved("g-codex-block").0, Decision::Block);
 
     let layout = repo.layout();
@@ -1109,6 +1139,36 @@ fn a_missing_registry_is_a_hard_error() {
     assert!(store::list_runs(&repo.layout()).unwrap().is_empty());
 }
 
+/// A registry at the deprecated `bastion/reviewers.yaml` location still works (the
+/// back-compat shim), but the run logs a deprecation warning pointing at the new
+/// `.bastion.yaml` root location.
+#[test]
+fn the_legacy_registry_location_still_works_with_a_deprecation_warning() {
+    let Some(fake) = tooling() else { return };
+
+    let repo = TestRepo::new_legacy(&registry(&[
+        Reviewer::new("legacy-gate", "codex", "gate").behavior("pass")
+    ]));
+    // Raise the log level past the suite default (`error`) so the warning is visible.
+    let run = repo.review_base(fake, "main", &[("RUST_LOG", "warn")]);
+
+    assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
+    let (decision, gates, _cost) = run.completed();
+    assert_eq!(decision, Decision::Pass);
+    assert_eq!(gates.passed, 1);
+
+    assert!(
+        run.stderr.contains("deprecated path"),
+        "expected a deprecation warning, stderr:\n{}",
+        run.stderr
+    );
+    assert!(
+        run.stderr.contains(".bastion.yaml"),
+        "the warning must point at the new location, stderr:\n{}",
+        run.stderr
+    );
+}
+
 /// An invalid registry (here, duplicate reviewer names) is a hard error surfaced
 /// to the user, never swallowed into a pass.
 #[test]
@@ -1226,7 +1286,11 @@ fn github_codeowners_emits_the_policy_block() {
     assert!(ok.status.success());
     let stdout = String::from_utf8_lossy(&ok.stdout);
     assert!(
-        stdout.contains("/bastion/ @acme/platform @jess"),
+        stdout.contains("/.bastion.yaml @acme/platform @jess"),
+        "stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("/.bastion.yml @acme/platform @jess"),
         "stdout:\n{stdout}"
     );
     assert!(stdout.contains("require human review"), "stdout:\n{stdout}");

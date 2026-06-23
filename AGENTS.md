@@ -12,11 +12,10 @@ gate. The human sits at the policy layer, authoring and governing reviewers.
 
 **This crate is past the walking-skeleton stage but still partial.** The data and
 routing layers are real and tested; the parallel, timeout-bounded runner
-(`src/runner.rs`) and the Claude Code and Codex backends (`src/backend/`) are
-implemented and execute reviewers for real over an injectable subprocess seam.
-The `Pi` backend is still stubbed and fails closed when selected. Keep that
-boundary honest: do not make an unimplemented backend claim to have reviewed
-anything, and keep gates failing closed.
+(`src/runner.rs`) and all three agent backends (Claude Code, Codex, and Pi, under
+`src/backend/`) are implemented and execute reviewers for real over an injectable
+subprocess seam. Keep that boundary honest: a backend that cannot produce a valid
+verdict returns an error, never a fabricated pass, and gates fail closed on it.
 
 ## Source of truth
 
@@ -31,8 +30,8 @@ anything, and keep gates failing closed.
   - `docs/developer-guide/local-surface.md`: the local CLI surface this crate
     implements. The local and GitHub surfaces are deliberate mirror images; keep
     them in sync.
-- `bastion/reviewers.yaml`: the example reviewer registry; update it when the
-  schema changes.
+- `.bastion.yaml`: the example reviewer registry at the repository root (the
+  `.bastion.yml` spelling is also honored); update it when the schema changes.
 - `.agents/skills/readme.md`: repo-local Rust coding skills and their provenance.
 - `CLAUDE.md` is a bare `@AGENTS.md` import so guidance does not drift between
   agent surfaces.
@@ -93,20 +92,21 @@ version:
   out over a `JoinSet`, fails closed on error/timeout, streams run events, and
   persists each run.
 - `src/backend/`: the agent execution boundary. `mod.rs` defines the `Backend`
-  trait, the deterministic `MockBackend`, and `dispatch`; `command.rs` is the
-  injectable `CommandRunner` subprocess seam; `claude_code.rs` and `codex.rs` are
-  the real backends driven against a fake executable in tests. `container/` is the
-  container runner, split by concern (`plan.rs` resolves the `ExecutionPlan` and
-  builds/resolves the image, `runner.rs` is the `ContainerRunner` decorator and its
-  env-file forwarding, `credentials.rs` the provider-credential passthrough,
-  `teardown.rs` the timeout force-removal guard): `dispatch` first fails an unwired
-  backend closed (`ensure_backend_wired`, so a `backend: pi` reviewer causes no side
-  effects), then resolves an `ExecutionPlan` (the single place an unprovisioned
-  capability tier fails closed), and a reviewer with a `runner` block runs its backend
-  inside a built/named image via a `ContainerRunner` decorator over the `CommandRunner`
-  seam (the backend code is untouched; the named container is force-removed on a
-  timeout). `network: true` is honored in-container but not yet scoped; `mcp`/`skills`
-  still fail closed. The `Pi` backend is still unwired and bails.
+  trait, the deterministic `MockBackend`, `dispatch`, and the shared prompt helpers
+  (including the fenced-YAML `SCHEMA_INSTRUCTION`/`extract_verdict` that the Codex
+  and Pi backends share); `command.rs` is the injectable `CommandRunner` subprocess
+  seam; `claude_code.rs`, `codex.rs`, and `pi.rs` are the three real backends, each
+  driven against a fake executable in tests. `container/` is the container runner,
+  split by concern (`plan.rs` resolves the `ExecutionPlan` and builds/resolves the
+  image, `runner.rs` is the `ContainerRunner` decorator and its env-file forwarding,
+  `credentials.rs` the provider-credential passthrough, `teardown.rs` the timeout
+  force-removal guard): `dispatch` resolves an `ExecutionPlan` (the single place an
+  unprovisioned capability tier fails closed), then a reviewer with a `runner` block
+  runs its backend inside a built/named image via a `ContainerRunner` decorator over
+  the `CommandRunner` seam (the backend code is untouched; the named container is
+  force-removed on a timeout). `network: true` is honored in-container but not yet
+  scoped; `mcp`/`skills` still fail closed. All three backends (`claude-code`,
+  `codex`, `pi`; `any` maps to Claude Code) are wired and execute reviewers for real.
 - `src/github/`: the GitHub adapter (the CI surface). `codeowners.rs` generates
   the governance block (pure text, no network); `client.rs` is the REST seam,
   modeled on the backend's `CommandRunner`: a proof-carrying `ApiRequest`, a
@@ -138,7 +138,7 @@ version:
   helpers, `github.rs` for the in-process fake GitHub). It drives the *real compiled
   `bastion` binary* (`CARGO_BIN_EXE_bastion`), each scenario in its own throwaway
   `git` repo and private `BASTION_DATA_DIR`, against the fake agent wired in via
-  `BASTION_CLAUDE_BIN`/`BASTION_CODEX_BIN` (and the fake engine via
+  `BASTION_CLAUDE_BIN`/`BASTION_CODEX_BIN`/`BASTION_PI_BIN` (and the fake engine via
   `BASTION_CONTAINER_ENGINE` for the container scenarios). The fake reads per-reviewer
   `env` (which Bastion propagates into the child) to stage passes, blocks, malformed
   output, crashes, and hangs, so the suite exercises the full subprocess path,
@@ -178,7 +178,7 @@ version:
 - When you fix an issue, consider whether the class of issue is one a Bastion
   reviewer could catch in future changesets (a recurring bug pattern, a convention
   that keeps getting violated, a footgun in the schema or CLI surface). If so,
-  suggest adding or extending a reviewer in `bastion/reviewers.yaml` and say what
+  suggest adding or extending a reviewer in `.bastion.yaml` and say what
   its concern and trigger would be. Do not add the reviewer yourself: reviewers are
   governed policy, so leave the decision to the user.
 - Gates fail closed. A gate that cannot produce a valid verdict is a block, never
@@ -194,7 +194,7 @@ version:
   AI-register slop: state mechanisms, not the product's character. Follow the
   `stop-slop` skill (under `.claude/skills/stop-slop/`, mirrored to
   `.agents/skills/`), which catches the structural tells. The `prose-anti-slop`
-  gate in `bastion/reviewers.yaml` blocks the merge on slop in changed prose.
+  gate in `.bastion.yaml` blocks the merge on slop in changed prose.
 - Use plain ASCII quotes in docs, comments, and generated text. No em dashes or
   en dashes, and no literal `--` used as a dash in prose; recast with a comma, a
   colon, or parentheses.
@@ -234,12 +234,12 @@ nudge check
 `nudge check` enforces the mechanical conventions in `.nudge.yaml` (today: no
 Unicode dashes in authored text). It runs in CI and as an agent-time hook, and
 gates the same way locally; the `prose-anti-slop` gate in
-`bastion/reviewers.yaml` covers the prose-voice judgment a regex cannot.
+`.bastion.yaml` covers the prose-voice judgment a regex cannot.
 
 Also run targeted checks when relevant:
 
 - Versioning changes: run `bastion --version`.
-- Schema changes: update `bastion/reviewers.yaml` and the docs under `docs/`.
+- Schema changes: update `.bastion.yaml` and the docs under `docs/`.
 - Public scaffolding changes: keep `README.md`, `CONTRIBUTING.md`, `SECURITY.md`,
   `NOTICE`, and the GitHub workflows in sync.
 - Rule changes: validate `.nudge.yaml` with `nudge validate` and confirm

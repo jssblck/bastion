@@ -74,7 +74,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::config::{CONFIG_DIR, Config, REGISTRY_FILE};
+    use crate::config::{Config, REGISTRY_FILE};
     use crate::reviewer::Mode;
 
     fn reviewer(name: &str, triggers: &[&str]) -> Reviewer {
@@ -131,10 +131,8 @@ mod tests {
     }
 
     fn shipped_registry() -> Config {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(CONFIG_DIR)
-            .join(REGISTRY_FILE);
-        Config::load(&path).expect("shipped reviewers.yaml loads")
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(REGISTRY_FILE);
+        Config::load(&path).expect("shipped .bastion.yaml loads")
     }
 
     fn matched_names<'a>(router: &Router<'a>, file: &str) -> Vec<String> {
@@ -182,7 +180,7 @@ mod tests {
         for excluded in [
             "src/main.rs",
             "Cargo.toml",
-            "bastion/reviewers.yaml",
+            ".bastion.yaml",
             ".agents/skills/parse-dont-validate/SKILL.md",
             ".agents/skills/readme.md",
             ".claude/skills/stop-slop/references/examples.md",

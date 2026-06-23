@@ -43,7 +43,7 @@ fn git(dir: &Path, args: &[&str]) {
 // Building a reviewer registry.
 // ---------------------------------------------------------------------------
 
-/// A reviewer to write into a scenario's `reviewers.yaml`. All reviewers trigger
+/// A reviewer to write into a scenario's `.bastion.yaml`. All reviewers trigger
 /// on `src/**/*.rs`, which the test repo always dirties, so each one runs.
 pub(crate) struct Reviewer {
     pub(crate) name: &'static str,
@@ -217,29 +217,51 @@ pub(crate) struct TestRepo {
     data: tempfile::TempDir,
 }
 
+/// Where (and whether) to write a scenario repo's reviewer registry.
+enum Registry<'a> {
+    /// No registry at all (the discovery error path).
+    None,
+    /// A `.bastion.yaml` at the repository root (the supported location).
+    Root(&'a str),
+    /// A `bastion/reviewers.yaml` (the deprecated back-compat location).
+    Legacy(&'a str),
+}
+
 impl TestRepo {
-    /// Stand up a repo whose `bastion/reviewers.yaml` is `registry_yaml`, with a
+    /// Stand up a repo whose `.bastion.yaml` is `registry_yaml`, with a
     /// committed `src/lib.rs` base and an uncommitted changeset on top (an edit
     /// plus a new file), so a `review --base main` always has files to route.
     pub(crate) fn new(registry_yaml: &str) -> Self {
-        Self::build(Some(registry_yaml))
+        Self::build(Registry::Root(registry_yaml))
     }
 
     /// A repo with no reviewer registry at all (for the discovery error path).
     pub(crate) fn without_registry() -> Self {
-        Self::build(None)
+        Self::build(Registry::None)
     }
 
-    fn build(registry_yaml: Option<&str>) -> Self {
+    /// Stand up a repo whose registry lives at the deprecated
+    /// `bastion/reviewers.yaml` location, to exercise the back-compat shim.
+    pub(crate) fn new_legacy(registry_yaml: &str) -> Self {
+        Self::build(Registry::Legacy(registry_yaml))
+    }
+
+    fn build(registry: Registry) -> Self {
         let repo = tempfile::tempdir().expect("repo tempdir");
         let dir = repo.path();
 
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(dir.join("src/lib.rs"), "pub fn base() {}\n").unwrap();
         std::fs::write(dir.join("README.md"), "scenario repo\n").unwrap();
-        if let Some(yaml) = registry_yaml {
-            std::fs::create_dir_all(dir.join("bastion")).unwrap();
-            std::fs::write(dir.join("bastion/reviewers.yaml"), yaml).unwrap();
+        match registry {
+            Registry::None => {}
+            Registry::Root(yaml) => {
+                std::fs::write(dir.join(".bastion.yaml"), yaml).unwrap();
+            }
+            Registry::Legacy(yaml) => {
+                std::fs::create_dir_all(dir.join("bastion")).unwrap();
+                std::fs::write(dir.join("bastion/reviewers.yaml"), yaml).unwrap();
+            }
         }
 
         git(dir, &["init"]);
@@ -285,6 +307,7 @@ impl TestRepo {
             .env("BASTION_DATA_DIR", self.data.path())
             .env("BASTION_CLAUDE_BIN", fake)
             .env("BASTION_CODEX_BIN", fake)
+            .env("BASTION_PI_BIN", fake)
             // Keep stdout pure JSONL; route library logging away from the stream.
             .env("RUST_LOG", "error")
             .stdin(Stdio::null());
