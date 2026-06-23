@@ -77,9 +77,10 @@ fn all_gates_pass_across_both_backends() {
 
 /// Model and effort reach each backend's argv end to end, resolved through the real
 /// binary: an explicit per-reviewer value, a value inherited from the registry
-/// `defaults` block, and the Claude selectors as well as the Codex ones. The fake
-/// agent fails its contract (non-zero exit) if a selector is missing, which would
-/// fail the gate closed; a clean `pass` across all three proves the flags arrived.
+/// `defaults` block, the Claude selectors, the Codex ones, and Pi's
+/// `--model`/`--thinking`. The fake agent fails its contract (non-zero exit) if a
+/// selector is missing, which would fail the gate closed; a clean `pass` across all
+/// four proves the flags arrived.
 #[test]
 fn model_and_effort_reach_each_backend_through_the_real_binary() {
     let Some(fake) = tooling() else { return };
@@ -107,6 +108,15 @@ fn model_and_effort_reach_each_backend_through_the_real_binary() {
                 .behavior("pass")
                 .env("FAKE_EXPECT_MODEL", "claude-sonnet-4-6")
                 .env("FAKE_EXPECT_EFFORT", "medium"),
+            // The Pi selectors (`--model`/`--thinking`): the model carries its
+            // provider in Pi's `provider/id` form, and `xhigh` is a Pi-specific
+            // thinking level forwarded verbatim.
+            Reviewer::new("pi-explicit", "pi", "gate")
+                .model("openai-codex/gpt-5.5")
+                .effort("xhigh")
+                .behavior("pass")
+                .env("FAKE_EXPECT_MODEL", "openai-codex/gpt-5.5")
+                .env("FAKE_EXPECT_EFFORT", "xhigh"),
         ],
     ));
     let run = repo.review(fake);
@@ -114,8 +124,8 @@ fn model_and_effort_reach_each_backend_through_the_real_binary() {
     assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
     let (decision, gates, _cost) = run.completed();
     assert_eq!(decision, Decision::Pass);
-    assert_eq!(gates.total, 3);
-    assert_eq!(gates.passed, 3);
+    assert_eq!(gates.total, 4);
+    assert_eq!(gates.passed, 4);
 }
 
 /// A single blocking gate makes the binary exit non-zero (so an agent loop and CI
@@ -363,7 +373,8 @@ fn a_containerized_reviewer_runs_in_the_engine() {
 
     let repo = TestRepo::new(&registry(&[Reviewer::new("e2e", "claude-code", "gate")
         .behavior("pass")
-        .dockerfile("Dockerfile")]));
+        .dockerfile("Dockerfile")
+        .network()]));
     // The Dockerfile only needs to exist: the fake engine's `build` is a no-op, but
     // image-tag derivation reads the file's bytes.
     std::fs::write(repo.path().join("Dockerfile"), "FROM scratch\n").unwrap();
@@ -411,7 +422,8 @@ fn a_containerized_any_backend_runs_claude_in_the_engine() {
 
     let repo = TestRepo::new(&registry(&[Reviewer::new("e2e-any", "any", "gate")
         .behavior("pass")
-        .image("ghcr.io/acme/e2e:latest")]));
+        .image("ghcr.io/acme/e2e:latest")
+        .network()]));
 
     let engine = docker.to_str().unwrap();
     let agent = fake.to_str().unwrap();
@@ -445,7 +457,8 @@ fn a_containerized_gate_still_fails_closed_on_a_block() {
 
     let repo = TestRepo::new(&registry(&[Reviewer::new("e2e-block", "codex", "gate")
         .behavior("block")
-        .image("ghcr.io/acme/e2e:latest")]));
+        .image("ghcr.io/acme/e2e:latest")
+        .network()]));
 
     let engine = docker.to_str().unwrap();
     let agent = fake.to_str().unwrap();
@@ -494,7 +507,8 @@ fn a_containerized_malformed_gate_fails_closed() {
         "gate",
     )
     .behavior("malformed")
-    .image("ghcr.io/acme/e2e:latest")]));
+    .image("ghcr.io/acme/e2e:latest")
+    .network()]));
 
     let engine = docker.to_str().unwrap();
     let agent = fake.to_str().unwrap();
@@ -532,12 +546,14 @@ fn a_containerized_reviewer_sees_only_forwarded_env() {
         Reviewer::new("e2e-declared", "claude-code", "advisor")
             .behavior("pass")
             .env("FAKE_SUMMARY", "from-reviewer-env")
-            .image("ghcr.io/acme/e2e:latest"),
+            .image("ghcr.io/acme/e2e:latest")
+            .network(),
         // Declares no `FAKE_SUMMARY`: the host's value must not leak in, so the agent
         // falls back to its built-in default summary.
         Reviewer::new("e2e-isolated", "claude-code", "advisor")
             .behavior("pass")
-            .image("ghcr.io/acme/e2e:latest"),
+            .image("ghcr.io/acme/e2e:latest")
+            .network(),
     ]));
 
     let engine = docker.to_str().unwrap();
@@ -585,7 +601,8 @@ fn a_provider_credential_crosses_into_the_container() {
     )
     .behavior("pass")
     .env("FAKE_ECHO_ENV", "ANTHROPIC_API_KEY")
-    .image("ghcr.io/acme/e2e:latest")]));
+    .image("ghcr.io/acme/e2e:latest")
+    .network()]));
 
     let engine = docker.to_str().unwrap();
     let agent = fake.to_str().unwrap();
@@ -628,7 +645,8 @@ fn a_hung_containerized_reviewer_times_out_and_is_torn_down() {
     .behavior("pass")
     .env("FAKE_SLEEP_MS", "5000")
     .timeout("300ms")
-    .image("ghcr.io/acme/e2e:latest")]));
+    .image("ghcr.io/acme/e2e:latest")
+    .network()]));
 
     let engine = docker.to_str().unwrap();
     let agent = fake.to_str().unwrap();
@@ -653,6 +671,108 @@ fn a_hung_containerized_reviewer_times_out_and_is_torn_down() {
     assert!(
         logged.lines().any(|line| line.starts_with("rm:")),
         "expected a container teardown (`rm -f`); engine log:\n{logged}"
+    );
+}
+
+/// A containerized reviewer that does not opt into `network: true` fails closed
+/// before any container work. Bastion cannot scope a container's egress to the model
+/// provider yet, so the default `network: false` reads as a restriction it cannot
+/// enforce; rather than silently attach general egress, `ExecutionPlan::resolve`
+/// rejects it. The gate blocks, the binary exits nonzero, and the engine is never
+/// invoked (the failure precedes the image build and `docker run`), so no engine log
+/// is written. This is the end-to-end face of the `plan.rs` unit test, proving the
+/// resolve-time rejection becomes a real fail-closed block through the binary.
+#[test]
+fn a_containerized_reviewer_without_network_fails_closed() {
+    let Some((fake, docker)) = container_tooling() else {
+        return;
+    };
+
+    // A `runner` block but no `capabilities.network: true`: unrunnable today.
+    let repo = TestRepo::new(&registry(&[Reviewer::new(
+        "e2e-no-net",
+        "claude-code",
+        "gate",
+    )
+    .behavior("pass")
+    .image("ghcr.io/acme/e2e:latest")]));
+
+    let engine = docker.to_str().unwrap();
+    let agent = fake.to_str().unwrap();
+    let log = repo.path().join("fake-docker.log");
+    let run = repo.review_base(
+        fake,
+        "main",
+        &[
+            ("BASTION_CONTAINER_ENGINE", engine),
+            ("FAKE_AGENT_BIN", agent),
+            ("FAKE_DOCKER_LOG", log.to_str().unwrap()),
+        ],
+    );
+
+    // The gate fails closed: a container with the default `network: false` does not run.
+    assert_eq!(run.code, Some(1));
+    assert_eq!(run.completed().0, Decision::Block);
+    assert_eq!(run.resolved("e2e-no-net").0, Decision::Block);
+    // The failure precedes any container work: the engine was never invoked, so no
+    // build and no `docker run` were logged.
+    let logged = std::fs::read_to_string(&log).unwrap_or_default();
+    assert!(
+        logged.is_empty(),
+        "the engine must not run for a reviewer rejected at resolve time; engine log:\n{logged}"
+    );
+}
+
+/// The advisor side of the same resolve-time rejection: a containerized *advisor*
+/// without `network: true` is failed *open*, not closed. The same
+/// `ExecutionPlan::resolve` error that blocks a gate is, for an advisor, skipped and
+/// kept out of the aggregate, so the run still passes and the binary exits zero. This
+/// pins that the new preflight error follows the gate/advisor policy split rather than
+/// wedging every containerized advisor, and (as on the gate path) never reaches the
+/// engine.
+#[test]
+fn a_containerized_advisor_without_network_is_skipped() {
+    let Some((fake, docker)) = container_tooling() else {
+        return;
+    };
+
+    // An advisor with a `runner` but no `capabilities.network: true`.
+    let repo = TestRepo::new(&registry(&[Reviewer::new(
+        "e2e-no-net-advisor",
+        "claude-code",
+        "advisor",
+    )
+    .behavior("pass")
+    .image("ghcr.io/acme/e2e:latest")]));
+
+    let engine = docker.to_str().unwrap();
+    let agent = fake.to_str().unwrap();
+    let log = repo.path().join("fake-docker.log");
+    let run = repo.review_base(
+        fake,
+        "main",
+        &[
+            ("BASTION_CONTAINER_ENGINE", engine),
+            ("FAKE_AGENT_BIN", agent),
+            ("FAKE_DOCKER_LOG", log.to_str().unwrap()),
+        ],
+    );
+
+    // The advisor fails open: it is skipped, the aggregate still passes, exit zero.
+    assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
+    assert_eq!(run.completed().0, Decision::Pass);
+    let resolved = run.resolved("e2e-no-net-advisor");
+    assert_eq!(resolved.0, Decision::Pass);
+    assert!(
+        resolved.1.contains("skipped"),
+        "a rejected advisor should be recorded as skipped, got: {:?}",
+        resolved.1
+    );
+    // The engine was never invoked, exactly as on the gate path.
+    let logged = std::fs::read_to_string(&log).unwrap_or_default();
+    assert!(
+        logged.is_empty(),
+        "the engine must not run for an advisor rejected at resolve time; engine log:\n{logged}"
     );
 }
 
@@ -1435,6 +1555,14 @@ fn github_report_posts_a_comment_and_checks_for_a_blocked_run() {
     );
     assert!(comment.body.contains("Bastion review"));
     assert!(comment.body.contains("simulated blocking finding"));
+    // The fake stamps check runs with the shared `github-actions` app (as the
+    // default GITHUB_TOKEN does), so the report detects the missing dedicated app
+    // from the check-run response on its own and closes the comment with the nudge.
+    assert!(
+        comment.body.contains("bastion.jessica.black/github-app"),
+        "report should detect the shared app and nudge toward a dedicated one: {}",
+        comment.body
+    );
 
     // One check run per reviewer plus the always-present aggregate `bastion` check.
     let checks: Vec<&CapturedRequest> = requests

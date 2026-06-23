@@ -91,7 +91,8 @@ auth come along for free. Install and sign in to one of:
 - **[Codex](https://github.com/openai/codex)** (`codex`): pin it with
   `backend: codex` on a reviewer.
 - **[Pi](https://github.com/earendil-works/pi)** (`pi`): pin it with `backend: pi`.
-  Pi runs against whatever provider you have configured it with locally.
+  Pi runs against whatever provider you have configured it with locally, unless a
+  reviewer pins a `model` (Pi's `provider/id` form, which selects the provider too).
 
 Bastion invokes the backend as a plain executable on your `PATH` (`claude`,
 `codex`, or `pi`), so confirm the one you intend to use is installed and
@@ -107,8 +108,9 @@ If the binary lives elsewhere or you want to point at a wrapper, set
 
 That covers the default, **native** path. If you author a reviewer with a
 [`runner`](./authoring-reviewers.md#runner-and-capabilities), that reviewer runs its
-backend inside a container instead, so it needs a container engine on the host rather
-than the backend CLI: Bastion shells out to `docker` by default (set
+backend inside a container instead (and must opt into `capabilities.network: true`;
+without it the reviewer is rejected before it runs, so a gate blocks and an advisor is
+skipped), so it needs a container engine on the host rather than the backend CLI: Bastion shells out to `docker` by default (set
 `BASTION_CONTAINER_ENGINE` to use another, for example `podman`), and the backend CLI
 (`claude` / `codex`) must be present inside the image. A fixed set of provider
 credential variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and the like) is forwarded

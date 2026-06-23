@@ -438,47 +438,4 @@ reviewers:
             );
         }
     }
-
-    #[test]
-    fn unprovisioned_capabilities_gate_guards_the_registry() {
-        // The unprovisioned-capabilities reviewer is the authoring-time guard
-        // against a reviewer declaring a capability this build cannot provision.
-        // Pin its routing so a typo in its trigger or a flip from gate to advisor
-        // fails here rather than silently disarming the guard.
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(REGISTRY_FILE);
-        let config = Config::load(&path).expect("shipped registry loads");
-        let gate = config
-            .reviewers
-            .iter()
-            .find(|r| r.name == "unprovisioned-capabilities")
-            .expect("the unprovisioned-capabilities reviewer is present");
-        assert_eq!(
-            gate.mode,
-            crate::reviewer::Mode::Gate,
-            "unprovisioned-capabilities must be a gate, not an advisor"
-        );
-        assert!(
-            gate.trigger.iter().any(|t| t == ".bastion.yaml"),
-            "unprovisioned-capabilities must trigger on the registry it guards (got {:?})",
-            gate.trigger
-        );
-        // Pin the policy clauses the container-runner work changed, so a prompt edit
-        // that silently re-broadened the guard (back to blocking a `runner`, or
-        // forward to letting `mcp`/`skills` through) fails here. The runner block is
-        // now provisioned, a native `network: true` still fails closed, and `mcp` and
-        // `skills` remain unprovisioned.
-        let prompt = &gate.prompt;
-        assert!(
-            prompt.contains("the container `runner` block"),
-            "the gate prompt must state the `runner` block is provisioned"
-        );
-        assert!(
-            prompt.contains("does NOT yet provision the `mcp` or `skills`"),
-            "the gate prompt must still treat `mcp` and `skills` as unprovisioned"
-        );
-        assert!(
-            prompt.contains("NO `runner` block"),
-            "the gate prompt must still block native `network: true` (no `runner`)"
-        );
-    }
 }

@@ -71,8 +71,8 @@ Following one review top to bottom touches most of the crate:
    front. Each task calls `backend::dispatch` (`backend/mod.rs`), which resolves the
    reviewer's `ExecutionPlan` (failing closed on an unprovisioned capability tier),
    selects the concrete backend, and runs the agent either natively or inside a
-   container for a reviewer with a `runner` block (`backend/container/`; see
-   [Containers](./containers.md)).
+   container for a reviewer with a `runner` block and `capabilities.network: true`
+   (`backend/container/`; see [Containers](./containers.md)).
 6. **Resolve & aggregate** (`runner.rs`). Each result has fail-closed/fail-open
    policy applied: a gate that blocks, errors, or times out resolves to `block`
    (with a synthetic blocking finding); an advisor that fails is dropped. The

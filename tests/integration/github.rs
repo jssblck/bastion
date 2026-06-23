@@ -73,6 +73,12 @@ impl FakeGitHub {
 fn serve_one(mut stream: std::net::TcpStream) -> Option<CapturedRequest> {
     use std::io::{Read, Write};
 
+    // The listener is non-blocking, and on Windows an accepted socket inherits that
+    // mode (POSIX does not, so this only bites on Windows). A non-blocking read would
+    // return `WouldBlock` whenever the request bytes have not landed the instant we
+    // call `read`, and `serve_one`'s `.ok()?` would then silently drop the request.
+    // Force blocking mode so the read timeout below actually governs the wait.
+    stream.set_nonblocking(false).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
@@ -116,6 +122,14 @@ fn serve_one(mut stream: std::net::TcpStream) -> Option<CapturedRequest> {
 
     let (status, json) = if method == "GET" {
         (200, "[]".to_string())
+    } else if path.ends_with("/check-runs") {
+        // GitHub stamps the creating app on every check run. With the default
+        // GITHUB_TOKEN that app is `github-actions`, which the report reads back to
+        // detect that no dedicated app is configured.
+        (
+            201,
+            r#"{"id":1,"app":{"slug":"github-actions"}}"#.to_string(),
+        )
     } else {
         (201, r#"{"id":1}"#.to_string())
     };

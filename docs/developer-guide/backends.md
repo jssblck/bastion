@@ -150,14 +150,14 @@ about what is honored, so the code does not over-promise:
 | --- | --- |
 | `prompt`, `trigger`, `mode`, `name` | Fully honored. |
 | `backend` | Honored (`claude-code`, `codex`, `pi`; `any` -> Claude Code). |
-| `model` | **Honored.** Forwarded to the backend's model selector (`--model` for Claude Code, `-m` for Codex). Backend-specific, so the registry rejects a `model` (own or inherited) under `backend: any`. Absent, Claude Code defaults to `claude-opus-4-8`; Codex resolves its own. |
-| `effort` | **Honored.** An opaque level forwarded verbatim to each backend's native control (see below). Default `high`. |
+| `model` | **Honored.** Forwarded to the backend's model selector (`--model` for Claude Code, `-m` for Codex, `--model` for Pi). Backend-specific, so the registry rejects a `model` (own or inherited) under `backend: any`. Pi's `--model` takes a `provider/id` form (e.g. `openai-codex/gpt-5.5`) that selects the provider too (Pi's bare default provider is `google`), so a Pi model carries its provider in the string. Absent, Claude Code defaults to `claude-opus-4-8`; Codex and Pi resolve their own. |
+| `effort` | **Honored.** An opaque level forwarded verbatim to each backend's native control (Claude Code's `--effort`, Codex's `model_reasoning_effort`, Pi's `--thinking`; see below). Default `high`. |
 | `defaults` (registry-wide `model`/`effort`) | **Honored.** Folded into each reviewer at load time (a reviewer's own field wins); resolution happens once, in `Config::from_yaml`, so the persisted run record carries the effective values. |
 | `timeout` | Honored by the runner. |
 | `inputs` | Honored, interpolated into the prompt. |
 | `env` | Honored, injected into the child process environment. |
-| `runner` (`dockerfile`, `image`) | **Honored.** A reviewer with a `runner` block runs its backend inside a container; `dockerfile` is built (cached by content hash), `image` is used as-is. See [Containers](./containers.md). |
-| `capabilities.network: true` | **Honored in a container, but unscoped.** A containerized reviewer's container has outbound network. The `network: false` default is *not scoped* (egress allowlisting is unimplemented), so both attach the engine's default network. A *native* `network: true` (no `runner`) fails closed: with no container there is nothing to scope. |
+| `runner` (`dockerfile`, `image`) | **Honored, with `capabilities.network: true`.** A reviewer with a `runner` block and `capabilities.network: true` runs its backend inside a container; `dockerfile` is built (cached by content hash), `image` is used as-is. A `runner` without `network: true` fails closed (see the `capabilities.network` row below). See [Containers](./containers.md). |
+| `capabilities.network` | **`network: true` is honored in a container; the default `network: false` fails closed.** `network: true` gives a containerized reviewer general (unscoped) egress: the container attaches the engine's default network. The default `network: false` fails closed in a container because provider-only scoped egress (an allowlisting proxy) is unbuilt, so `ExecutionPlan::resolve` rejects it rather than silently granting general egress under a flag that reads as restricted (a gate blocks, an advisor is skipped). A containerized reviewer must opt into `network: true` to run. A *native* `network: true` (no `runner`) also fails closed: with no container there is nothing to scope. |
 | `capabilities` (`mcp`, `skills`) | **Not provisioned: fails closed.** A reviewer that declares either is failed closed by `ExecutionPlan::resolve` in `dispatch`. |
 
 ### How `model` and `effort` reach each backend
@@ -170,7 +170,8 @@ block (folded in by `Config::from_yaml`), then the backend's built-in default.
 Both are passed through **opaquely**: Bastion does not parse or remap either value,
 so a reviewer can use whatever vocabulary its backend accepts (Claude Code's
 `--effort` takes `low`/`medium`/`high`/`xhigh`/`max`; Codex's
-`model_reasoning_effort` takes `minimal`/`low`/`medium`/`high`). The shared
+`model_reasoning_effort` takes `minimal`/`low`/`medium`/`high`; Pi's `--thinking`
+takes `off`/`minimal`/`low`/`medium`/`high`/`xhigh`). The shared
 `low`/`medium`/`high` levels are portable; the backend-specific ones are not, and a
 mismatch is the backend's problem, not a load error.
 
@@ -180,7 +181,13 @@ overlaps across backends, a `model` under `backend: any` is a load error
 port). Claude Code always sends a `--model` (its built-in default is
 `claude-opus-4-8`) and always an `--effort` (default `high`); Codex always sends
 `model_reasoning_effort` (default `high`) and sends `-m` only when a model is
-pinned, otherwise it resolves its own.
+pinned, otherwise it resolves its own. Pi mirrors Codex: it always sends
+`--thinking` (default `high`) and sends `--model` only when a model is pinned,
+otherwise it falls back to its configured default provider/model. Pi is
+multi-provider, so the provider rides inside the model string using Pi's native
+`provider/id` form (e.g. `openai-codex/gpt-5.5`): a bare model id would resolve
+under Pi's default provider (`google`), so a Pi reviewer's `model` should name its
+provider.
 
 The unprovisioned opt-ins **fail closed** rather than silently degrading: a gate that
 declares a tier it cannot get must block, never run degraded and report a pass (see
@@ -228,5 +235,5 @@ runner fails closed). The verdict schema itself is specified in the
 
 ---
 
-Next: [Containers](./containers.md). How a reviewer with a `runner` block executes
-inside a container.
+Next: [Containers](./containers.md). How a reviewer with a `runner` block and
+`capabilities.network: true` executes inside a container.

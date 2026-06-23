@@ -43,6 +43,12 @@ jobs:
     name: bastion review
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Whether the optional dedicated app is fully configured. The id and the private
+    # key are one credential, so this is true only when both are set: a half-set repo
+    # then falls back cleanly instead of running the mint step and failing it. Computed
+    # here because the mint step's `if:` can read `env` but not `secrets`.
+    env:
+      HAS_BASTION_APP: ${{ secrets.BASTION_APP_ID != '' && secrets.BASTION_APP_PRIVATE_KEY != '' }}
     # The Pi (ChatGPT) subscription credentials live in an Actions secret, and
     # GitHub does not share secrets with workflows triggered by fork PRs. We also
     # will not run an agentic backend over untrusted code. So this runs for
@@ -131,12 +137,12 @@ jobs:
           mkdir -p "$HOME/.pi/agent"
           printf '%s' "$cred" > "$HOME/.pi/agent/auth.json"
           chmod 600 "$HOME/.pi/agent/auth.json"
-          # The Pi backend passes no --provider/--model, so it runs on whatever Pi's
-          # config names as the default. Pin that to the ChatGPT-subscription
-          # provider the stored auth.json carries (openai-codex), the model the
-          # registry defaults target (gpt-5.5), and high thinking (the registry's
-          # effort: high), so the review uses the right subscription, model, and
-          # effort regardless of Pi's built-in defaults.
+          # The registry pins model: openai-codex/gpt-5.5 and effort: high, which the
+          # Pi backend forwards as --model and --thinking, so the provider, model, and
+          # effort are set per review. This settings.json is the fallback Pi reads when
+          # a reviewer pins no model: it names the ChatGPT-subscription provider
+          # (openai-codex), the model (gpt-5.5), and high thinking, so a review never
+          # silently drops to Pi's built-in default provider (google).
           printf '%s' '{"defaultProvider":"openai-codex","defaultModel":"gpt-5.5","defaultThinkingLevel":"high"}' > "$HOME/.pi/agent/settings.json"
           chmod 600 "$HOME/.pi/agent/settings.json"
 
@@ -153,14 +159,34 @@ jobs:
         # BASTION_DATA_DIR and uploaded below.
         run: bastion review --base "origin/${{ github.base_ref }}"
 
+      - name: Mint a dedicated app token for reporting
+        id: app-token
+        # Optional, and only when a dedicated Bastion GitHub App is configured (the
+        # BASTION_APP_ID / BASTION_APP_PRIVATE_KEY secrets). Posting the check runs
+        # under a distinct app gives them their own check suite, so the PR renders
+        # them under the app's name (e.g. "Bastion / fail-closed-gates"). Without a
+        # dedicated app the report step below falls back to the default GITHUB_TOKEN,
+        # which still posts but, because every workflow shares the one github-actions
+        # app identity, GitHub buckets the API-created check runs into whichever of
+        # this commit's check suites it picks (often a sibling workflow like
+        # "Security"). The mint runs on `always()` so reporting works even when the
+        # review blocked and failed the job above. See docs/developer-guide/github-adapter.md.
+        if: ${{ always() && env.HAS_BASTION_APP == 'true' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.BASTION_APP_ID }}
+          private-key: ${{ secrets.BASTION_APP_PRIVATE_KEY }}
+
       - name: Report the review to the pull request
         # Runs even when the review blocked (and so failed the job above), so the PR
         # always gets the comment and the per-reviewer checks. It reads the run that
         # `bastion review` just persisted under BASTION_DATA_DIR; if no run was
         # recorded (an earlier infrastructure failure) it prints a notice and exits 0
-        # rather than piling a second error on top of the real one. The default
-        # GITHUB_TOKEN is a GitHub App installation token, so it can create check
-        # runs (a classic PAT cannot); GITHUB_API_URL is provided by Actions.
+        # rather than piling a second error on top of the real one. Creating check
+        # runs needs a GitHub App installation token (a classic PAT cannot); both the
+        # minted dedicated-app token and the default GITHUB_TOKEN qualify, so this
+        # uses the dedicated-app token when present and falls back to GITHUB_TOKEN
+        # otherwise. GITHUB_API_URL is provided by Actions.
         #
         # `github report` landed after v0.1.0, so until a release that includes it
         # becomes the latest, the installed binary will not have the subcommand.
@@ -170,7 +196,7 @@ jobs:
         # exists, a real posting error fails the step.
         if: always()
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
         run: |
           set -euo pipefail
@@ -178,6 +204,9 @@ jobs:
             echo "::notice::bastion engine ${BASTION_ENGINE_VERSION:-unknown} has no 'github report'; skipping PR comment and checks until the latest release includes it."
             exit 0
           fi
+          # `bastion github report` reads its own posting identity from the check-run
+          # responses, so it decides on its own whether to nudge toward a dedicated
+          # app; the workflow does not need to tell it.
           bastion github report \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \

@@ -102,11 +102,15 @@ version:
   `credentials.rs` the provider-credential passthrough, `teardown.rs` the timeout
   force-removal guard): `dispatch` resolves an `ExecutionPlan` (the single place an
   unprovisioned capability tier fails closed), then a reviewer with a `runner` block
-  runs its backend inside a built/named image via a `ContainerRunner` decorator over
+  and `capabilities.network: true` runs its backend inside a built/named image via a
+  `ContainerRunner` decorator over
   the `CommandRunner` seam (the backend code is untouched; the named container is
-  force-removed on a timeout). `network: true` is honored in-container but not yet
-  scoped; `mcp`/`skills` still fail closed. All three backends (`claude-code`,
-  `codex`, `pi`; `any` maps to Claude Code) are wired and execute reviewers for real.
+  force-removed on a timeout). `network: true` grants a containerized reviewer general
+  (unscoped) egress; a container with the default `network: false` fails closed because
+  provider-only scoped egress is unbuilt, so a containerized reviewer must opt into
+  `network: true`. `mcp`/`skills` still fail closed. All three backends
+  (`claude-code`, `codex`, `pi`; `any` maps to Claude Code) are wired and execute
+  reviewers for real.
 - `src/github/`: the GitHub adapter (the CI surface). `codeowners.rs` generates
   the governance block (pure text, no network); `client.rs` is the REST seam,
   modeled on the backend's `CommandRunner`: a proof-carrying `ApiRequest`, a
@@ -115,8 +119,21 @@ version:
   comment and check-run payloads (all pure and unit-tested) and posts them. `bastion
   github report` reads a persisted run and posts it: the sticky comment (with every
   finding, optional ones included), a check run per reviewer, and the always-present
-  aggregate `bastion` check. Check runs need a GitHub App token, so this runs under
-  the Actions `GITHUB_TOKEN`, not a classic PAT.
+  aggregate `bastion` check. Check runs need a GitHub App installation token, so this
+  runs under one (the default Actions `GITHUB_TOKEN` qualifies; a classic PAT does
+  not). API-created check runs carry no check-suite id, so under the shared
+  `github-actions` identity GitHub buckets them into a sibling workflow's suite (they
+  render as `Security / <reviewer>`); posting under a dedicated per-adopter app gives
+  them their own named suite. `.github/workflows/bastion.yml` mints that app token via
+  `actions/create-github-app-token` when the `BASTION_APP_ID`/`BASTION_APP_PRIVATE_KEY`
+  secrets exist and falls back to `GITHUB_TOKEN` otherwise; the hosted walkthrough at
+  `bastion.jessica.black/github-app` (`site/src/pages/github-app.astro`) drives the
+  manifest flow that provisions the app. `report` decides whether to nudge toward a
+  dedicated app on its own (no workflow flag): it reads the `app.slug` GitHub stamps
+  on the check runs it creates, and when that is the shared `github-actions` identity
+  it closes the sticky comment with a note linking to that walkthrough. This is why
+  it posts check runs before the comment. See `docs/developer-guide/github-adapter.md`
+  (Check-run grouping).
 - `src/skills.rs` / `skills/`: the agent skills bundled into the binary. Each
   `skills/<slug>/SKILL.md` is embedded with `include_str!`; `bastion skills
   install` writes it into a consuming repo's `.claude/skills/` and `.agents/skills/`,

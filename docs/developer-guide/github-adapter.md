@@ -27,7 +27,7 @@ Bastion runs as a GitHub Actions workflow triggered on pull request events: `ope
 3. Runs each selected reviewer through its backend, in parallel, with per-reviewer timeouts (see the core design's _Aggregation & the merge gate_).
 4. Reports each verdict back to the PR.
 
-Native reviewers run directly on the Actions runner. A reviewer that declares a container `runner` runs its backend inside that container on the Actions runner (the engine is already present on GitHub-hosted runners); see [Containers](./containers.md). None of routing or aggregation is GitHub-specific; only the steps that read the PR and write results go through the adapter.
+Native reviewers run directly on the Actions runner. A reviewer that declares a container `runner` and `capabilities.network: true` runs its backend inside that container on the Actions runner (the engine is already present on GitHub-hosted runners); see [Containers](./containers.md). None of routing or aggregation is GitHub-specific; only the steps that read the PR and write results go through the adapter.
 
 ---
 
@@ -106,7 +106,7 @@ The PR author is the requester. Bastion runs the reviewers for a PR under creden
 
 Bastion does not store any credentials; the team stores them as Actions secrets and tells Bastion the mapping. If no subscription is configured for an author, Bastion can fall back to a shared metered API key, so a new contributor is never blocked from review; whether to allow that fallback is the team's call.
 
-This author-mapped flow works by placing the credential in the runner environment that the backend CLI reads (the subscription `auth.json` flow below writes `~/.pi/agent/auth.json` on the runner). A native reviewer reads that host config directly. A containerized reviewer (one with a `runner`) does not see the runner's home directory: it receives only the reviewer's literal `env` plus a fixed set of provider-credential variable *names* forwarded into the container, so it authenticates from an env-based provider credential (for example `CODEX_API_KEY` / `ANTHROPIC_API_KEY`) or from auth baked into the image, not from a host `auth.json`. See [Containers](./containers.md).
+This author-mapped flow works by placing the credential in the runner environment that the backend CLI reads (the subscription `auth.json` flow below writes `~/.pi/agent/auth.json` on the runner). A native reviewer reads that host config directly. A containerized reviewer (one with a `runner` and `capabilities.network: true`) does not see the runner's home directory: it receives only the reviewer's literal `env` plus a fixed set of provider-credential variable *names* forwarded into the container, so it authenticates from an env-based provider credential (for example `CODEX_API_KEY` / `ANTHROPIC_API_KEY`) or from auth baked into the image, not from a host `auth.json`. See [Containers](./containers.md).
 
 One operational note carried over from the core design: under heavy volume a subscription's rate limits can throttle reviewers, and because gates fail closed a throttled reviewer reads as a blocked merge. Bastion can optionally support API key fallback for this sort of situation as well, or teams may decide to simply use API billing and keep subscriptions for the local loop. That is a tradeoff to make per org and repo.
 
@@ -117,9 +117,9 @@ This repository dogfoods the adapter through [`.github/workflows/bastion.yml`](.
 1. **Capture the credential once, locally.** Each contributor authenticates Pi against their billed ChatGPT subscription (Pi's `openai-codex` provider) on their own machine. Pi writes an OAuth credential (an access token plus a refresh token) to `~/.pi/agent/auth.json`.
 2. **Store it as a per-author secret.** Copy the contents of that `auth.json` into a repository secret named `PI_AUTH_<LOGIN>`: the login uppercased, e.g. `PI_AUTH_JSSBLCK` for `jssblck`. Bastion never stores credentials; the secret lives in GitHub Actions.
 3. **Map the login to the secret.** The `Authenticate Pi as the PR author` step resolves `github.event.pull_request.user.login` to the matching secret through a `case` arm, so reviewing `jssblck`'s PR bills `jssblck`'s subscription. Onboarding a contributor is two reviewed lines: their secret and a `case` arm. Because the mapping lives in the workflow, which is a CODEOWNERS-protected path, changing who may spend a subscription is itself a human-reviewed change.
-4. **The job rehydrates it at run time.** Before running `bastion review`, the step writes the resolved credential back to `$HOME/.pi/agent/auth.json`; Pi refreshes the short-lived access token from the stored refresh token on each run, so the secret does not need rotating every time the access token expires. The same step also writes `$HOME/.pi/agent/settings.json` pinning `defaultProvider: openai-codex`, `defaultModel: gpt-5.5`, and `defaultThinkingLevel: high`. The Pi backend passes no `--provider`/`--model`/effort flag, so this config (not the reviewer's `model`/`effort` fields, which Pi currently ignores) is what selects the ChatGPT-subscription provider, the model, and the effort for the run.
+4. **The job rehydrates it at run time.** Before running `bastion review`, the step writes the resolved credential back to `$HOME/.pi/agent/auth.json`; Pi refreshes the short-lived access token from the stored refresh token on each run, so the secret does not need rotating every time the access token expires. The same step also writes `$HOME/.pi/agent/settings.json` pinning `defaultProvider: openai-codex`, `defaultModel: gpt-5.5`, and `defaultThinkingLevel: high`. Every reviewer pins `model: openai-codex/gpt-5.5` and `effort: high`, which the Pi backend forwards as `--model` and `--thinking`, so the provider, model, and effort are selected per review; the settings.json is the fallback Pi reads for any reviewer that pins no `model`, naming the same provider so a review never drops to Pi's built-in default provider (`google`).
 
-An author with no mapped secret fails closed: the step errors and the gate blocks, rather than silently billing someone else's subscription. Two further boundaries keep this safe: GitHub does not expose secrets to workflows triggered by fork pull requests, and the job additionally guards on `head.repo.full_name == github.repository`, so an agentic backend never runs over untrusted code with a live credential; a fork contribution is reviewed by a maintainer re-running it from a trusted branch. The job's pass/fail is the gate (a blocked review exits non-zero); a following `bastion github report` step then posts the sticky comment and the per-reviewer and aggregate check runs, and the full run is also uploaded as an artifact. That report step runs with `if: always()` so the PR is updated even when the review blocked and failed the job; it needs `pull-requests: write` and `checks: write`, and it relies on the default `GITHUB_TOKEN` being a GitHub App installation token (a classic personal access token cannot create check runs).
+An author with no mapped secret fails closed: the step errors and the gate blocks, rather than silently billing someone else's subscription. Two further boundaries keep this safe: GitHub does not expose secrets to workflows triggered by fork pull requests, and the job additionally guards on `head.repo.full_name == github.repository`, so an agentic backend never runs over untrusted code with a live credential; a fork contribution is reviewed by a maintainer re-running it from a trusted branch. The job's pass/fail is the gate (a blocked review exits non-zero); a following `bastion github report` step then posts the sticky comment and the per-reviewer and aggregate check runs, and the full run is also uploaded as an artifact. That report step runs with `if: always()` so the PR is updated even when the review blocked and failed the job; it needs `pull-requests: write` and `checks: write`, and a GitHub App installation token to create check runs (a classic personal access token cannot). This repo configures a dedicated Bastion app for that token so its checks group under their own name rather than a sibling workflow's; see [Check-run grouping and the dedicated app](#check-run-grouping-and-the-dedicated-app). When no such app is configured the step falls back to the default `GITHUB_TOKEN`, which is itself an installation token and still posts.
 
 Bot authors are the one wrinkle. A bot like `dependabot[bot]` opens same-repo PRs (so they clear the `head.repo` guard and want reviewing) but has no subscription of its own, so its `case` arm points at a maintainer's credential, billing the bot's PRs to whoever opted in to sponsor them. Two GitHub-specific gotchas come with that. First, the bot login is literally `dependabot[bot]`; the `[bot]` brackets are a glob character class in a shell `case` pattern, so the arm must quote them (`'dependabot[bot]')`) to match literally. Second, GitHub serves secrets to Dependabot-triggered runs from a *separate Dependabot secret store*, not the Actions store, so the same `PI_AUTH_<LOGIN>` must be set in both places (`gh secret set PI_AUTH_JSSBLCK --app dependabot`), or the secret arrives empty on Dependabot PRs and the gate blocks with a misleading "mapped but empty" error.
 
@@ -131,7 +131,7 @@ For API-key billing instead of a subscription, store the provider's API key as a
 
 Bastion consumes environments, it does not provision them. A reviewer that needs a preview URL, a database, or any other running dependency expects the workflow to have stood it up and exposed it; the reviewer just reads it.
 
-On GitHub that means the workflow owns whatever a reviewer's `env` and `inputs` reference. A typical setup deploys a preview environment for the PR in an earlier job, or a separate workflow, and passes its URL into the Bastion job as an environment variable. How it reaches the agent depends on where the reviewer runs. A native reviewer inherits the job environment, so a variable exported into the Bastion job is visible to the agent, and `env`/`inputs` add literal values on top. A containerized reviewer (one with a `runner`) inherits none of the arbitrary job environment; only its literal `env` pairs and the fixed provider-credential set cross into the container, so a per-PR value must be written into the reviewer's `env`, usually by templating the registry before the job runs. A secret a reviewer needs comes from Actions secrets the same way author credentials do.
+On GitHub that means the workflow owns whatever a reviewer's `env` and `inputs` reference. A typical setup deploys a preview environment for the PR in an earlier job, or a separate workflow, and passes its URL into the Bastion job as an environment variable. How it reaches the agent depends on where the reviewer runs. A native reviewer inherits the job environment, so a variable exported into the Bastion job is visible to the agent, and `env`/`inputs` add literal values on top. A containerized reviewer (one with a `runner` and `capabilities.network: true`) inherits none of the arbitrary job environment; only its literal `env` pairs and the fixed provider-credential set cross into the container, so a per-PR value must be written into the reviewer's `env`, usually by templating the registry before the job runs. A secret a reviewer needs comes from Actions secrets the same way author credentials do.
 
 Standing up a preview environment is a deploy concern, and the deploy system already knows how. Bastion's job starts once the environment exists.
 
@@ -158,6 +158,11 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
+    # True only when both dedicated-app secrets are set (the id and key are one
+    # credential), so a half-configured repo falls back instead of failing the mint
+    # step. Computed here because the `if:` below can read `env` but not `secrets`.
+    env:
+      HAS_BASTION_APP: ${{ secrets.BASTION_APP_ID != '' && secrets.BASTION_APP_PRIVATE_KEY != '' }}
     # Agentic backends run over the PR's code with live credentials, so restrict to
     # same-repo PRs; a maintainer re-runs a fork PR from a trusted branch.
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -179,15 +184,28 @@ jobs:
         # Non-zero exit on a blocked gate fails the job; that is the merge gate.
         run: bastion review --base "origin/${{ github.base_ref }}"
 
+      # Optional: mint a token for a dedicated Bastion app so the report's check
+      # runs get their own named check suite (see "Check-run grouping" below).
+      # Skipped when the app is not configured; reporting then falls back to the
+      # default GITHUB_TOKEN.
+      - id: app-token
+        if: ${{ always() && env.HAS_BASTION_APP == 'true' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.BASTION_APP_ID }}
+          private-key: ${{ secrets.BASTION_APP_PRIVATE_KEY }}
+
       - name: Report to the PR
         # Runs even when the review blocked and failed the job, so the comment and
-        # checks always land. The default GITHUB_TOKEN is a GitHub App token, so it
-        # can create check runs (a classic PAT cannot).
+        # checks always land. Creating check runs needs a GitHub App installation
+        # token (a classic PAT cannot); both the dedicated-app token and the default
+        # GITHUB_TOKEN qualify, so use the dedicated one when present and fall back.
         if: always()
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
         run: |
+          set -euo pipefail
           bastion github report \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \
@@ -195,6 +213,24 @@ jobs:
 ```
 
 Branch protection on the default branch requires the `bastion` check and review of the owned reviewer-config paths; everything else is standard GitHub.
+
+## Check-run grouping and the dedicated app
+
+In the PR checks list, the label before the `/` is not the workflow that created a check run; it is the **check suite** the run belongs to. A check suite is keyed by `(GitHub App, commit)`, not by workflow. Every GitHub Actions workflow runs under the single shared `github-actions` app, so one commit that triggers several workflows has several `github-actions` check suites (one per workflow). The check runs `bastion github report` posts through the REST API (`POST /repos/{owner}/{repo}/check-runs`) carry no suite id, because the Checks API has no parameter to create or choose one: GitHub assigns the run to a suite for that `(app, commit)` pair on its own. With the shared Actions identity that resolves to one of the commit's other suites (empirically the earliest-created), so the bastion-posted runs render under a sibling workflow's name (for example `Security / fail-closed-gates`) rather than grouping together.
+
+There is no payload or naming trick that fixes this while staying on the default `GITHUB_TOKEN`: the collision is inherent to multiple workflows sharing one app identity. A check run gets its own named suite only when a **distinct GitHub App** creates it. So the durable fix is to post the report under a small per-adopter app instead of the shared Actions identity.
+
+This stays inside Bastion's "owns no infrastructure, custodies no credentials" rule: each adopting org creates and holds its own app, exactly as it already holds its own backend-credential secrets. It is deliberately not one shared public Bastion app: acting as a shared app would require a central service holding the app's private key (a key able to write to every adopter's repo) to mint tokens, which is precisely the always-on, credential-custodying infrastructure the adapter avoids.
+
+Setup is a one-time, per-org step:
+
+1. **Create the app.** The hosted walkthrough at [bastion.jessica.black/github-app](https://bastion.jessica.black/github-app) (source: [`site/src/pages/github-app.astro`](../../site/src/pages/github-app.astro)) drives GitHub's [app-manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest): choose the personal account or org and confirm. It pre-fills exactly the permissions the report step needs (`checks: write`, `pull_requests: write`, `contents: read`) and requests no webhook. The app's name is what the checks group under, for example `Bastion (yourorg)`. Creating the app by hand with those permissions works too.
+2. **Capture its credentials.** Generate the app's private key (a downloaded `.pem`), note the numeric App ID, and install the app on the repositories that run Bastion.
+3. **Store the secrets.** Set `BASTION_APP_ID` (the App ID) and `BASTION_APP_PRIVATE_KEY` (the `.pem` contents) as Actions secrets, at the repo or org level. Mirror them into the Dependabot secret store as well if Dependabot PRs are reviewed, for the same reason the `CODEX_AUTH_<LOGIN>` secrets are mirrored there.
+
+The workflow mints an installation token from those secrets with [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token) and hands it to the report step; the per-reviewer and aggregate checks then render under the app's name. The mint step guards on both secrets being present (the two are one credential, so a half-configured repo with only one set falls back rather than failing the mint), so it is fully optional: with the secrets unset the step is skipped and the report step falls back to the default `GITHUB_TOKEN`, still posting the comment and checks (just grouped under whichever suite GitHub picks). The minted token also authors the sticky comment, so the comment and the checks present under one identity.
+
+`bastion github report` detects this situation on its own, with no help from the workflow (the workflow is the adopter's, and they write their own). GitHub stamps every created check run with the `app` that posted it, so the report reads that `app.slug` back from the check-run response: when it is `github-actions` (the shared identity, no dedicated app), the sticky comment closes with a one-line note linking to the setup walkthrough; when it is a distinct app's slug, the checks already have their own suite and the note is omitted. Because the report reads GitHub's response, the workflow does not pass a flag.
 
 ---
 
