@@ -115,8 +115,21 @@ version:
   comment and check-run payloads (all pure and unit-tested) and posts them. `bastion
   github report` reads a persisted run and posts it: the sticky comment (with every
   finding, optional ones included), a check run per reviewer, and the always-present
-  aggregate `bastion` check. Check runs need a GitHub App token, so this runs under
-  the Actions `GITHUB_TOKEN`, not a classic PAT.
+  aggregate `bastion` check. Check runs need a GitHub App installation token, so this
+  runs under one (the default Actions `GITHUB_TOKEN` qualifies; a classic PAT does
+  not). API-created check runs carry no check-suite id, so under the shared
+  `github-actions` identity GitHub buckets them into a sibling workflow's suite (they
+  render as `Security / <reviewer>`); posting under a dedicated per-adopter app gives
+  them their own named suite. `.github/workflows/bastion.yml` mints that app token via
+  `actions/create-github-app-token` when the `BASTION_APP_ID`/`BASTION_APP_PRIVATE_KEY`
+  secrets exist and falls back to `GITHUB_TOKEN` otherwise; the hosted walkthrough at
+  `bastion.jessica.black/github-app` (`site/src/pages/github-app.astro`) drives the
+  manifest flow that provisions the app. `report` decides whether to nudge toward a
+  dedicated app on its own (no workflow flag): it reads the `app.slug` GitHub stamps
+  on the check runs it creates, and when that is the shared `github-actions` identity
+  it closes the sticky comment with a note linking to that walkthrough. This is why
+  it posts check runs before the comment. See `docs/developer-guide/github-adapter.md`
+  (Check-run grouping).
 - `src/skills.rs` / `skills/`: the agent skills bundled into the binary. Each
   `skills/<slug>/SKILL.md` is embedded with `include_str!`; `bastion skills
   install` writes it into a consuming repo's `.claude/skills/` and `.agents/skills/`,

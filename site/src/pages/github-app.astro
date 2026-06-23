@@ -1,0 +1,353 @@
+---
+import Base from "../layouts/Base.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+
+const repo = "https://github.com/jssblck/bastion";
+const ciGuide = "/guide/continuous-integration";
+
+// The manifest GitHub pre-fills the app-creation form from. It requests exactly
+// the permissions the report step needs and no webhook: Bastion runs in your CI,
+// it does not receive events. The name is only a suggestion; GitHub requires app
+// names to be globally unique, so it may ask you to adjust it on the next screen.
+const manifest = {
+  name: "Bastion",
+  url: repo,
+  public: false,
+  default_permissions: {
+    checks: "write",
+    pull_requests: "write",
+    contents: "read",
+  },
+  default_events: [],
+  hook_attributes: { url: "https://bastion.jessica.black", active: false },
+};
+const manifestJson = JSON.stringify(manifest);
+
+const title = "Set up the Bastion GitHub App";
+const description =
+  "Create a small GitHub App so Bastion's per-reviewer and aggregate check runs render under their own name instead of clustering beneath another workflow's checks.";
+---
+
+<Base title={title} description={description}>
+  <Nav />
+  <main id="main">
+    <section class="section app">
+      <div class="container container-narrow">
+        <p class="marker" data-reveal>GitHub App</p>
+        <h1 class="app-title" data-reveal>Set up the Bastion GitHub App</h1>
+        <p class="app-lede" data-reveal>
+          Bastion posts a check run per reviewer plus an aggregate
+          <span class="mono">bastion</span> check. Created under the shared
+          GitHub Actions identity, those checks cannot claim a group of their own,
+          so GitHub files them beneath a sibling workflow (you see them rendered as
+          <span class="mono">Security / fail-closed-gates</span> rather than together).
+          A dedicated app gives them their own named group. This is a one-time setup
+          per account. You create and hold the app, the same way you hold your
+          backend-credential secrets.
+        </p>
+
+        <!-- Step 1: create the app from the manifest. -->
+        <div class="app-card" data-reveal>
+          <div class="app-rule" aria-hidden="true"></div>
+          <h2 class="app-card-title">1. Create the app on GitHub</h2>
+          <p class="app-card-text">
+            This opens GitHub with the app's permissions already filled in
+            (<span class="mono">checks: write</span>,
+            <span class="mono">pull&nbsp;requests: write</span>,
+            <span class="mono">contents: read</span>, and no webhook). You only
+            confirm. To create it inside an organization, enter its login; leave it
+            blank to create it on your personal account. Pick the account whose
+            repositories run Bastion.
+          </p>
+
+          <form id="manifest-form" method="post" class="app-form">
+            <label class="app-label" for="org">Organization login</label>
+            <input
+              type="text"
+              id="org"
+              name="org"
+              class="app-input"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              placeholder="leave blank for your personal account"
+            />
+            <input type="hidden" name="manifest" value={manifestJson} />
+            <button type="submit" class="btn btn--primary app-submit">
+              Create the app on GitHub
+            </button>
+          </form>
+          <p class="app-card-note">
+            The suggested name <span class="mono">Bastion</span> is what the checks
+            group under. App names are globally unique, so if it is taken GitHub
+            asks you to pick another on the confirmation screen; the app name appears
+            in the checks list, for example <span class="mono">Bastion (yourorg)</span>.
+          </p>
+        </div>
+
+        <!-- Step 2: capture credentials. -->
+        <div class="app-card" data-reveal>
+          <div class="app-rule" aria-hidden="true"></div>
+          <h2 class="app-card-title">2. Capture the app's credentials</h2>
+          <p class="app-card-text">
+            On the new app's page, click <strong>Generate a private key</strong>
+            (a <span class="mono">.pem</span> file downloads) and note the numeric
+            <strong>App ID</strong> near the top. Then open the
+            <strong>Install App</strong> tab and install it on the repositories
+            that run Bastion.
+          </p>
+        </div>
+
+        <!-- Step 3: store the secrets. -->
+        <div class="app-card" data-reveal>
+          <div class="app-rule" aria-hidden="true"></div>
+          <h2 class="app-card-title">3. Store the two secrets</h2>
+          <p class="app-card-text">
+            Add these as Actions secrets on each repository that runs Bastion (or
+            once at the organization level), named exactly:
+          </p>
+          <div class="app-secrets">
+            <div class="app-secret">
+              <code class="app-secret-name" id="secret-id">BASTION_APP_ID</code>
+              <button
+                class="copy-btn"
+                type="button"
+                data-copy="secret-id"
+                aria-label="Copy the secret name BASTION_APP_ID"
+              >
+                <svg class="copy-ic copy-ic--clip" viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
+                  <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4"></rect>
+                  <path d="M3.5 10.5H3a1.5 1.5 0 0 1-1.5-1.5V3A1.5 1.5 0 0 1 3 1.5h6A1.5 1.5 0 0 1 10.5 3v.5" stroke="currentColor" stroke-width="1.4"></path>
+                </svg>
+                <svg class="copy-ic copy-ic--check" viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
+                  <path d="M3 8.4l3.2 3.2L13 4.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                </svg>
+              </button>
+              <span class="app-secret-desc">the numeric App ID</span>
+            </div>
+            <div class="app-secret">
+              <code class="app-secret-name" id="secret-key">BASTION_APP_PRIVATE_KEY</code>
+              <button
+                class="copy-btn"
+                type="button"
+                data-copy="secret-key"
+                aria-label="Copy the secret name BASTION_APP_PRIVATE_KEY"
+              >
+                <svg class="copy-ic copy-ic--clip" viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
+                  <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4"></rect>
+                  <path d="M3.5 10.5H3a1.5 1.5 0 0 1-1.5-1.5V3A1.5 1.5 0 0 1 3 1.5h6A1.5 1.5 0 0 1 10.5 3v.5" stroke="currentColor" stroke-width="1.4"></path>
+                </svg>
+                <svg class="copy-ic copy-ic--check" viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
+                  <path d="M3 8.4l3.2 3.2L13 4.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                </svg>
+              </button>
+              <span class="app-secret-desc">the full contents of the downloaded .pem</span>
+            </div>
+          </div>
+          <p class="app-card-note">
+            If Dependabot pull requests are reviewed, set the same two secrets in
+            the Dependabot secret store as well
+            (<span class="mono">gh secret set BASTION_APP_ID --app dependabot</span>),
+            since GitHub serves those runs secrets from a separate store.
+          </p>
+        </div>
+
+        <!-- Done. -->
+        <div class="app-done" data-reveal>
+          <p>
+            The workflow mints a token from those secrets with
+            <span class="mono">actions/create-github-app-token</span> and hands it
+            to the report step, so the per-reviewer and aggregate checks render
+            under your app's name. The step is optional: with the secrets unset it
+            is skipped and reporting falls back to the default
+            <span class="mono">GITHUB_TOKEN</span>, which still posts everything,
+            only grouped under whichever checks GitHub picks.
+          </p>
+          <div class="app-links">
+            <a href={ciGuide} class="btn btn--ghost">Continuous integration guide</a>
+            <a
+              href={`${repo}/blob/main/.github/workflows/bastion.yml`}
+              class="btn btn--ghost"
+              rel="noopener">See the workflow</a
+            >
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+
+  <!-- The manifest POSTs to a different URL for an org vs a personal account, so
+       set the form action from the org field just before submitting. -->
+  <script is:inline>
+    (function () {
+      var form = document.getElementById("manifest-form");
+      if (!form) return;
+      form.addEventListener("submit", function () {
+        var org = document.getElementById("org").value.trim();
+        form.action = org
+          ? "https://github.com/organizations/" +
+            encodeURIComponent(org) +
+            "/settings/apps/new"
+          : "https://github.com/settings/apps/new";
+      });
+    })();
+  </script>
+</Base>
+
+<style>
+  .app {
+    padding-block: clamp(3rem, 2rem + 5vw, 6rem);
+  }
+  .app-title {
+    margin-top: 0.75rem;
+    font-size: var(--text-2xl);
+    max-width: 18ch;
+  }
+  .app-lede {
+    margin-top: 1.25rem;
+    max-width: var(--measure);
+    font-size: var(--text-md);
+    color: var(--ink-2);
+  }
+
+  .app-card {
+    margin-top: 2rem;
+    position: relative;
+    background: var(--paper-raised);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-3);
+    padding: clamp(1.5rem, 1rem + 2.5vw, 2.5rem);
+    box-shadow: var(--shadow-2);
+  }
+  .app-rule {
+    width: 2.5rem;
+    height: 3px;
+    background: var(--steel);
+    border-radius: 2px;
+    margin-bottom: 1.25rem;
+  }
+  .app-card-title {
+    font-size: var(--text-lg);
+  }
+  .app-card-text {
+    margin-top: 0.85rem;
+    max-width: var(--measure);
+    font-size: var(--text-base);
+    color: var(--ink-2);
+  }
+  .app-card-note {
+    margin-top: 1.1rem;
+    max-width: var(--measure);
+    font-size: var(--text-sm);
+    color: var(--ink-3);
+  }
+
+  .app-form {
+    margin-top: 1.5rem;
+    display: grid;
+    gap: 0.5rem;
+    max-width: 32rem;
+  }
+  .app-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--ink-3);
+  }
+  .app-input {
+    padding: 0.7rem 0.85rem;
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-2);
+  }
+  .app-input:focus-visible {
+    border-color: var(--steel-line);
+  }
+  .app-submit {
+    margin-top: 0.5rem;
+    justify-self: start;
+  }
+
+  .app-secrets {
+    margin-top: 1.25rem;
+    display: grid;
+    gap: 0.85rem;
+  }
+  .app-secret {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+  .app-secret-name {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--ink);
+    background: var(--paper-sunk);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-2);
+    padding: 0.45rem 0.7rem;
+  }
+  .app-secret-desc {
+    font-size: var(--text-sm);
+    color: var(--ink-3);
+  }
+
+  /* Copy button: mirrors the install block's affordance. The clipboard SVG
+     swaps to a check when the global [data-copy] handler marks it copied. */
+  .copy-btn {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line-strong);
+    background: var(--paper-2);
+    color: var(--ink-2);
+    border-radius: var(--radius-2);
+    padding: 0.45rem 0.55rem;
+    cursor: pointer;
+    transition: background-color var(--dur-1) var(--ease-out),
+      color var(--dur-1) var(--ease-out);
+  }
+  .copy-btn:hover {
+    background: var(--steel-bg);
+    color: var(--steel-deep);
+  }
+  .copy-btn[data-copied] {
+    background: var(--pass-bg);
+    color: var(--pass-ink);
+    border-color: var(--pass-line);
+  }
+  .copy-ic--check {
+    display: none;
+  }
+  .copy-btn[data-copied] .copy-ic--clip {
+    display: none;
+  }
+  .copy-btn[data-copied] .copy-ic--check {
+    display: block;
+  }
+
+  .app-done {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+  }
+  .app-done p {
+    max-width: var(--measure);
+    font-size: var(--text-base);
+    color: var(--ink-2);
+  }
+  .app-links {
+    margin-top: 1.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+</style>
