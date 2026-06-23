@@ -38,14 +38,8 @@ const description =
       <div class="container container-narrow">
         <h1 class="app-title" data-reveal>Set up the Bastion GitHub App</h1>
         <p class="app-lede" data-reveal>
-          Bastion posts a check run per reviewer plus an aggregate
-          <span class="mono">bastion</span> check. Created under the shared
-          GitHub Actions identity, those checks cannot claim a group of their own,
-          so GitHub may file them beneath a sibling workflow. A dedicated app gives
-          them their own named group, and the PR comment Bastion posts is attributed
-          to the app (for example <span class="mono">jssblck's Bastion</span>) rather
-          than to <span class="mono">github-actions</span>. This is a one-time,
-          optional setup per account.
+          Bastion's checks and comments can optionally run as an app, which looks
+          cleaner. This page walks you through getting that set up.
         </p>
 
         <!-- Step 1: create the app from the manifest. -->
@@ -53,7 +47,8 @@ const description =
           <div class="app-rule" aria-hidden="true"></div>
           <h2 class="app-card-title">1. Create the app on GitHub</h2>
           <p class="app-card-text">
-            Pick the account whose repositories run Bastion.
+            App names are globally unique, so if it is taken GitHub asks you to
+            pick another on the confirmation screen.
           </p>
 
           <form id="manifest-form" method="post" class="app-form">
@@ -73,13 +68,6 @@ const description =
               Create the app on GitHub
             </button>
           </form>
-          <p class="app-card-note">
-            When you name an account above, the suggested name becomes
-            <span class="mono">OrgName's Bastion</span> (for example
-            <span class="mono">AttuneHQ's Bastion</span>), and that name is what the
-            checks group under. App names are globally unique, so if it is taken
-            GitHub asks you to pick another on the confirmation screen.
-          </p>
         </div>
 
         <!-- Step 2: capture credentials. -->
@@ -151,15 +139,6 @@ const description =
 
         <!-- Done. -->
         <div class="app-done" data-reveal>
-          <p>
-            The workflow mints a token from those secrets with
-            <span class="mono">actions/create-github-app-token</span> and hands it
-            to the report step, so the per-reviewer and aggregate checks render
-            under your app's name. The step is optional: with the secrets unset it
-            is skipped and reporting falls back to the default
-            <span class="mono">GITHUB_TOKEN</span>, which still posts everything,
-            only grouped under whichever checks GitHub picks.
-          </p>
           <div class="app-links">
             <a href={ciGuide} class="btn btn--ghost">Continuous integration guide</a>
             <a
@@ -345,11 +324,6 @@ const description =
     margin-top: 2rem;
     padding-top: 1.5rem;
     border-top: 1px solid var(--line);
-  }
-  .app-done p {
-    max-width: var(--measure);
-    font-size: var(--text-base);
-    color: var(--ink-2);
   }
   .app-links {
     margin-top: 1.5rem;
