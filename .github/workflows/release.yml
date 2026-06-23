@@ -142,7 +142,13 @@ jobs:
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release-${{ matrix.target }}
+          # Key the cache by the runner image, not just the target. rust-cache's
+          # default key folds in runner.os ("Linux") but not the Ubuntu version,
+          # so moving a target between images (for example the gnu builds from
+          # ubuntu-latest to ubuntu-22.04) would otherwise restore artifacts
+          # built against a different glibc. A cached build-script binary linked
+          # against glibc 2.39 cannot exec on a 2.35 host, which fails the build.
+          shared-key: release-${{ matrix.target }}-${{ matrix.runner }}
 
       - name: Build (cargo-cross)
         if: matrix.cross
