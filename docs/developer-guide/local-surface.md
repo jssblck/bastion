@@ -29,7 +29,7 @@ We stream **JSONL**: one JSON object per line, emitted as each thing happens. It
 {"type":"run.completed","run":"r-0f3a","verdict":"block","gates":{"total":2,"passed":1,"blocked":1},"duration_ms":41030,"cost_usd":0.37}
 ```
 
-The event types mirror the GitHub surfaces directly: `run.started` is the set of reviewers that would have appeared as pending checks; `reviewer.started` is the spinner; `reviewer.resolved` is a check run reaching its conclusion, carrying the verdict, findings, and usage; `run.completed` is the aggregate `bastion` check. An agent that wants only the outcome can ignore everything until `run.completed`; one that wants to react as it goes reads each `reviewer.resolved` as it lands.
+`reviewer.resolved` is a check run reaching its conclusion, carrying the verdict, findings, and usage; `run.completed` is the aggregate `bastion` check and the sticky PR comment. `run.started` and `reviewer.started` are local progress for an agent reacting as the run goes; the GitHub side is posted after the run finishes, so it has no separate surface for them. An agent that wants only the outcome can ignore everything until `run.completed`; one that wants to react as it goes reads each `reviewer.resolved` as it lands.
 
 Note what is _not_ in the stream: the transcript. `reviewer.resolved` carries a `has_transcript` flag rather than the transcript itself; when it is set, the saved transcript is one command away (`bastion transcript <run> <reviewer>`). The reasoning is in the next section.
 
@@ -90,20 +90,17 @@ The commands that read saved data back are the local equivalent of clicking "Det
 
 ## Parity with GitHub
 
-The local and GitHub surfaces carry the same data; only the transport differs. The mapping is one to one:
+The local and GitHub surfaces carry the same data; only the transport differs. How the events map to the GitHub surfaces:
 
-| GitHub                                       | Local                                   |
-| -------------------------------------------- | --------------------------------------- |
-| Pending checks for the triggered reviewers   | `run.started` event                     |
-| Per-reviewer check-run spinner               | `reviewer.started` event                |
-| A check run reaching its conclusion          | `reviewer.resolved` event               |
-| Findings as PR review comments               | `findings` in `reviewer.resolved`       |
-| The aggregate `bastion` check                | `run.completed` event                   |
-| Transcript in a collapsed `<details>`        | saved on disk, `bastion transcript`     |
-| Tokens and cost table                        | `usage` in `reviewer.resolved`          |
-| Permanent run summary on the run page        | persisted `run.jsonl`, `bastion show`   |
+| GitHub                                                          | Local                                 |
+| --------------------------------------------------------------- | ------------------------------------- |
+| A per-reviewer check run reaching its conclusion                | `reviewer.resolved` event             |
+| Findings in the sticky PR comment and as check-run annotations  | `findings` in `reviewer.resolved`     |
+| Tokens and cost in the check output                             | `usage` in `reviewer.resolved`        |
+| The aggregate `bastion` check and the sticky PR comment         | `run.completed` event                 |
+| Transcript in the uploaded run artifact                         | saved on disk, `bastion transcript`   |
 
-The data mapping is exact, but some left-column *renderings* are still target. `bastion github report` runs after the review, so today it posts *completed* checks with no live spinners, renders findings in one sticky PR comment plus check-run annotations (not inline review comments), keeps transcripts in the uploaded run artifact rather than a collapsed `<details>`, and writes the run summary into that artifact. Only how the GitHub side is drawn changes between today and the target; which event maps to which surface does not.
+`bastion github report` runs after `bastion review` finishes, so the per-reviewer checks are created already completed, and the aggregate check and the sticky comment are written once. The local stream additionally carries `run.started` and `reviewer.started` for an agent reacting as the run goes; those have no separate GitHub surface. The data each surface carries is the same; only the local stream is finer-grained than the post-hoc GitHub rendering.
 
 Anyone who understands one surface understands the other; this is deliberate, so that an agent's local loop and the CI gate never disagree about what a review means.
 

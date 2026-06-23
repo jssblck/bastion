@@ -13,7 +13,7 @@ git repository and one of the supported agent backends installed (the Claude Cod
 or Codex CLI).
 
 A little vocabulary shows up here in passing: *reviewer*, *gate*, *advisor*,
-*verdict*, *findings*. The inline comments are enough to follow along; the next
+*verdict*, *findings*. The inline definitions are enough to follow along; the next
 chapter, [Concepts](./concepts.md), defines each precisely.
 
 ## 1. Install the CLI

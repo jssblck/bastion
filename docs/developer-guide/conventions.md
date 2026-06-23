@@ -112,7 +112,7 @@ nudge check
 ```
 
 `just check` runs all four. `nudge check` enforces the mechanical conventions in
-`.nudge.yaml` (today: no Unicode dashes in authored text); it runs in CI and as an
+`.nudge.yaml` (no Unicode dashes in authored text); it runs in CI and as an
 agent-time hook, so the rule is a gate rather than a suggestion. Everything not
 mechanically enforced (parse-don't-validate, newtypes, fail-closed handling) is
 caught at review time: by a human and, fittingly, by Bastion's own reviewers

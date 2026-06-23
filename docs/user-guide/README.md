@@ -35,8 +35,8 @@ The chapters build on each other. If you read them top to bottom you will go fro
    depth: human output vs. the JSONL agent stream, exit codes, and inspecting
    saved runs (`runs`, `show`, `transcript`, `clean`).
 6. **[Continuous integration](./continuous-integration.md)**: promoting the
-   same reviewers into GitHub Actions: checks, the aggregate gate, live progress,
-   and per-author billing.
+   same reviewers into GitHub Actions: checks, the aggregate gate, and per-author
+   billing.
 7. **[Governance](./governance.md)**: keeping humans at the policy layer with
    CODEOWNERS and branch protection, the escape-to-improvement loop, and what
    Bastion deliberately does not guarantee.
@@ -58,8 +58,8 @@ Bastion is experimental and still partial. The routing, runner, verdict
 aggregation, and on-disk run store are implemented and tested, and the Claude Code,
 Codex, and Pi backends execute reviewers for real, natively or inside a container
 when a reviewer declares a `runner`. The remaining capability fields (`mcp` and `skills`)
-are accepted but not yet provisioned, so a reviewer that opts into one fails closed
-rather than running without it, and `network` is honored inside a container but not
-yet scoped; those are called out where they appear in
+are accepted but not provisioned, so a reviewer that opts into one fails closed
+rather than running without it, and `network` is honored inside a container but
+unscoped; those are called out where they appear in
 [Authoring reviewers](./authoring-reviewers.md). The deep reference for any of
 this is the [core design](../developer-guide/design.md).

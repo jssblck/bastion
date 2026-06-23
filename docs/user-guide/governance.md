@@ -34,9 +34,9 @@ bastion github codeowners --owner @your-org/platform
 ```
 
 Pass `--owner` once per owner (it is repeatable). Add the generated block to your
-`CODEOWNERS`. Now any PR that adds, removes, or edits a reviewer; loosens a
-trigger; or changes a prompt touches an owned path, so GitHub requires a human
-review before merge. You can also write your own CODEOWNERS instead; the
+`CODEOWNERS`. With that block in place, any PR that adds, removes, or edits a
+reviewer; loosens a trigger; or changes a prompt touches an owned path, so GitHub
+requires a human review before merge. You can also write your own CODEOWNERS instead; the
 generated block is a correct starting suggestion.
 
 > Why generate it statically rather than have Bastion manage it live? CODEOWNERS
@@ -46,12 +46,11 @@ generated block is a correct starting suggestion.
 
 ### Branch protection requires the check
 
-Require Bastion's review on your default branch. Today that is the review job from
-[Continuous integration](./continuous-integration.md#what-ships-today), which now
+Require Bastion's review on your default branch. That is the review job from
+[Continuous integration](./continuous-integration.md#the-workflow), which
 also posts the always-present aggregate check named `bastion` (with a check run per
 reviewer alongside it), so you can require either the job or that `bastion` check.
-The fully packaged action on the target list would expose the aggregate check as the
-single thing to require. A PR then cannot merge with the gate switched off, and
+A PR then cannot merge with the gate switched off, and
 because the workflow file and the registry are themselves owned paths, switching it
 off is itself a policy change a human sees.
 
@@ -109,7 +108,7 @@ For a healthy deployment:
 
 - [ ] `.bastion.yaml` and the Bastion workflow are CODEOWNERS-protected.
 - [ ] Bastion's review is required by branch protection on the default branch (the
-      review job, or the aggregate `bastion` check that `bastion github report` now posts).
+      review job, or the aggregate `bastion` check that `bastion github report` posts).
 - [ ] Reviewer-policy PRs get a real human review, not a rubber stamp.
 - [ ] Someone owns escape triage, and escapes feed back into reviewer changes.
 - [ ] Billing is configured (per-author secrets or an API-key fallback) so reviews

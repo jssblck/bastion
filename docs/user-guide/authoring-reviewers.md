@@ -38,11 +38,11 @@ Reviewer **names must be unique** within the file; a duplicate name is a load
 error. Because this file *is* the review policy, changes to it should require human
 review; see [Governance](./governance.md) and `bastion github codeowners`.
 
-> **Migrating from `bastion/reviewers.yaml`.** Earlier versions kept the registry
-> at `bastion/reviewers.yaml`. That location still loads, but Bastion now prints a
-> deprecation warning and will stop reading it in a future release. Move the file to
-> `.bastion.yaml` at your repository root (the contents are unchanged) and
-> regenerate your CODEOWNERS block with `bastion github codeowners`.
+> **Migrating from `bastion/reviewers.yaml`.** Bastion still loads the legacy
+> `bastion/reviewers.yaml` location but prints a deprecation warning; the supported
+> location is `.bastion.yaml` at your repository root. Move the file (the contents
+> are unchanged) and regenerate your CODEOWNERS block with `bastion github
+> codeowners`.
 
 ## Registry-wide defaults
 
@@ -113,8 +113,8 @@ until you need them.
 
 ### `backend`
 
-Which agent harness runs the reviewer. Default `any` (resolves to Claude Code
-today). Pin `claude-code`, `codex`, or `pi` to force a specific harness, usually
+Which agent harness runs the reviewer. Default `any` (resolves to Claude Code).
+Pin `claude-code`, `codex`, or `pi` to force a specific harness, usually
 because a subscription's terms require it, or because one model is better at a
 given concern.
 
@@ -239,7 +239,7 @@ shell environment.
 
 The schema also accepts a `runner` block (`dockerfile` / `image`) and a
 `capabilities` block (`network`, `mcp`, `skills`) to opt into an execution
-environment beyond the least-privilege default. Where these stand today:
+environment beyond the least-privilege default. Where these stand:
 
 - **`runner` is provisioned.** A reviewer with a `runner` block runs its backend
   inside a container: a `dockerfile` is built (tagged by a content hash of the
@@ -256,17 +256,17 @@ environment beyond the least-privilege default. Where these stand today:
   image name. The selected backend's executable must exist inside the image on `PATH`
   (`claude` for `claude-code`, `codex` for `codex`). This lets a reviewer carry tools
   or a pinned toolchain the host does not have.
-- **`capabilities.network: true` is honored inside a container, but not yet
-  scoped.** A containerized reviewer's container has outbound network. The
-  `network: false` default is not yet restricted to the model provider (egress
-  allowlisting is a later milestone), so today it does not tighten anything; treat
-  it as a forward-looking declaration. A *native* `network: true` (no `runner`)
-  fails closed, since with no container there is nothing to scope.
-- **`capabilities.mcp` and `capabilities.skills` are not yet provisioned.** A
+- **`capabilities.network: true` is honored inside a container, but unscoped.** A
+  containerized reviewer's container has outbound network. The `network: false`
+  default is not restricted to the model provider (egress allowlisting is
+  unimplemented), so it does not tighten anything; the field is a declaration with
+  no enforcement behind it. A *native* `network: true` (no `runner`) fails closed,
+  since with no container there is nothing to scope.
+- **`capabilities.mcp` and `capabilities.skills` are not provisioned.** A
   reviewer that declares either **fails closed**: a gate blocks and an advisor is
   skipped, with a message naming the unprovisioned field, rather than running
   degraded (a gate that quietly ran without a privilege it asked for would be a
-  silent fail-open). Leave them out until those tiers land.
+  silent fail-open). Leave them out.
 
 The least-privilege default (no `runner`, `network: false`, no `mcp` or `skills`)
 runs natively on the host. The authoritative description is in the
@@ -292,7 +292,7 @@ reviewers:
     runner:                                  # provisioned: runs the backend in this image
       dockerfile: ./.bastion/e2e.Dockerfile
     capabilities:
-      network: true                          # honored in the container (not yet scoped)
+      network: true                          # honored in the container (unscoped)
     prompt: |
       Run the e2e checkout flow against the preview environment at `${preview_url}`
       using Playwright. If it fails, block the PR and explain; otherwise approve it.

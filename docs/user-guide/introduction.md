@@ -10,7 +10,7 @@ order: 1
 
 ## The problem
 
-Agents now write most of the code on a growing number of teams. When they are
+Agents write most of the code on a growing number of teams. When they are
 fully unlocked, output volume looks more like *engineers x 100* than *x 1*. Two
 things stop teams from unlocking that:
 
