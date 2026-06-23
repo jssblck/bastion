@@ -85,10 +85,11 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
-    # Surface the optional dedicated-app id so the token-mint step's `if:` can test
-    # it: an `if:` expression can read `env` but not `secrets`. Empty when unset.
+    # True only when both dedicated-app secrets are set (the id and key are one
+    # credential), so a half-configured repo falls back instead of failing the mint
+    # step. Computed here because the `if:` below can read `env` but not `secrets`.
     env:
-      BASTION_APP_ID: ${{ secrets.BASTION_APP_ID }}
+      HAS_BASTION_APP: ${{ secrets.BASTION_APP_ID != '' && secrets.BASTION_APP_PRIVATE_KEY != '' }}
     # Agentic backends run over the PR's code with live credentials, so restrict to
     # same-repo PRs; a maintainer re-runs a fork PR from a trusted branch.
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -117,7 +118,7 @@ jobs:
       # report falls back to the default GITHUB_TOKEN) when the app is not set up.
       # See "Grouping the checks under their own app" below.
       - id: app-token
-        if: ${{ always() && env.BASTION_APP_ID != '' }}
+        if: ${{ always() && env.HAS_BASTION_APP == 'true' }}
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.BASTION_APP_ID }}
@@ -133,6 +134,7 @@ jobs:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
         run: |
+          set -euo pipefail
           bastion github report \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \
@@ -189,7 +191,7 @@ than the shared Actions identity:
    exactly the permissions the report step needs (`checks: write`, `pull_requests:
    write`, `contents: read`, no webhook), so you only confirm it. Or create the app
    by hand with those permissions. The app's **name** is what the checks group
-   under, so something like `Bastion (yourorg)` reads well.
+   under, for example `Bastion (yourorg)`.
 2. Generate the app's private key, note its numeric App ID, and install the app on
    the repositories that run Bastion.
 3. Store `BASTION_APP_ID` (the App ID) and `BASTION_APP_PRIVATE_KEY` (the `.pem`
@@ -204,9 +206,8 @@ skipped and reporting falls back to the default `GITHUB_TOKEN`, which still post
 the comment and checks, only grouped under whichever suite GitHub picks. When that
 happens, `bastion github report` notices (it reads back the app that GitHub stamped
 on the check runs it just created) and closes the PR comment with a short note
-linking here; once a dedicated app is configured the note disappears on its own. You
-do not pass anything to make this happen, so it works whatever your workflow looks
-like.
+linking here; once a dedicated app is configured the note disappears. Because the
+report reads GitHub's response, the workflow does not pass a flag.
 
 For a complete, working example (latest-release install, per-author backend
 credentials, and fork-PR safety), see this repository's own

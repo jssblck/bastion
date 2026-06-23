@@ -158,10 +158,11 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
-    # Surface the optional dedicated-app id so the token-mint step's `if:` can test
-    # it: an `if:` expression can read `env` but not `secrets`. Empty when unset.
+    # True only when both dedicated-app secrets are set (the id and key are one
+    # credential), so a half-configured repo falls back instead of failing the mint
+    # step. Computed here because the `if:` below can read `env` but not `secrets`.
     env:
-      BASTION_APP_ID: ${{ secrets.BASTION_APP_ID }}
+      HAS_BASTION_APP: ${{ secrets.BASTION_APP_ID != '' && secrets.BASTION_APP_PRIVATE_KEY != '' }}
     # Agentic backends run over the PR's code with live credentials, so restrict to
     # same-repo PRs; a maintainer re-runs a fork PR from a trusted branch.
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -188,7 +189,7 @@ jobs:
       # Skipped when the app is not configured; reporting then falls back to the
       # default GITHUB_TOKEN.
       - id: app-token
-        if: ${{ always() && env.BASTION_APP_ID != '' }}
+        if: ${{ always() && env.HAS_BASTION_APP == 'true' }}
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.BASTION_APP_ID }}
@@ -204,6 +205,7 @@ jobs:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
         run: |
+          set -euo pipefail
           bastion github report \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \
@@ -222,13 +224,13 @@ This stays inside Bastion's "owns no infrastructure, custodies no credentials" r
 
 Setup is a one-time, per-org step:
 
-1. **Create the app.** The hosted walkthrough at [bastion.jessica.black/github-app](https://bastion.jessica.black/github-app) (source: [`site/src/pages/github-app.astro`](../../site/src/pages/github-app.astro)) drives GitHub's [app-manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest): choose the personal account or org and confirm. It pre-fills exactly the permissions the report step needs (`checks: write`, `pull_requests: write`, `contents: read`) and requests no webhook. The app's name is what the checks group under, so `Bastion (yourorg)` reads well. Creating the app by hand with those permissions works too.
+1. **Create the app.** The hosted walkthrough at [bastion.jessica.black/github-app](https://bastion.jessica.black/github-app) (source: [`site/src/pages/github-app.astro`](../../site/src/pages/github-app.astro)) drives GitHub's [app-manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest): choose the personal account or org and confirm. It pre-fills exactly the permissions the report step needs (`checks: write`, `pull_requests: write`, `contents: read`) and requests no webhook. The app's name is what the checks group under, for example `Bastion (yourorg)`. Creating the app by hand with those permissions works too.
 2. **Capture its credentials.** Generate the app's private key (a downloaded `.pem`), note the numeric App ID, and install the app on the repositories that run Bastion.
 3. **Store the secrets.** Set `BASTION_APP_ID` (the App ID) and `BASTION_APP_PRIVATE_KEY` (the `.pem` contents) as Actions secrets, at the repo or org level. Mirror them into the Dependabot secret store as well if Dependabot PRs are reviewed, for the same reason the `CODEX_AUTH_<LOGIN>` secrets are mirrored there.
 
-The workflow mints an installation token from those secrets with [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token) and hands it to the report step; the per-reviewer and aggregate checks then render under the app's name. The mint step guards on `env.BASTION_APP_ID != ''`, so it is fully optional: with the secrets unset the step is skipped and the report step falls back to the default `GITHUB_TOKEN`, still posting the comment and checks (just grouped under whichever suite GitHub picks). The minted token also authors the sticky comment, so the comment and the checks present under one identity.
+The workflow mints an installation token from those secrets with [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token) and hands it to the report step; the per-reviewer and aggregate checks then render under the app's name. The mint step guards on both secrets being present (the two are one credential, so a half-configured repo with only one set falls back rather than failing the mint), so it is fully optional: with the secrets unset the step is skipped and the report step falls back to the default `GITHUB_TOKEN`, still posting the comment and checks (just grouped under whichever suite GitHub picks). The minted token also authors the sticky comment, so the comment and the checks present under one identity.
 
-`bastion github report` detects this situation on its own, with no help from the workflow (the workflow is the adopter's, and they write their own). GitHub stamps every created check run with the `app` that posted it, so the report reads that `app.slug` back from the check-run response: when it is `github-actions` (the shared identity, no dedicated app), the sticky comment closes with a one-line note linking to the setup walkthrough; when it is a distinct app's slug, the checks already have their own suite and the note is omitted. Nothing needs to be passed in, so the nudge is correct under any workflow.
+`bastion github report` detects this situation on its own, with no help from the workflow (the workflow is the adopter's, and they write their own). GitHub stamps every created check run with the `app` that posted it, so the report reads that `app.slug` back from the check-run response: when it is `github-actions` (the shared identity, no dedicated app), the sticky comment closes with a one-line note linking to the setup walkthrough; when it is a distinct app's slug, the checks already have their own suite and the note is omitted. Because the report reads GitHub's response, the workflow does not pass a flag.
 
 ---
 

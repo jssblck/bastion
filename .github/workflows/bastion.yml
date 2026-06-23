@@ -43,11 +43,12 @@ jobs:
     name: bastion review
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Surface the optional dedicated-app id as a plain env var so the token-mint
-    # step's `if:` can test whether the app is configured; an `if:` expression
-    # cannot read `secrets` directly, only `env`. Empty when no app is set up.
+    # Whether the optional dedicated app is fully configured. The id and the private
+    # key are one credential, so this is true only when both are set: a half-set repo
+    # then falls back cleanly instead of running the mint step and failing it. Computed
+    # here because the mint step's `if:` can read `env` but not `secrets`.
     env:
-      BASTION_APP_ID: ${{ secrets.BASTION_APP_ID }}
+      HAS_BASTION_APP: ${{ secrets.BASTION_APP_ID != '' && secrets.BASTION_APP_PRIVATE_KEY != '' }}
     # The Codex subscription credentials live in an Actions secret, and GitHub
     # does not share secrets with workflows triggered by fork PRs. We also will
     # not run an agentic backend over untrusted code. So this runs for same-repo
@@ -162,7 +163,7 @@ jobs:
         # this commit's check suites it picks (often a sibling workflow like
         # "Security"). The mint runs on `always()` so reporting works even when the
         # review blocked and failed the job above. See docs/developer-guide/github-adapter.md.
-        if: ${{ always() && env.BASTION_APP_ID != '' }}
+        if: ${{ always() && env.HAS_BASTION_APP == 'true' }}
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.BASTION_APP_ID }}

@@ -43,8 +43,8 @@ const description =
           so GitHub files them beneath a sibling workflow (you see them rendered as
           <span class="mono">Security / fail-closed-gates</span> rather than together).
           A dedicated app gives them their own named group. This is a one-time setup
-          per account, and it stays entirely in your control: you create and hold
-          the app, the same way you hold your backend-credential secrets.
+          per account. You create and hold the app, the same way you hold your
+          backend-credential secrets.
         </p>
 
         <!-- Step 1: create the app from the manifest. -->
@@ -81,8 +81,8 @@ const description =
           <p class="app-card-note">
             The suggested name <span class="mono">Bastion</span> is what the checks
             group under. App names are globally unique, so if it is taken GitHub
-            asks you to pick another on the confirmation screen; a name like
-            <span class="mono">Bastion (yourorg)</span> reads well in the checks list.
+            asks you to pick another on the confirmation screen; the app name appears
+            in the checks list, for example <span class="mono">Bastion (yourorg)</span>.
           </p>
         </div>
 
@@ -156,7 +156,7 @@ const description =
         <!-- Done. -->
         <div class="app-done" data-reveal>
           <p>
-            That is it. The workflow mints a token from those secrets with
+            The workflow mints a token from those secrets with
             <span class="mono">actions/create-github-app-token</span> and hands it
             to the report step, so the per-reviewer and aggregate checks now render
             under your app's name. The step is optional: with the secrets unset it

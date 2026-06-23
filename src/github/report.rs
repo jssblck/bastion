@@ -1576,9 +1576,24 @@ mod tests {
         );
     }
 
+    #[test]
+    fn app_slug_reads_the_creating_app_or_none() {
+        assert_eq!(
+            app_slug(&serde_json::json!({"id": 1, "app": {"slug": "github-actions"}})).as_deref(),
+            Some("github-actions")
+        );
+        // A response missing the app, the slug, or with a non-string slug yields
+        // None, so a malformed body leaves the nudge off rather than guessing.
+        assert_eq!(app_slug(&serde_json::json!({"id": 1})), None);
+        assert_eq!(app_slug(&serde_json::json!({"app": {}})), None);
+        assert_eq!(app_slug(&serde_json::json!({"app": {"slug": 7}})), None);
+    }
+
     #[tokio::test]
     async fn report_updates_an_existing_comment_in_place() {
-        // The list returns Bastion's own comment, so the report PATCHes it.
+        // The list returns Bastion's own comment, so the report PATCHes it. The
+        // non-GET responses carry no `app`, so this also pins the missing-slug path:
+        // an unreadable identity leaves the nudge off.
         let api = RecordingClient::with_responder(|req| match req.method {
             Method::Get => ApiResponse {
                 status: 200,
@@ -1602,6 +1617,11 @@ mod tests {
             .find(|c| c.method == Method::Patch)
             .expect("a PATCH to the existing comment");
         assert!(patch.path.ends_with("/issues/comments/909"));
+        let body = patch.body.as_ref().unwrap()["body"].as_str().unwrap();
+        assert!(
+            !body.contains(SETUP_URL),
+            "missing app.slug should not nudge: {body}"
+        );
     }
 
     #[tokio::test]
