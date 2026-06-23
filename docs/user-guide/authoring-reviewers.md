@@ -38,11 +38,11 @@ Reviewer **names must be unique** within the file; a duplicate name is a load
 error. Because this file *is* the review policy, changes to it should require human
 review; see [Governance](./governance.md) and `bastion github codeowners`.
 
-> **Migrating from `bastion/reviewers.yaml`.** Earlier versions kept the registry
-> at `bastion/reviewers.yaml`. That location still loads, but Bastion now prints a
-> deprecation warning and will stop reading it in a future release. Move the file to
-> `.bastion.yaml` at your repository root (the contents are unchanged) and
-> regenerate your CODEOWNERS block with `bastion github codeowners`.
+> **Migrating from `bastion/reviewers.yaml`.** Bastion still loads the legacy
+> `bastion/reviewers.yaml` location but prints a deprecation warning; the supported
+> location is `.bastion.yaml` at your repository root. Move the file (the contents
+> are unchanged) and regenerate your CODEOWNERS block with `bastion github
+> codeowners`.
 
 ## The required fields
 
