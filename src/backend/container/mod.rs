@@ -1,7 +1,9 @@
 //! Container provisioning for reviewers that declare a `runner`.
 //!
-//! A reviewer with a `runner` block runs its backend inside a container instead of
-//! natively on the host. This module is the seam that makes that real:
+//! A reviewer with a `runner` block and `capabilities.network: true` runs its backend
+//! inside a container instead of natively on the host (a `runner` without
+//! `network: true` fails closed; see [`ExecutionPlan::resolve`]). This module is the
+//! seam that makes that real:
 //!
 //! - [`ExecutionPlan::resolve`] parses a reviewer's `runner` + `capabilities` into
 //!   either a [`Native`](ExecutionPlan::Native) or a

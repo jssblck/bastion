@@ -241,7 +241,8 @@ The schema also accepts a `runner` block (`dockerfile` / `image`) and a
 `capabilities` block (`network`, `mcp`, `skills`) to opt into an execution
 environment beyond the least-privilege default. Where these stand:
 
-- **`runner` is provisioned.** A reviewer with a `runner` block runs its backend
+- **`runner` is provisioned (paired with `network: true`).** A reviewer with a
+  `runner` block and `capabilities.network: true` runs its backend
   inside a container: a `dockerfile` is built (tagged by a content hash of the
   Dockerfile, so an unchanged file reuses the engine's layer cache), an `image` is used
   as-is (the engine pulls it on demand at run time). If both are set, `dockerfile`
