@@ -54,13 +54,24 @@ curl -sSfL https://raw.githubusercontent.com/jssblck/bastion/main/scripts/instal
 irm https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.ps1 | iex
 ```
 
-The shell installer accepts `-v/--version`, `-b/--bin-dir`, and `-t/--tmp-dir`
-(pass them after `bash -s --`); the PowerShell installer reads the `Version` and
-`BinDir` environment variables. Run either with `--help` / `$env:Help="true"` for
-details. For example, to pin a version and install location:
+The shell installer accepts `-v/--version`, `-b/--bin-dir`, `-t/--tmp-dir`, and
+`-l/--libc` (pass them after `bash -s --`); the PowerShell installer reads the
+`Version` and `BinDir` environment variables. Run either with `--help` /
+`$env:Help="true"` for details. For example, to pin a version and install location:
 
 ```sh
 curl -sSfL https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.sh | bash -s -- -v 0.1.0 -b /usr/local/bin
+```
+
+On Linux the installer autodetects the C runtime: it picks the statically linked
+musl build on musl systems and on any host whose glibc is older than 2.35 (or
+undetectable), and the glibc build only when the host glibc is 2.35 or newer
+(Ubuntu 22.04, Debian 12, RHEL 9, and later). You can force the choice with
+`--libc gnu|musl` (or `BASTION_LIBC=...`); the musl build has no glibc dependency
+and runs anywhere:
+
+```sh
+curl -sSfL https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.sh | BASTION_LIBC=musl bash
 ```
 
 Prefer to do it by hand? Prebuilt binaries for Linux (x86_64 and aarch64, glibc and
@@ -74,6 +85,9 @@ curl -sSL https://github.com/jssblck/bastion/releases/latest/download/bastion-x8
 sudo install bastion-x86_64-unknown-linux-gnu/bastion /usr/local/bin/
 bastion --version
 ```
+
+On a system with glibc older than 2.35, swap `gnu` for `musl` in those URLs to get
+the static build.
 
 To build from source instead, you need a Rust 2024 toolchain:
 
