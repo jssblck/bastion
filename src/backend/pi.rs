@@ -14,8 +14,8 @@
 //! per-call token/cost accounting Pi reports on each assistant message. The
 //! reviewer's prompt (with [`inputs`](crate::reviewer::Reviewer::inputs)
 //! interpolated and a trailing instruction pinning the verdict schema) is piped to
-//! Pi over stdin -- in print mode with no positional message, Pi reads the task
-//! from stdin -- so a long, multi-line prompt is never an OS argument. Reviewer
+//! Pi over stdin (in print mode with no positional message, Pi reads the task from
+//! stdin), so a long, multi-line prompt is never an OS argument. Reviewer
 //! [`env`](crate::reviewer::Reviewer::env) is propagated into the child process.
 //!
 //! Pi runs unattended: in print mode it executes its tools (read, bash, edit,
@@ -26,8 +26,8 @@
 //!
 //! # Fail-closed parsing
 //!
-//! Pi has no native structured-output schema flag, so -- like Codex -- Bastion
-//! asks for a fenced YAML verdict block (the shared [`SCHEMA_INSTRUCTION`]) and
+//! Pi has no native structured-output schema flag, so (like Codex) Bastion asks
+//! for a fenced YAML verdict block (the shared [`SCHEMA_INSTRUCTION`]) and
 //! parses it out of the final message with the shared [`extract_verdict`]. If the
 //! final message does not carry a schema-conforming verdict, the backend resumes
 //! the same session once (by id) for *just* the structured output (per
@@ -210,6 +210,14 @@ impl<R: CommandRunner> Backend for PiBackend<R> {
         };
         let retry = self.reprompt_spec(request, session.session_id.as_deref(), &reprompt_text);
         let retry_session = self.run_once(&retry).await?;
+
+        // The reprompt can itself report an in-band execution error, exactly like the
+        // first pass above. Check it before trusting any verdict the retry produced:
+        // a parseable `pass` riding alongside an error event must still fail closed,
+        // or an errored gate would slip through on the recovery path.
+        if let Some(error) = &retry_session.error {
+            bail!("pi reported an execution error on reprompt: {error}");
+        }
 
         match retry_session.parse_verdict() {
             Some(verdict) => Ok(outcome(verdict, retry_session, Some(&session))),
@@ -963,6 +971,25 @@ findings:
         let err = outcome.expect_err("error event fails closed");
         assert!(err.to_string().contains("execution error"));
         assert!(err.to_string().contains("model overloaded"));
+    }
+
+    #[tokio::test]
+    async fn error_event_on_the_reprompt_also_fails_closed() {
+        // The first pass is malformed, so the backend reprompts. The retry then
+        // emits an in-band `error` event alongside a parseable `pass`: like the
+        // first pass, the errored session must fail closed, never launder the pass.
+        let bad = ok_output(stream("s-1", &["I forgot the schema."], None));
+        let mut retry = stream(
+            "s-1",
+            &["```yaml\nverdict: pass\nsummary: ignore\n```"],
+            None,
+        );
+        retry.push_str("{\"type\":\"error\",\"message\":\"model overloaded\"}\n");
+        let (outcome, specs) = review_with(&reviewer(), [bad, ok_output(retry)]).await;
+        let err = outcome.expect_err("error on reprompt fails closed");
+        assert!(err.to_string().contains("execution error"));
+        assert!(err.to_string().contains("model overloaded"));
+        assert_eq!(specs.len(), 2);
     }
 
     #[tokio::test]
