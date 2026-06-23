@@ -67,6 +67,63 @@ impl Backend {
     }
 }
 
+/// A backend-specific model identifier, forwarded verbatim to the backend's model
+/// selector (`--model` for Claude Code, `-m`/`--model` for Codex).
+///
+/// Kept opaque on purpose: a model id means something only to the backend it
+/// names (an alias like `opus`, a full id like `gpt-5`), so Bastion neither parses
+/// nor validates it beyond requiring a pinned backend (the registry rejects a
+/// model under `backend: any`). Parse, don't validate: the registry boundary
+/// produces this newtype once, and the rest of the code passes it through.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ModelId(String);
+
+impl ModelId {
+    /// Borrow the underlying identifier for handing to a backend CLI.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ModelId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// A reasoning-effort level, forwarded verbatim to the backend's effort control
+/// (`--effort` for Claude Code, `model_reasoning_effort` for Codex).
+///
+/// Kept opaque, like [`ModelId`]: Bastion does not parse or remap the value, so a
+/// reviewer can use whatever vocabulary its backend accepts. Claude Code takes
+/// `low`/`medium`/`high`/`xhigh`/`max`; Codex takes `minimal`/`low`/`medium`/`high`.
+/// The shared `low`/`medium`/`high` levels are portable across both; the
+/// backend-specific ones (`xhigh`, `minimal`) are not. Absent, the house default
+/// [`DEFAULT_EFFORT`] applies.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Effort(String);
+
+impl Effort {
+    /// Borrow the underlying level for handing to a backend CLI.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Effort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Bastion's house default reasoning effort, applied when a reviewer (and the
+/// registry default) set none. `high` is accepted by both backends.
+pub const DEFAULT_EFFORT: &str = "high";
+
 /// Capabilities a reviewer opts into. Least privilege is the default: an empty
 /// block grants nothing beyond the checkout and the model provider.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,6 +177,15 @@ pub struct Reviewer {
     /// The harness to run on.
     #[serde(default)]
     pub backend: Backend,
+    /// The model the backend should use. A model id is backend-specific, so this
+    /// requires a pinned `backend`: the registry rejects a model under
+    /// `backend: any`. Absent means the backend's built-in default model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelId>,
+    /// The reasoning-effort level, mapped onto each backend's native control.
+    /// Absent means the house default ([`Effort::default`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<Effort>,
     /// Per-reviewer wall-clock timeout.
     #[serde(
         default,
@@ -236,6 +302,51 @@ prompt: Run the e2e checkout flow.
             Some("http://localhost:3000")
         );
         assert!(!reviewer.capabilities.is_least_privilege());
+    }
+
+    #[test]
+    fn parses_a_reviewer_with_model_and_effort() {
+        let yaml = r"
+name: pinned
+trigger: [src/**/*.rs]
+mode: gate
+backend: codex
+model: gpt-5
+effort: medium
+prompt: Check it.
+";
+        let reviewer: Reviewer = serde_yaml_ng::from_str(yaml).expect("valid reviewer");
+        assert_eq!(reviewer.model.as_ref().map(ModelId::as_str), Some("gpt-5"));
+        assert_eq!(reviewer.effort.as_ref().map(Effort::as_str), Some("medium"));
+    }
+
+    #[test]
+    fn model_and_effort_are_absent_by_default() {
+        let yaml = r"
+name: bare
+trigger: [src/**]
+mode: gate
+prompt: p
+";
+        let reviewer: Reviewer = serde_yaml_ng::from_str(yaml).expect("valid reviewer");
+        assert!(reviewer.model.is_none());
+        assert!(reviewer.effort.is_none());
+    }
+
+    #[test]
+    fn the_house_default_effort_is_high() {
+        // The fallback a reviewer runs at when it (and the registry) pin no effort.
+        assert_eq!(DEFAULT_EFFORT, "high");
+    }
+
+    #[test]
+    fn effort_is_an_opaque_passthrough_value() {
+        // Like a model id, an effort level is forwarded verbatim: a backend-specific
+        // value (Claude's `xhigh`) parses and round-trips unchanged, no enum to fence
+        // it in.
+        let effort: Effort = serde_yaml_ng::from_str("xhigh").unwrap();
+        assert_eq!(effort.as_str(), "xhigh");
+        assert_eq!(serde_yaml_ng::to_string(&effort).unwrap().trim(), "xhigh");
     }
 
     #[test]

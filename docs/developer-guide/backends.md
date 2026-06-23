@@ -150,12 +150,37 @@ about what is honored, so the code does not over-promise:
 | --- | --- |
 | `prompt`, `trigger`, `mode`, `name` | Fully honored. |
 | `backend` | Honored (`claude-code`, `codex`, `pi`; `any` -> Claude Code). |
+| `model` | **Honored.** Forwarded to the backend's model selector (`--model` for Claude Code, `-m` for Codex). Backend-specific, so the registry rejects a `model` (own or inherited) under `backend: any`. Absent, Claude Code defaults to `claude-opus-4-8`; Codex resolves its own. |
+| `effort` | **Honored.** An opaque level forwarded verbatim to each backend's native control (see below). Default `high`. |
+| `defaults` (registry-wide `model`/`effort`) | **Honored.** Folded into each reviewer at load time (a reviewer's own field wins); resolution happens once, in `Config::from_yaml`, so the persisted run record carries the effective values. |
 | `timeout` | Honored by the runner. |
 | `inputs` | Honored, interpolated into the prompt. |
 | `env` | Honored, injected into the child process environment. |
 | `runner` (`dockerfile`, `image`) | **Honored.** A reviewer with a `runner` block runs its backend inside a container; `dockerfile` is built (cached by content hash), `image` is used as-is. See [Containers](./containers.md). |
 | `capabilities.network: true` | **Honored in a container, not yet restricted.** A containerized reviewer's container has outbound network. The `network: false` default is *not yet scoped* (egress allowlisting is a later milestone), so today both attach the engine's default network. A *native* `network: true` (no `runner`) fails closed: with no container there is nothing to scope. |
 | `capabilities` (`mcp`, `skills`) | **Not provisioned: fails closed.** A reviewer that declares either is failed closed by `ExecutionPlan::resolve` in `dispatch`. |
+
+### How `model` and `effort` reach each backend
+
+Model and effort are the two knobs Bastion sets on the agent CLI rather than
+leaving to its config, so a review is reproducible across machines. They resolve in
+three layers (highest first): the reviewer's own field, the registry `defaults`
+block (folded in by `Config::from_yaml`), then the backend's built-in default.
+
+Both are passed through **opaquely**: Bastion does not parse or remap either value,
+so a reviewer can use whatever vocabulary its backend accepts (Claude Code's
+`--effort` takes `low`/`medium`/`high`/`xhigh`/`max`; Codex's
+`model_reasoning_effort` takes `minimal`/`low`/`medium`/`high`). The shared
+`low`/`medium`/`high` levels are portable; the backend-specific ones are not, and a
+mismatch is the backend's problem, not a load error.
+
+`model` differs from `effort` in one respect: because a model id almost never
+overlaps across backends, a `model` under `backend: any` is a load error
+(`Config::validate`), whereas `effort` is allowed under `any` (its common values
+port). Claude Code always sends a `--model` (its built-in default is
+`claude-opus-4-8`) and always an `--effort` (default `high`); Codex always sends
+`model_reasoning_effort` (default `high`) and sends `-m` only when a model is
+pinned, otherwise it resolves its own.
 
 The unprovisioned opt-ins **fail closed** rather than silently degrading: a gate that
 declares a tier it cannot get must block, never run degraded and report a pass (see

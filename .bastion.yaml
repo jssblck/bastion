@@ -13,6 +13,15 @@
 # reviewer runs on the Codex backend, billed to the maintainer's subscription; see
 # the authentication notes in docs/developer-guide/github-adapter.md. Adapt it to your repository.
 
+# Registry-wide defaults, inherited by every reviewer that does not set the field
+# itself (an explicit field on a reviewer wins). Every reviewer below pins
+# `backend: codex`, so the default model is a Codex model id; an inherited model
+# under `backend: any` would be a load error. See
+# docs/user-guide/authoring-reviewers.md#registry-wide-defaults.
+defaults:
+  model: gpt-5.5
+  effort: high
+
 reviewers:
   - name: single-responsibility
     trigger: [src/**/*.rs]

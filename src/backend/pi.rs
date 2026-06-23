@@ -636,6 +636,8 @@ mod tests {
             trigger: vec!["**".into()],
             mode: Mode::Gate,
             backend: reviewer::Backend::Pi,
+            model: None,
+            effort: None,
             timeout: None,
             runner: None,
             env: Default::default(),

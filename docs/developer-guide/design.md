@@ -89,7 +89,7 @@ Formalized, Bastion is built around the following threat model:
 
 ## The reviewer
 
-A reviewer is a bundle: **prompt + trigger + mode + backend + capabilities + (optional) runner + (optional) environment**. We call it the reviewer's _execution profile_. The optional `runner` provisions a container the backend runs inside (see the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today) and [Containers](./containers.md)); without it the reviewer runs natively on the host.
+A reviewer is a bundle: **prompt + trigger + mode + backend + (optional) model + (optional) effort + capabilities + (optional) runner + (optional) environment**. We call it the reviewer's _execution profile_. The optional `runner` provisions a container the backend runs inside (see the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today) and [Containers](./containers.md)); without it the reviewer runs natively on the host.
 
 **Least privilege is the default.** This isn't intended as anti-exfil hardening but as plain hygiene and to keep the common case fast: a reviewer gets no secrets and no tools unless it asks. Most reviewers are hermetic and need nothing but the checkout and a model. Access to the model provider is always permitted, since every reviewer needs it; `network: true` is the opt-in for _general_ outbound network beyond that. (One caveat in the current build: network scoping is not yet enforced, so a containerized reviewer attaches the engine's default network whether or not it asks. The `network` flag is recorded but does not yet restrict egress; see the implementation-status note below and the [honored-fields table](./backends.md#what-a-backend-applies-from-the-profile-today).)
 
@@ -108,6 +108,12 @@ keyed by `name`. (This is the on-disk shape the loader expects; see
 [`src/config.rs`](../../src/config.rs) and [`.bastion.yaml`](../../.bastion.yaml).)
 
 ```yaml
+# Registry-wide defaults, inherited by any reviewer that does not set the field.
+# A default model is backend-specific, so a reviewer that inherits it must pin a
+# backend (an inherited model under `backend: any` is a load error). Optional.
+defaults:
+  effort: high                          # opaque, forwarded to the backend's effort control
+
 reviewers:
   # Runs native (no container), fast and cheap.
   - name: file-responsibility
@@ -133,6 +139,8 @@ reviewers:
     trigger: ["src/**"]
     mode: gate
     backend: claude-code                     # pinned by user preference. optional; `any` by default.
+    model: claude-opus-4-8                   # backend-specific model id. optional; requires a pinned backend. defaults to the backend's own (Opus 4.8 on Claude Code).
+    effort: xhigh                            # opaque effort level, forwarded to the backend (Claude Code: low|medium|high|xhigh|max; Codex: minimal|low|medium|high). optional; `high` by default.
     timeout: 15m
     runner:
       dockerfile: ./.bastion/e2e.Dockerfile   # builds a hermetic image with tools installed. optional within `runner`; if absent, falls back to `image`. (Omit the whole `runner` block to run native; a `runner` with neither source fails closed.)
@@ -151,7 +159,8 @@ reviewers:
 ```
 
 > **Implementation status.** This schema is the design target. In the current
-> build, `name`, `trigger`, `mode`, `backend`, `prompt`, `timeout`, `env`,
+> build, `name`, `trigger`, `mode`, `backend`, `model`, `effort`, the registry
+> `defaults` block, `prompt`, `timeout`, `env`,
 > `inputs`, and `runner` (containers) are honored: a reviewer with a `runner` block
 > runs its backend inside the built or named image (see
 > [Containers](./containers.md)). `capabilities.network: true` is honored inside a

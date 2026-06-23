@@ -496,6 +496,8 @@ mod tests {
             trigger: vec!["**".into()],
             mode,
             backend: rev::Backend::ClaudeCode,
+            model: None,
+            effort: None,
             timeout: None,
             runner: None,
             env: Default::default(),

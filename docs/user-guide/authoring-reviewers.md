@@ -44,6 +44,32 @@ review; see [Governance](./governance.md) and `bastion github codeowners`.
 > `.bastion.yaml` at your repository root (the contents are unchanged) and
 > regenerate your CODEOWNERS block with `bastion github codeowners`.
 
+## Registry-wide defaults
+
+An optional top-level `defaults:` block sets a house `model` and `effort` that
+every reviewer inherits unless it sets its own. A reviewer's explicit field always
+wins; the default just fills the gap, so you set the model and effort once instead
+of repeating them on every reviewer:
+
+```yaml
+defaults:
+  model: gpt-5
+  effort: high
+reviewers:
+  - name: single-responsibility
+    trigger: [src/**/*.rs]
+    mode: gate
+    backend: codex      # required: an inherited model needs a pinned backend
+    prompt: |
+      ...
+```
+
+A default `model` is still backend-specific, so a reviewer that inherits it must
+pin a `backend`; an inherited model under `backend: any` is rejected the same way
+an explicit one is. `defaults` sits *above* each backend's own built-in default
+(Opus 4.8 at `high` effort on Claude Code), so the resolution order is: the
+reviewer's own field, then `defaults`, then the backend default.
+
 ## The required fields
 
 Four fields are mandatory. A reviewer with just these is complete and runnable.
@@ -98,6 +124,41 @@ backend: codex
 
 > `pi` runs against whatever provider you have configured the Pi CLI with locally;
 > Bastion passes no provider or model flag, so your Pi default is used.
+
+### `model`
+
+The specific model the backend should use, for example `claude-opus-4-8` on Claude
+Code or `gpt-5` on Codex. A model id is **backend-specific**, so pinning one
+requires a pinned `backend`: a `model` under `backend: any` is rejected when the
+registry loads, since Bastion cannot know which backend the id is meant for.
+
+```yaml
+backend: codex
+model: gpt-5
+```
+
+Omit it to take the backend's default. On Claude Code that default is **Opus 4.8**;
+on Codex it is whatever Codex itself resolves. To set a model once for the whole
+registry rather than per reviewer, use the [`defaults`](#registry-wide-defaults)
+block.
+
+### `effort`
+
+The reasoning-effort level, forwarded verbatim to the active backend's effort
+control (Claude Code's `--effort`, Codex's `model_reasoning_effort`). Like `model`,
+the value is opaque: use whatever vocabulary your backend accepts. Claude Code
+takes `low`, `medium`, `high`, `xhigh`, or `max`; Codex takes `minimal`, `low`,
+`medium`, or `high`. The shared `low`/`medium`/`high` levels work on either
+backend; the backend-specific ones (`xhigh`, `minimal`) do not, so a value that
+does not match the reviewer's backend is the backend's problem (Claude Code, for
+instance, warns and falls back to its own default).
+
+```yaml
+effort: high
+```
+
+The default is **`high`** (accepted by both backends). Lower it on cheap,
+mechanical reviewers to save tokens; raise it on the ones that need to reason hard.
 
 ### `timeout`
 
