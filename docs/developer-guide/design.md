@@ -139,8 +139,8 @@ reviewers:
     trigger: ["src/**"]
     mode: gate
     backend: claude-code                     # pinned by user preference. optional; `any` by default.
-    model: claude-opus-4-8                   # backend-specific model id. optional; requires a pinned backend. defaults to the backend's own (Opus 4.8 on Claude Code).
-    effort: xhigh                            # opaque effort level, forwarded to the backend (Claude Code: low|medium|high|xhigh|max; Codex: minimal|low|medium|high). optional; `high` by default.
+    model: claude-opus-4-8                   # backend-specific model id. optional; requires a pinned backend. defaults to the backend's own (Opus 4.8 on Claude Code). on Pi the id carries its provider as `provider/id` (e.g. openai-codex/gpt-5.5), since Pi's bare default provider is google.
+    effort: xhigh                            # opaque effort level, forwarded to the backend (Claude Code: low|medium|high|xhigh|max; Codex: minimal|low|medium|high; Pi `--thinking`: off|minimal|low|medium|high|xhigh). optional; `high` by default.
     timeout: 15m
     runner:
       dockerfile: ./.bastion/e2e.Dockerfile   # builds a hermetic image with tools installed. optional within `runner`; if absent, falls back to `image`. (Omit the whole `runner` block to run native; a `runner` with neither source fails closed.)

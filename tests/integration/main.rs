@@ -77,9 +77,10 @@ fn all_gates_pass_across_both_backends() {
 
 /// Model and effort reach each backend's argv end to end, resolved through the real
 /// binary: an explicit per-reviewer value, a value inherited from the registry
-/// `defaults` block, and the Claude selectors as well as the Codex ones. The fake
-/// agent fails its contract (non-zero exit) if a selector is missing, which would
-/// fail the gate closed; a clean `pass` across all three proves the flags arrived.
+/// `defaults` block, the Claude selectors, the Codex ones, and Pi's
+/// `--model`/`--thinking`. The fake agent fails its contract (non-zero exit) if a
+/// selector is missing, which would fail the gate closed; a clean `pass` across all
+/// four proves the flags arrived.
 #[test]
 fn model_and_effort_reach_each_backend_through_the_real_binary() {
     let Some(fake) = tooling() else { return };
@@ -107,6 +108,15 @@ fn model_and_effort_reach_each_backend_through_the_real_binary() {
                 .behavior("pass")
                 .env("FAKE_EXPECT_MODEL", "claude-sonnet-4-6")
                 .env("FAKE_EXPECT_EFFORT", "medium"),
+            // The Pi selectors (`--model`/`--thinking`): the model carries its
+            // provider in Pi's `provider/id` form, and `xhigh` is a Pi-specific
+            // thinking level forwarded verbatim.
+            Reviewer::new("pi-explicit", "pi", "gate")
+                .model("openai-codex/gpt-5.5")
+                .effort("xhigh")
+                .behavior("pass")
+                .env("FAKE_EXPECT_MODEL", "openai-codex/gpt-5.5")
+                .env("FAKE_EXPECT_EFFORT", "xhigh"),
         ],
     ));
     let run = repo.review(fake);
@@ -114,8 +124,8 @@ fn model_and_effort_reach_each_backend_through_the_real_binary() {
     assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
     let (decision, gates, _cost) = run.completed();
     assert_eq!(decision, Decision::Pass);
-    assert_eq!(gates.total, 3);
-    assert_eq!(gates.passed, 3);
+    assert_eq!(gates.total, 4);
+    assert_eq!(gates.passed, 4);
 }
 
 /// A single blocking gate makes the binary exit non-zero (so an agent loop and CI
