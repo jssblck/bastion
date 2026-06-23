@@ -1066,6 +1066,36 @@ fn a_missing_registry_is_a_hard_error() {
     assert!(store::list_runs(&repo.layout()).unwrap().is_empty());
 }
 
+/// A registry at the deprecated `bastion/reviewers.yaml` location still works (the
+/// back-compat shim), but the run logs a deprecation warning pointing at the new
+/// `.bastion.yaml` root location.
+#[test]
+fn the_legacy_registry_location_still_works_with_a_deprecation_warning() {
+    let Some(fake) = tooling() else { return };
+
+    let repo = TestRepo::new_legacy(&registry(&[
+        Reviewer::new("legacy-gate", "codex", "gate").behavior("pass")
+    ]));
+    // Raise the log level past the suite default (`error`) so the warning is visible.
+    let run = repo.review_base(fake, "main", &[("RUST_LOG", "warn")]);
+
+    assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
+    let (decision, gates, _cost) = run.completed();
+    assert_eq!(decision, Decision::Pass);
+    assert_eq!(gates.passed, 1);
+
+    assert!(
+        run.stderr.contains("deprecated path"),
+        "expected a deprecation warning, stderr:\n{}",
+        run.stderr
+    );
+    assert!(
+        run.stderr.contains(".bastion.yaml"),
+        "the warning must point at the new location, stderr:\n{}",
+        run.stderr
+    );
+}
+
 /// An invalid registry (here, duplicate reviewer names) is a hard error surfaced
 /// to the user, never swallowed into a pass.
 #[test]
@@ -1183,7 +1213,11 @@ fn github_codeowners_emits_the_policy_block() {
     assert!(ok.status.success());
     let stdout = String::from_utf8_lossy(&ok.stdout);
     assert!(
-        stdout.contains("/bastion/ @acme/platform @jess"),
+        stdout.contains("/.bastion.yaml @acme/platform @jess"),
+        "stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("/.bastion.yml @acme/platform @jess"),
         "stdout:\n{stdout}"
     );
     assert!(stdout.contains("require human review"), "stdout:\n{stdout}");

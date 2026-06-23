@@ -27,7 +27,7 @@ There are no external services to stand up: the test suite is hermetic and uses
 - Keep the reviewer schema, the verdict/event schema, and the docs under `docs/`
   in sync when behavior changes: the local and GitHub surfaces are meant to be
   mirror images and must not drift.
-- Update the example `bastion/reviewers.yaml` when the schema changes.
+- Update the example `.bastion.yaml` when the schema changes.
 - Run `just check` before opening a PR.
 - Use plain ASCII quotes in docs, comments, and generated text.
 

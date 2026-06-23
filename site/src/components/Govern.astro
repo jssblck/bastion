@@ -15,7 +15,7 @@ const loop = [
   {
     n: "03",
     title: "Adjust the policy",
-    body: "Tighten a prompt, add a narrow reviewer, or harden a trigger. It's a diff against reviewers.yaml, reviewed like any other.",
+    body: "Tighten a prompt, add a narrow reviewer, or harden a trigger. It's a diff against .bastion.yaml, reviewed like any other.",
   },
   {
     n: "04",
@@ -40,7 +40,7 @@ const loop = [
             <span class="pill pill--neutral"><span class="pill-dot"></span>human review required</span>
           </div>
           <pre class="codeowner-body"><code><span class="t-com"># Changing the review policy is itself reviewed.</span>
-<span class="t-glob">bastion/reviewers.yaml</span>   <span class="t-key">@your-org/platform</span></code></pre>
+<span class="t-glob">.bastion.yaml</span>   <span class="t-key">@your-org/platform</span></code></pre>
         </div>
         <p class="govern-note">
           Because reviewers are declarative and static, any PR that weakens the

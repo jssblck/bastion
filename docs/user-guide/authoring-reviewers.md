@@ -15,9 +15,10 @@ fields you will reach for only occasionally.
 
 ## The registry file
 
-All reviewers live in one file: `bastion/reviewers.yaml`, relative to your
-repository root. Bastion finds it by walking up from the current directory, so the
-command works anywhere inside the repo. The file is a single `reviewers:` list:
+All reviewers live in one file at your repository root: `.bastion.yaml` (the
+`.bastion.yml` spelling is also honored). Bastion finds it by walking up from the
+current directory, so the command works anywhere inside the repo. The file is a
+single `reviewers:` list:
 
 ```yaml
 reviewers:
@@ -37,6 +38,12 @@ Reviewer **names must be unique** within the file; a duplicate name is a load
 error. Because this file *is* the review policy, changes to it should require human
 review; see [Governance](./governance.md) and `bastion github codeowners`.
 
+> **Migrating from `bastion/reviewers.yaml`.** Earlier versions kept the registry
+> at `bastion/reviewers.yaml`. That location still loads, but Bastion now prints a
+> deprecation warning and will stop reading it in a future release. Move the file to
+> `.bastion.yaml` at your repository root (the contents are unchanged) and
+> regenerate your CODEOWNERS block with `bastion github codeowners`.
+
 ## The required fields
 
 Four fields are mandatory. A reviewer with just these is complete and runnable.
@@ -55,7 +62,7 @@ segment) syntax:
 ```yaml
 trigger: [src/**/*.rs]                       # all Rust under src, any depth
 trigger: [src/server/**, src/client/**]      # either subtree
-trigger: [src/**/*.rs, docs/**/*.md, "bastion/reviewers.yaml"]   # multiple kinds
+trigger: [src/**/*.rs, docs/**/*.md, ".bastion.yaml"]   # multiple kinds
 ```
 
 Quote a glob if YAML would otherwise mis-parse it (a bare leading `*`, for
@@ -220,7 +227,7 @@ reviewers:
     inputs:
       preview_url: http://localhost:3000     # substituted into the prompt as ${preview_url}
     runner:                                  # provisioned: runs the backend in this image
-      dockerfile: ./bastion/e2e.Dockerfile
+      dockerfile: ./.bastion/e2e.Dockerfile
     capabilities:
       network: true                          # honored in the container (not yet scoped)
     prompt: |
@@ -257,7 +264,7 @@ The prompt is the reviewer. A few habits keep recall high:
   the author fixes the whole set from one run.
 
 Some worked examples, taken from Bastion's own registry
-([`bastion/reviewers.yaml`](../../bastion/reviewers.yaml)):
+([`.bastion.yaml`](../../.bastion.yaml)):
 
 ```yaml
   - name: error-handling

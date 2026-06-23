@@ -107,7 +107,7 @@ from) are in the
 
 For a healthy deployment:
 
-- [ ] `bastion/reviewers.yaml` and the Bastion workflow are CODEOWNERS-protected.
+- [ ] `.bastion.yaml` and the Bastion workflow are CODEOWNERS-protected.
 - [ ] Bastion's review is required by branch protection on the default branch (the
       review job, or the aggregate `bastion` check that `bastion github report` now posts).
 - [ ] Reviewer-policy PRs get a real human review, not a rubber stamp.
