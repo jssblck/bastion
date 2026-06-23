@@ -335,10 +335,14 @@ for the review you already completed, and nothing else.";
 /// identically.
 pub(super) fn extract_verdict(message: &str) -> Option<Verdict> {
     for candidate in verdict_candidates(message) {
-        if let Ok(verdict) = serde_yaml_ng::from_str::<Verdict>(&candidate)
-            && verdict.is_consistent()
-        {
-            return Some(verdict);
+        // The first candidate that parses structurally as a `Verdict` is the
+        // agent's authoritative verdict: the schema asks for it as the final fenced
+        // block, and candidates are tried final-block-first. Commit to it. If it is
+        // internally consistent, accept it; otherwise reject (fail closed) rather
+        // than scanning earlier blocks for a consistent-looking one, which would
+        // launder a self-contradictory final verdict into an earlier example's pass.
+        if let Ok(verdict) = serde_yaml_ng::from_str::<Verdict>(&candidate) {
+            return verdict.is_consistent().then_some(verdict);
         }
     }
     None
@@ -503,6 +507,26 @@ summary: chosen
         // A `block` with no blocking finding is internally inconsistent, so it must
         // not be accepted: the caller reprompts and ultimately fails closed.
         let message = "```yaml\nverdict: block\nsummary: no reason\nfindings: []\n```";
+        assert!(extract_verdict(message).is_none());
+    }
+
+    #[test]
+    fn extract_verdict_does_not_launder_an_inconsistent_final_verdict() {
+        // The final fenced block is the authoritative verdict. When it parses as a
+        // verdict but is inconsistent (a `block` with no blocking finding), the
+        // function must fail closed, not fall back to an earlier consistent-looking
+        // block (here a `pass` example) and launder it into a passing decision.
+        let message = "\
+```yaml
+verdict: pass
+summary: an earlier example block
+findings: []
+```
+```yaml
+verdict: block
+summary: the real, but inconsistent, final verdict
+findings: []
+```";
         assert!(extract_verdict(message).is_none());
     }
 
