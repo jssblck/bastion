@@ -95,12 +95,18 @@ jobs:
             runner: macos-latest
             cross: false
 
-          # Linux glibc.
+          # Linux glibc. Built on the oldest supported hosted runner (Ubuntu
+          # 22.04, glibc 2.35) rather than ubuntu-latest (24.04, glibc 2.39) so
+          # the binary's glibc floor is low enough to run on current LTS distros
+          # and CI images. A binary links against the build host's glibc, so
+          # building on 24.04 would demand GLIBC_2.39 and fail on anything older.
+          # For even older systems (RHEL 8, Amazon Linux 2), use the static musl
+          # build, which has no glibc dependency at all.
           - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
             cross: false
           - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
             cross: true
 
           # Linux musl (static).

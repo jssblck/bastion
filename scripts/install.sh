@@ -12,7 +12,15 @@ set -euo pipefail
 #   -v, --version    Specify a version (default: latest)
 #   -b, --bin-dir    Specify the installation directory (default: $HOME/.local/bin)
 #   -t, --tmp-dir    Specify the temporary directory (default: system temp directory)
+#   -l, --libc       Force the Linux C runtime: 'gnu' or 'musl' (default: autodetect)
 #   -h, --help       Show help message
+#
+# The libc choice can also be forced with the BASTION_LIBC environment variable,
+# which is handy when piping into bash (no `-s --` needed):
+#   curl -sSfL .../install.sh | BASTION_LIBC=musl bash
+#
+# The musl build is statically linked and has no glibc version dependency, so
+# 'musl' runs on any Linux regardless of how old the host glibc is.
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -23,6 +31,14 @@ NC='\033[0m' # No Color
 REPO="jssblck/bastion"
 GITHUB_BASE="https://github.com/${REPO}"
 GITHUB_DOWNLOAD="${GITHUB_BASE}/releases/download"
+
+# Minimum glibc the prebuilt gnu binary supports. This must match the Ubuntu
+# release the gnu targets are built on in .github/workflows/release.yml
+# (currently ubuntu-22.04, glibc 2.35): a binary links against its build host's
+# glibc, so that runner sets the floor. On a host with an older or undetectable
+# glibc, the installer falls back to the statically linked musl build.
+GLIBC_MIN_MAJOR=2
+GLIBC_MIN_MINOR=35
 
 # Fail with an error message
 fail() {
@@ -71,6 +87,60 @@ Please install the missing commands and try again:
   fi
 }
 
+# Autodetect which Linux C-runtime build to install. Echoes "musl" or "gnu".
+#
+# The choice is driven by whether the host can actually run the gnu binary, not
+# by a single distro check: pick the static musl build for musl systems (Alpine
+# and friends) and for any glibc host older than the gnu build's floor (or where
+# the glibc version cannot be determined), and pick gnu only when the host glibc
+# is confirmed new enough. A musl binary is statically linked, so it runs on a
+# glibc host too; the reverse is not true, which is why musl is the safe default
+# whenever support is in doubt.
+detect_linux_libc() {
+  # Definitive musl systems: install the musl build.
+  if [[ -e /etc/alpine-release ]]; then
+    echo "musl"
+    return
+  fi
+
+  # `ldd --version` is the most portable libc probe. glibc prints its version;
+  # musl prints "musl libc ..." (on stderr, with a non-zero exit). Fold both
+  # streams together and read it once.
+  local ldd_out
+  ldd_out=$(ldd --version 2>&1 || true)
+  if grep -qi musl <<< "$ldd_out"; then
+    echo "musl"
+    return
+  fi
+
+  # A glibc host: determine its version and compare against the floor. getconf is
+  # the cleanest source ("glibc 2.35"); fall back to the version ldd reports
+  # ("ldd (Ubuntu GLIBC 2.35-...) 2.35").
+  local version=""
+  if command -v getconf > /dev/null 2>&1; then
+    version=$(getconf GNU_LIBC_VERSION 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -n1 || true)
+  fi
+  if [[ -z "$version" ]]; then
+    version=$(grep -oE '[0-9]+\.[0-9]+' <<< "$ldd_out" | head -n1 || true)
+  fi
+
+  if [[ "$version" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+    local major="${BASH_REMATCH[1]}"
+    local minor="${BASH_REMATCH[2]}"
+    if (( major > GLIBC_MIN_MAJOR || (major == GLIBC_MIN_MAJOR && minor >= GLIBC_MIN_MINOR) )); then
+      echo "gnu"
+      return
+    fi
+    info "Host glibc ${version} is older than ${GLIBC_MIN_MAJOR}.${GLIBC_MIN_MINOR}; using the static musl build"
+    echo "musl"
+    return
+  fi
+
+  # Could not determine the glibc version: fall back to the portable musl build.
+  warn "Could not determine the host glibc version; using the static musl build"
+  echo "musl"
+}
+
 # Detect the operating system and architecture
 detect_platform() {
   local kernel
@@ -109,13 +179,24 @@ detect_platform() {
       ;;
   esac
 
-  # Check for musl instead of glibc on Linux
+  # Select the C runtime variant on Linux. By default this is autodetected (see
+  # detect_linux_libc); `--libc` or $BASTION_LIBC can force it. Forcing 'musl'
+  # yields the statically linked build, which has no glibc version dependency and
+  # so runs on any Linux regardless of how old the host glibc is.
   if [[ "$os" == "unknown-linux" ]]; then
-    if [[ -e /etc/alpine-release ]] || ldd /bin/sh 2>/dev/null | grep -q musl; then
-      os="$os-musl"
-    else
-      os="$os-gnu"
-    fi
+    case "$LIBC" in
+      musl | gnu)
+        os="$os-$LIBC"
+        ;;
+      "")
+        os="$os-$(detect_linux_libc)"
+        ;;
+      *)
+        fail "Invalid libc '$LIBC': expected 'gnu' or 'musl'"
+        ;;
+    esac
+  elif [[ -n "$LIBC" ]]; then
+    warn "Ignoring libc override '$LIBC': it only applies to Linux"
   fi
 
   echo "${arch}-${os}"
@@ -137,6 +218,10 @@ parse_args() {
         TMP_DIR="$2"
         shift 2
         ;;
+      -l|--libc)
+        LIBC="$2"
+        shift 2
+        ;;
       -h|--help)
         echo "bastion installer"
         echo
@@ -146,7 +231,12 @@ parse_args() {
         echo "  -v, --version    Specify a version (default: latest)"
         echo "  -b, --bin-dir    Specify the installation directory (default: \$HOME/.local/bin)"
         echo "  -t, --tmp-dir    Specify the temporary directory (default: system temp directory)"
+        echo "  -l, --libc       Force the Linux C runtime: 'gnu' or 'musl' (default: autodetect)"
         echo "  -h, --help       Show this help message"
+        echo
+        echo "The libc choice can also be forced with the BASTION_LIBC environment variable."
+        echo "The musl build is statically linked with no glibc version dependency, so 'musl'"
+        echo "runs on any Linux regardless of how old the host glibc is."
         echo
         echo "Examples:"
         echo "  # Install latest version"
@@ -157,6 +247,11 @@ parse_args() {
         echo
         echo "  # Install to custom directory"
         echo "  curl -sSfL https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.sh | bash -s -- -b /usr/local/bin"
+        echo
+        echo "  # Force the static musl build (works on old-glibc systems)"
+        echo "  curl -sSfL https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.sh | bash -s -- --libc musl"
+        echo "  # ...or via the environment, with no '-s --' needed:"
+        echo "  curl -sSfL https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.sh | BASTION_LIBC=musl bash"
         exit 0
         ;;
       *)
@@ -285,6 +380,7 @@ main() {
   local VERSION=""
   local BIN_DIR="$HOME/.local/bin"
   local TMP_DIR="${TMPDIR:-/tmp}"
+  local LIBC="${BASTION_LIBC:-}"
 
   # Parse command line arguments
   parse_args "$@"

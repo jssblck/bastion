@@ -37,9 +37,23 @@ irm https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.ps1 |
 bastion --version
 ```
 
-The shell installer takes `-v/--version`, `-b/--bin-dir`, and `-t/--tmp-dir` (pass
-them after `bash -s --`); the PowerShell installer reads the `Version` and `BinDir`
-environment variables. Pass `--help` (or set `$env:Help="true"`) to see them all.
+The shell installer takes `-v/--version`, `-b/--bin-dir`, `-t/--tmp-dir`, and
+`-l/--libc` (pass them after `bash -s --`); the PowerShell installer reads the
+`Version` and `BinDir` environment variables. Pass `--help` (or set
+`$env:Help="true"`) to see them all.
+
+On Linux the installer autodetects the C runtime: it picks the statically linked
+musl build on musl systems and on any host whose glibc is older than 2.35 (or
+undetectable), and the glibc build only when the host glibc is 2.35 or newer
+(Ubuntu 22.04, Debian 12, RHEL 9, and later). Force the choice with `--libc
+gnu|musl` (or `BASTION_LIBC=...`) when you want to override it, for example to
+take the portable musl build everywhere:
+
+```sh
+curl -sSfL https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.sh | bash -s -- --libc musl
+# ...or, without the `-s --` dance, via the environment:
+curl -sSfL https://raw.githubusercontent.com/jssblck/bastion/main/scripts/install.sh | BASTION_LIBC=musl bash
+```
 
 Prefer to grab the archive yourself? Prebuilt binaries are attached to every
 release for Linux (x86_64 and aarch64, glibc and musl), macOS (Intel and Apple
@@ -52,6 +66,9 @@ curl -sSL https://github.com/jssblck/bastion/releases/latest/download/bastion-x8
 sudo install bastion-x86_64-unknown-linux-gnu/bastion /usr/local/bin/
 bastion --version
 ```
+
+On a system with glibc older than 2.35, swap `gnu` for `musl` in those URLs to get
+the static build.
 
 Prefer to build from source? You need a Rust 2024 toolchain:
 
