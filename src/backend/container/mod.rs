@@ -18,13 +18,12 @@
 //!   invocation. The backend above is untouched: it builds the same logical spec,
 //!   and this decorator decides it runs in a container.
 //!
-//! Network is binary today. A containerized `network: true` gets general egress (the
-//! container attaches the engine's default network). The default `network: false`
-//! fails closed in a container: scoping egress to the model provider needs an
-//! allowlisting proxy that is unbuilt, so rather than silently grant general egress
-//! under a flag that reads as restricted, a container with `network: false` does not
-//! run. Provider-only scoped egress is the later milestone that will give
-//! `network: false` a real meaning. See the honored-fields table in
+//! A containerized `network: true` gets general egress (the container attaches the
+//! engine's default network). The default `network: false` fails closed in a
+//! container: scoping egress to the model provider needs an allowlisting proxy that is
+//! unbuilt, so a container with `network: false` does not run rather than silently get
+//! general egress. Provider-only scoped egress (which would let `network: false` mean
+//! provider-only) is unbuilt. See the honored-fields table in
 //! `docs/developer-guide/backends.md`.
 
 mod credentials;

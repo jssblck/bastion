@@ -29,12 +29,10 @@ impl ExecutionPlan {
     /// Network scoping is likewise unbuilt: the only egress tier a container can be
     /// given today is *general* outbound (`network: true`), so a containerized
     /// reviewer must opt into it. A containerized `network: false` (the default)
-    /// fails closed rather than silently attaching general egress under a flag that
-    /// reads as restricted: Bastion cannot scope a container's egress to the model
-    /// provider yet, and granting everything would betray the least-privilege
-    /// contract the flag promises. A native `network: true` also fails closed: with
-    /// no container there is nothing to scope a network into, so honoring it would be
-    /// meaningless.
+    /// fails closed: Bastion cannot scope a container's egress to the model provider
+    /// yet, and granting general egress would make `network: false` inaccurate. A
+    /// native `network: true` also fails closed: with no container there is nothing to
+    /// scope a network into, so honoring it would be meaningless.
     ///
     /// # Errors
     ///
@@ -68,17 +66,17 @@ impl ExecutionPlan {
                 })?;
                 // A container's egress cannot be scoped to the provider yet, so the
                 // only tier it can be given is general outbound (`network: true`). The
-                // default `network: false` reads as restricted but Bastion has nothing
-                // to enforce it with, so it fails closed rather than silently attaching
-                // general egress. This mirrors the `mcp`/`skills` fail-closed arms: an
-                // unprovisioned tier is a block, never a quiet downgrade.
+                // default `network: false` cannot be enforced, so it fails closed
+                // rather than silently attaching general egress, the same way the
+                // `mcp`/`skills` arms reject an unprovisioned tier instead of running
+                // degraded.
                 if !reviewer.capabilities.network {
                     bail!(
                         "reviewer '{}' runs in a container with the default `network: false`, \
                          but this build cannot scope a container's egress to the model provider \
                          (the allowlisting proxy is unbuilt); it fails closed rather than silently \
-                         attaching general egress under a flag that reads as restricted. Set \
-                         `network: true` to accept general egress until scoped egress lands.",
+                         attaching general egress. Set `network: true` to accept general egress \
+                         until scoped egress lands.",
                         reviewer.name
                     );
                 }
