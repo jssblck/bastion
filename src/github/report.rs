@@ -724,19 +724,16 @@ pub async fn report<A: GitHubApi + ?Sized>(
     let digest = digest(events);
 
     let checks = check_runs(ctx, &digest);
-    // The identity we posted under, read from the first check-run response. `None`
-    // when the response omits it (an unexpected shape); we then leave the nudge off
-    // rather than guess.
-    let mut posted_slug: Option<String> = None;
-    for check in &checks {
+    // The identity we posted under, classified from the first check-run response.
+    let mut posting_app = PostingApp::Unknown;
+    for (i, check) in checks.iter().enumerate() {
         let resp = send_checked(api, &check_run_request(ctx, check)).await?;
-        if posted_slug.is_none() {
-            posted_slug = app_slug(&resp.body);
+        if i == 0 {
+            posting_app = PostingApp::from_check_run(&resp.body);
         }
     }
-    let suggest_dedicated_app = posted_slug.as_deref() == Some(SHARED_APP_SLUG);
 
-    let body = comment_body(&digest, suggest_dedicated_app);
+    let body = comment_body(&digest, posting_app.should_suggest_dedicated_app());
     let comment = upsert_comment(api, ctx, &body).await?;
 
     Ok(ReportSummary {
@@ -745,15 +742,43 @@ pub async fn report<A: GitHubApi + ?Sized>(
     })
 }
 
-/// The `app.slug` of a created check run, if the response carries it. This is the
-/// GitHub App that created the check (and so owns its check suite); GitHub always
-/// includes it on a real response, but a fake or truncated body may not.
-fn app_slug(check_run_body: &serde_json::Value) -> Option<String> {
-    check_run_body
-        .get("app")?
-        .get("slug")?
-        .as_str()
-        .map(str::to_owned)
+/// Which GitHub App created the check runs, parsed once from the `app.slug` GitHub
+/// stamps on a check-run response. This is the report's posting identity, and it is
+/// what decides whether the checks can form their own check suite. Parsing it into a
+/// type here keeps the raw `github-actions` string comparison out of [`report`] and
+/// names the three cases so none is forgotten.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PostingApp {
+    /// The shared `github-actions` app (the default `GITHUB_TOKEN`). Its check runs
+    /// cannot form their own suite, so the report nudges toward a dedicated app.
+    SharedActions,
+    /// A distinct GitHub App: its check runs get their own named suite, so no nudge.
+    Dedicated,
+    /// The response carried no readable `app.slug` (an unexpected or fake shape).
+    /// Leave the nudge off rather than guess.
+    Unknown,
+}
+
+impl PostingApp {
+    /// Classify the creating app from a check-run creation response. GitHub always
+    /// stamps `app.slug` on a real response; a fake or truncated body may not, which
+    /// maps to [`PostingApp::Unknown`].
+    fn from_check_run(check_run_body: &serde_json::Value) -> Self {
+        match check_run_body
+            .get("app")
+            .and_then(|app| app.get("slug"))
+            .and_then(|slug| slug.as_str())
+        {
+            Some(SHARED_APP_SLUG) => Self::SharedActions,
+            Some(_) => Self::Dedicated,
+            None => Self::Unknown,
+        }
+    }
+
+    /// Whether the sticky comment should nudge toward a dedicated app.
+    fn should_suggest_dedicated_app(self) -> bool {
+        matches!(self, Self::SharedActions)
+    }
 }
 
 /// Create the sticky comment, or update it in place if one already exists.
@@ -1577,16 +1602,36 @@ mod tests {
     }
 
     #[test]
-    fn app_slug_reads_the_creating_app_or_none() {
+    fn posting_app_classifies_the_creating_app() {
+        use serde_json::json;
+
         assert_eq!(
-            app_slug(&serde_json::json!({"id": 1, "app": {"slug": "github-actions"}})).as_deref(),
-            Some("github-actions")
+            PostingApp::from_check_run(&json!({"id": 1, "app": {"slug": "github-actions"}})),
+            PostingApp::SharedActions
         );
-        // A response missing the app, the slug, or with a non-string slug yields
-        // None, so a malformed body leaves the nudge off rather than guessing.
-        assert_eq!(app_slug(&serde_json::json!({"id": 1})), None);
-        assert_eq!(app_slug(&serde_json::json!({"app": {}})), None);
-        assert_eq!(app_slug(&serde_json::json!({"app": {"slug": 7}})), None);
+        assert_eq!(
+            PostingApp::from_check_run(&json!({"id": 1, "app": {"slug": "bastion-acme"}})),
+            PostingApp::Dedicated
+        );
+        // A response missing the app, the slug, or with a non-string slug is Unknown,
+        // so a malformed body leaves the nudge off rather than guessing.
+        assert_eq!(
+            PostingApp::from_check_run(&json!({"id": 1})),
+            PostingApp::Unknown
+        );
+        assert_eq!(
+            PostingApp::from_check_run(&json!({"app": {}})),
+            PostingApp::Unknown
+        );
+        assert_eq!(
+            PostingApp::from_check_run(&json!({"app": {"slug": 7}})),
+            PostingApp::Unknown
+        );
+
+        // Only the shared identity nudges.
+        assert!(PostingApp::SharedActions.should_suggest_dedicated_app());
+        assert!(!PostingApp::Dedicated.should_suggest_dedicated_app());
+        assert!(!PostingApp::Unknown.should_suggest_dedicated_app());
     }
 
     #[tokio::test]
