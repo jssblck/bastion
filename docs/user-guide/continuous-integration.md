@@ -189,11 +189,10 @@ than the shared Actions identity:
 
 1. Create the app. Go to
    [bastion.jessica.black/github-app](https://bastion.jessica.black/github-app) and
-   follow the walkthrough; it uses GitHub's app-manifest flow to create an app with
-   exactly the permissions the report step needs (`checks: write`, `pull_requests:
-   write`, `contents: read`, no webhook), so you only confirm it. Or create the app
-   by hand with those permissions. The app's **name** is what the checks group
-   under, for example `Bastion (yourorg)`.
+   follow the walkthrough; it shows how to create a GitHub App by hand in GitHub's UI
+   with exactly the permissions the report step needs (`checks: write`,
+   `pull_requests: write`, `contents: read`, no webhook). The app's **name** is what
+   the checks group under, for example `YourOrg's Bastion`.
 2. Generate the app's private key, note its numeric App ID, and install the app on
    the repositories that run Bastion.
 3. Store `BASTION_APP_ID` (the App ID) and `BASTION_APP_PRIVATE_KEY` (the `.pem`
