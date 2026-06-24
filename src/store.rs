@@ -225,6 +225,9 @@ mod tests {
                     blocked: 0,
                 },
                 duration_ms: 100,
+                tokens_in: 0,
+                tokens_out: 0,
+                cache_read: 0,
                 cost_usd: Money::from_cents(5),
             },
         ]

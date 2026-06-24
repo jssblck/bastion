@@ -25,8 +25,8 @@ We stream **JSONL**: one JSON object per line, emitted as each thing happens. It
 ```jsonl
 {"type":"run.started","run":"r-0f3a","branch":"feat/cart","base":"main","changed":12,"reviewers":[{"name":"file-responsibility","mode":"gate"},{"name":"tenant-isolation","mode":"gate"}]}
 {"type":"reviewer.started","run":"r-0f3a","reviewer":"tenant-isolation","mode":"gate","backend":"claude-code"}
-{"type":"reviewer.resolved","run":"r-0f3a","reviewer":"tenant-isolation","verdict":"block","summary":"A new query path reads rows without scoping by tenant id.","findings":[{"kind":"blocking","path":"src/server/db.ts","line_start":88,"line_end":91,"detail":"scope this query by tenant_id"}],"usage":{"tokens_in":18204,"tokens_out":1560,"cost_usd":0.21},"duration_ms":38120,"has_transcript":true}
-{"type":"run.completed","run":"r-0f3a","verdict":"block","gates":{"total":2,"passed":1,"blocked":1},"duration_ms":41030,"cost_usd":0.37}
+{"type":"reviewer.resolved","run":"r-0f3a","reviewer":"tenant-isolation","verdict":"block","summary":"A new query path reads rows without scoping by tenant id.","findings":[{"kind":"blocking","path":"src/server/db.ts","line_start":88,"line_end":91,"detail":"scope this query by tenant_id"}],"usage":{"tokens_in":18204,"tokens_out":1560,"cache_read":12000,"cost_usd":0.21},"duration_ms":38120,"has_transcript":true}
+{"type":"run.completed","run":"r-0f3a","verdict":"block","gates":{"total":2,"passed":1,"blocked":1},"duration_ms":41030,"tokens_in":20480,"tokens_out":1875,"cache_read":13100,"cost_usd":0.37}
 ```
 
 `reviewer.resolved` is a check run reaching its conclusion, carrying the verdict, findings, and usage; `run.completed` is the aggregate `bastion` check and the sticky PR comment. `run.started` and `reviewer.started` are local progress for an agent reacting as the run goes; the GitHub side is posted after the run finishes, so it has no separate surface for them. An agent that wants only the outcome can ignore everything until `run.completed`; one that wants to react as it goes reads each `reviewer.resolved` as it lands.

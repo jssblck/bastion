@@ -792,12 +792,14 @@ fn cost_and_token_usage_are_reported_across_backends() {
             .behavior("pass")
             .env("FAKE_COST_CENTS", "5")
             .env("FAKE_TOKENS_IN", "1200")
-            .env("FAKE_TOKENS_OUT", "80"),
+            .env("FAKE_TOKENS_OUT", "80")
+            .env("FAKE_CACHE_READ", "600"),
         Reviewer::new("c2", "codex", "gate")
             .behavior("pass")
             .env("FAKE_COST_CENTS", "10")
             .env("FAKE_TOKENS_IN", "900")
-            .env("FAKE_TOKENS_OUT", "40"),
+            .env("FAKE_TOKENS_OUT", "40")
+            .env("FAKE_CACHE_READ", "300"),
         Reviewer::new("c3", "codex", "advisor")
             .behavior("pass")
             .env("FAKE_COST_CENTS", "7"),
@@ -805,7 +807,8 @@ fn cost_and_token_usage_are_reported_across_backends() {
             .behavior("pass")
             .env("FAKE_COST_CENTS", "13")
             .env("FAKE_TOKENS_IN", "2000")
-            .env("FAKE_TOKENS_OUT", "150"),
+            .env("FAKE_TOKENS_OUT", "150")
+            .env("FAKE_CACHE_READ", "1000"),
     ]));
     let run = repo.review(fake);
 
@@ -813,17 +816,32 @@ fn cost_and_token_usage_are_reported_across_backends() {
     let (_decision, _gates, cost) = run.completed();
     assert_eq!(cost, Money::from_cents(35));
 
-    // Per-reviewer token usage is parsed from each backend's native shape.
+    // Per-reviewer token usage is parsed from each backend's native shape, including
+    // the cache-read figure each backend names differently (Claude's
+    // `cache_read_input_tokens`, Codex's `cached_input_tokens`, Pi's `cacheRead`).
     let claude_usage = run.resolved("c1").3.expect("claude usage reported");
     assert_eq!(claude_usage.tokens_in, 1200);
     assert_eq!(claude_usage.tokens_out, 80);
+    assert_eq!(claude_usage.cache_read, 600);
     let codex_usage = run.resolved("c2").3.expect("codex usage reported");
     assert_eq!(codex_usage.tokens_in, 900);
     assert_eq!(codex_usage.tokens_out, 40);
+    assert_eq!(codex_usage.cache_read, 300);
     let pi_usage = run.resolved("c4").3.expect("pi usage reported");
     assert_eq!(pi_usage.tokens_in, 2000);
     assert_eq!(pi_usage.tokens_out, 150);
+    assert_eq!(pi_usage.cache_read, 1000);
     assert_eq!(pi_usage.cost_usd, Money::from_cents(13));
+
+    // The run.completed counter sums tokens across every reviewer (gates and the
+    // advisor alike), mirroring how it sums cost. The advisor c3 reports the fake's
+    // default 100 in / 10 out and no cache, so the totals are 1200+900+100+2000 in,
+    // 80+40+10+150 out, and 600+300+0+1000 cache-read.
+    let (tokens_in, tokens_out, cache_read, total_cost) = run.completed_usage();
+    assert_eq!(tokens_in, 4200);
+    assert_eq!(tokens_out, 280);
+    assert_eq!(cache_read, 1900);
+    assert_eq!(total_cost, Money::from_cents(35));
 }
 
 /// Reviewer `env` is propagated into the agent child and `${...}` inputs are

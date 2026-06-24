@@ -87,15 +87,19 @@ fn write_event_human<W: Write>(out: &mut W, event: &RunEvent) -> io::Result<()> 
             verdict,
             gates,
             duration_ms,
+            tokens_in,
+            tokens_out,
+            cache_read,
             cost_usd,
             ..
         } => writeln!(
             out,
-            "{} run complete: {}/{} gates passed ({}s, {cost_usd})",
+            "{} run complete: {}/{} gates passed ({}s{}, {cost_usd})",
             marker(*verdict),
             gates.passed,
             gates.total,
-            duration_ms / 1000
+            duration_ms / 1000,
+            token_counter(*tokens_in, *tokens_out, *cache_read),
         ),
     }
 }
@@ -147,6 +151,18 @@ pub fn write_runs<W: Write>(out: &mut W, format: Format, runs: &[RunSummary]) ->
     }
 }
 
+/// The token segment of a run's counter, e.g. `, 4200 in / 270 out / 3100 cached
+/// tokens`. The leading separator lets it slot between the elapsed time and the
+/// cost. Empty when no tokens were reported (a mock run, a zero-reviewer trivial
+/// pass, or a run persisted before tokens were tracked) so the counter stays clean.
+/// Shares [`crate::verdict::format_token_counter`] with the GitHub status line so
+/// the two surfaces never drift.
+fn token_counter(tokens_in: u64, tokens_out: u64, cache_read: u64) -> String {
+    crate::verdict::format_token_counter(tokens_in, tokens_out, cache_read)
+        .map(|segment| format!(", {segment}"))
+        .unwrap_or_default()
+}
+
 fn marker(decision: Decision) -> &'static str {
     match decision {
         Decision::Pass => "PASS ",
@@ -185,6 +201,55 @@ mod tests {
         let text = String::from_utf8(buf).unwrap();
         assert!(text.contains("BLOCK tenant-isolation: missing tenant scope"));
         assert!(text.contains("[blocking] src/db.ts:10-10: scope by tenant_id"));
+    }
+
+    fn completed(tokens_in: u64, tokens_out: u64, cache_read: u64) -> RunEvent {
+        RunEvent::RunCompleted {
+            run: RunId("r-1".into()),
+            verdict: Decision::Pass,
+            gates: crate::event::Gates {
+                total: 2,
+                passed: 2,
+                blocked: 0,
+            },
+            duration_ms: 40_000,
+            tokens_in,
+            tokens_out,
+            cache_read,
+            cost_usd: crate::verdict::Money::from_cents(37),
+        }
+    }
+
+    #[test]
+    fn completed_counter_shows_time_tokens_cache_and_cost() {
+        let mut buf = Vec::new();
+        write_event(&mut buf, Format::Human, &completed(4200, 270, 3100)).unwrap();
+        let text = String::from_utf8(buf).unwrap();
+        assert!(text.contains("run complete: 2/2 gates passed"));
+        // Time, then tokens (with the cache-read figure), then cost, in that order.
+        assert!(text.contains("(40s, 4200 in / 270 out / 3100 cached tokens, $0.37)"));
+    }
+
+    #[test]
+    fn completed_counter_omits_the_cache_figure_when_zero() {
+        // Tokens were reported but no cache hits: the in/out counter shows, the
+        // cached segment does not.
+        let mut buf = Vec::new();
+        write_event(&mut buf, Format::Human, &completed(4200, 270, 0)).unwrap();
+        let text = String::from_utf8(buf).unwrap();
+        assert!(text.contains("(40s, 4200 in / 270 out tokens, $0.37)"));
+        assert!(!text.contains("cached"));
+    }
+
+    #[test]
+    fn completed_counter_omits_tokens_when_none_were_reported() {
+        // A run with no reported usage (a mock or zero-reviewer pass) keeps the
+        // counter to time and cost rather than printing "0 in / 0 out tokens".
+        let mut buf = Vec::new();
+        write_event(&mut buf, Format::Human, &completed(0, 0, 0)).unwrap();
+        let text = String::from_utf8(buf).unwrap();
+        assert!(text.contains("(40s, $0.37)"));
+        assert!(!text.contains("tokens"));
     }
 
     #[test]

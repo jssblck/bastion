@@ -122,6 +122,19 @@ pub enum RunEvent {
         gates: Gates,
         /// Total wall-clock duration in milliseconds.
         duration_ms: u64,
+        /// Total input tokens across reviewers. Defaults to 0 for runs persisted
+        /// before this field existed, and for runs whose backends report no usage.
+        #[serde(default)]
+        tokens_in: u64,
+        /// Total output tokens across reviewers. Defaults to 0 for runs persisted
+        /// before this field existed, and for runs whose backends report no usage.
+        #[serde(default)]
+        tokens_out: u64,
+        /// Total cache-read input tokens across reviewers. Defaults to 0 for runs
+        /// persisted before this field existed, and for runs whose backends report
+        /// no cache usage.
+        #[serde(default)]
+        cache_read: u64,
         /// Total cost across reviewers.
         cost_usd: Money,
     },
@@ -162,6 +175,7 @@ mod tests {
             usage: Some(Usage {
                 tokens_in: 18204,
                 tokens_out: 1560,
+                cache_read: 12000,
                 cost_usd: Money::from_cents(21),
             }),
             duration_ms: 38120,
@@ -193,5 +207,27 @@ mod tests {
         let line = serde_json::to_string(&event).unwrap();
         assert!(line.contains(r#""type":"run.started""#));
         assert_eq!(serde_json::from_str::<RunEvent>(&line).unwrap(), event);
+    }
+
+    #[test]
+    fn run_completed_without_token_fields_defaults_them_to_zero() {
+        // A run.completed persisted before tokens_in/tokens_out/cache_read existed
+        // must still load (a `bastion show` over an old run.jsonl), defaulting the
+        // missing usage totals to 0 rather than failing to deserialize.
+        let line = r#"{"type":"run.completed","run":"r-old","verdict":"pass","gates":{"total":1,"passed":1,"blocked":0},"duration_ms":1000,"cost_usd":0.0}"#;
+        let parsed: RunEvent = serde_json::from_str(line).expect("legacy run.completed loads");
+        match parsed {
+            RunEvent::RunCompleted {
+                tokens_in,
+                tokens_out,
+                cache_read,
+                ..
+            } => {
+                assert_eq!(tokens_in, 0);
+                assert_eq!(tokens_out, 0);
+                assert_eq!(cache_read, 0);
+            }
+            other => panic!("expected run.completed, got {other:?}"),
+        }
     }
 }

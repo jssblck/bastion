@@ -50,28 +50,27 @@ There's a wrinkle GitHub forces on us. Branch protection requires you to name th
 
 The fix is a single always-present check, `bastion`, and it is the only one branch protection requires. It always runs, even when zero reviewers match (a trivial pass in that case), so it is a stable required check. Internally it reflects the aggregate: `success` only when every triggered gate passed, and `failure` if any gate blocked, errored, or timed out (fail-closed, per the core design). The per-reviewer check runs stay informational; `bastion` is the gate.
 
+The aggregate check summary and the sticky comment share one headline (the status line): the decision and gate tally, then the run's wall-clock duration and the usage totals summed across reviewers (input and output tokens, cache-read tokens when nonzero, and cost). The token and cache figures are omitted when no backend reported usage, including a mock run or a zero-reviewer run. These are the run-level totals; the per-reviewer breakdown lives on each reviewer's own check (see [Reviewer detail](#reviewer-detail)).
+
 ### Reviewer detail
 
 Each reviewer's check run is also where its detail lives; a reader clicks "Details" on that reviewer in the checks list and lands on a page Bastion owns the markdown for. This is for humans and for the occasional surprising decision, not part of the implementing agent's normal loop; the agent already has the feedback in the sticky comment. Two things are presented there.
 
 - **Metadata and decision.** A short header: the reviewer name, its mode (`gate` or `advisor`), the backend it ran on, and how long it took; then the verdict and summary. The check run _title_ carries the one-line decision ("Blocked: `src/foo.ts` concentrates three responsibilities") so it is legible without opening anything.
-- **Tokens and cost, when available.** When the backend reports usage, a small table shows input and output token counts and the session cost; when it doesn't, the block is omitted rather than shown empty. This is per reviewer, so an expensive e2e reviewer and a cheap hermetic one are each individually accountable.
+- **Tokens and cost, when available.** When the backend reports usage, a token line lists the input and output token counts, the cache-read tokens (prompt-cache hits, shown only when nonzero), and the session cost; when the backend reports no usage, the line is omitted rather than shown empty. Usage is per reviewer, so an expensive e2e reviewer and a cheap hermetic one show separate totals.
 
 The full agent session is not embedded in the check output; the run, transcripts included, is uploaded as the workflow artifact, and the sticky comment footer points there. The aggregate `bastion` check renders a plain Markdown table of the triggered reviewers with columns `Reviewer`, `Mode`, `Verdict`, and `Summary`.
 
 A sketch of a reviewer's check output:
 
 ```markdown
-> - Check: tenant-isolation
-> - Kind: gate
+> - Mode: gate
 > - Agent: claude-code
+> - Verdict: block
 > - Duration: 38s
+> - Tokens: 18204 in, 1560 out, 12000 cached ($0.21)
 
-**Blocked:** A new query path reads rows without scoping by tenant id.
-
-| tokens in | tokens out | cost  |
-| --------- | ---------- | ----- |
-| 18,204    | 1,560      | $0.21 |
+A new query path reads rows without scoping by tenant id.
 ```
 
 ---
@@ -224,7 +223,7 @@ This stays inside Bastion's "owns no infrastructure, custodies no credentials" r
 
 Setup is a one-time, per-org step:
 
-1. **Create the app.** The hosted walkthrough at [bastion.jessica.black/github-app](https://bastion.jessica.black/github-app) (source: [`site/src/pages/github-app.astro`](../../site/src/pages/github-app.astro)) drives GitHub's [app-manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest): choose the personal account or org and confirm. It pre-fills exactly the permissions the report step needs (`checks: write`, `pull_requests: write`, `contents: read`) and requests no webhook. The app's name is what the checks group under, for example `Bastion (yourorg)`. Creating the app by hand with those permissions works too.
+1. **Create the app.** The hosted walkthrough at [bastion.jessica.black/github-app](https://bastion.jessica.black/github-app) (source: [`site/src/pages/github-app.astro`](../../site/src/pages/github-app.astro)) walks you through creating a GitHub App by hand: open GitHub's new-app form for the personal account or org, set exactly the permissions the report step needs (`checks: write`, `pull_requests: write`, `contents: read`) with no webhook, and create it. The app's name is what the checks group under, for example `YourOrg's Bastion`. The walkthrough does not use GitHub's [app-manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest): completing that flow requires a backend to exchange the temporary code for the app's credentials, and Bastion custodies no credentials and serves no such backend.
 2. **Capture its credentials.** Generate the app's private key (a downloaded `.pem`), note the numeric App ID, and install the app on the repositories that run Bastion.
 3. **Store the secrets.** Set `BASTION_APP_ID` (the App ID) and `BASTION_APP_PRIVATE_KEY` (the `.pem` contents) as Actions secrets, at the repo or org level. Mirror them into the Dependabot secret store as well if Dependabot PRs are reviewed, for the same reason the `PI_AUTH_<LOGIN>` secrets are mirrored there.
 
