@@ -4,33 +4,19 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
-      time: "03:00"
+      time: "04:00"
       timezone: "America/Los_Angeles"
-    open-pull-requests-limit: 10
-    commit-message:
-      prefix: "deps"
-      include: "scope"
-    labels:
-      - "dependencies"
-    groups:
-      rust-dependencies:
-        patterns:
-          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/site"
+    schedule:
+      interval: "daily"
+      time: "04:00"
+      timezone: "America/Los_Angeles"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "daily"
-      time: "03:00"
+      time: "04:00"
       timezone: "America/Los_Angeles"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "ci"
-      include: "scope"
-    labels:
-      - "dependencies"
-      - "github-actions"
-    groups:
-      github-actions:
-        patterns:
-          - "*"
