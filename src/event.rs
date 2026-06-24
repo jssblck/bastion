@@ -208,4 +208,26 @@ mod tests {
         assert!(line.contains(r#""type":"run.started""#));
         assert_eq!(serde_json::from_str::<RunEvent>(&line).unwrap(), event);
     }
+
+    #[test]
+    fn run_completed_without_token_fields_defaults_them_to_zero() {
+        // A run.completed persisted before tokens_in/tokens_out/cache_read existed
+        // must still load (a `bastion show` over an old run.jsonl), defaulting the
+        // missing usage totals to 0 rather than failing to deserialize.
+        let line = r#"{"type":"run.completed","run":"r-old","verdict":"pass","gates":{"total":1,"passed":1,"blocked":0},"duration_ms":1000,"cost_usd":0.0}"#;
+        let parsed: RunEvent = serde_json::from_str(line).expect("legacy run.completed loads");
+        match parsed {
+            RunEvent::RunCompleted {
+                tokens_in,
+                tokens_out,
+                cache_read,
+                ..
+            } => {
+                assert_eq!(tokens_in, 0);
+                assert_eq!(tokens_out, 0);
+                assert_eq!(cache_read, 0);
+            }
+            other => panic!("expected run.completed, got {other:?}"),
+        }
+    }
 }

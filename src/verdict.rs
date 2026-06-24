@@ -191,6 +191,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn usage_without_cache_read_defaults_to_zero() {
+        // A reviewer.resolved usage object persisted before cache_read existed must
+        // still deserialize, defaulting the missing field to 0 rather than erroring.
+        let old: Usage =
+            serde_json::from_str(r#"{"tokens_in":100,"tokens_out":10,"cost_usd":0.21}"#)
+                .expect("legacy usage without cache_read still loads");
+        assert_eq!(old.tokens_in, 100);
+        assert_eq!(old.tokens_out, 10);
+        assert_eq!(old.cache_read, 0);
+        assert_eq!(old.cost_usd, Money::from_cents(21));
+    }
+
+    #[test]
     fn token_counter_formats_in_out_and_optional_cache() {
         // All three figures present.
         assert_eq!(

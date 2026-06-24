@@ -1547,6 +1547,34 @@ mod tests {
     }
 
     #[test]
+    fn reviewer_summary_tokens_line_includes_cache_only_when_nonzero() {
+        let row_with = |cache_read: u64| ReviewerRow {
+            name: "r".into(),
+            mode: Mode::Gate,
+            backend: Some(Backend::ClaudeCode),
+            decision: Decision::Pass,
+            summary: "ok".into(),
+            findings: vec![],
+            duration_ms: 1000,
+            usage: Some(Usage {
+                tokens_in: 1200,
+                tokens_out: 80,
+                cache_read,
+                cost_usd: Money::from_cents(5),
+            }),
+        };
+
+        // Cache hits present: the cached figure rides the token line.
+        let with_cache = reviewer_check_summary(&row_with(600), &[]);
+        assert!(with_cache.contains("- Tokens: 1200 in, 80 out, 600 cached ($0.05)"));
+
+        // No cache hits: the cached segment is omitted, the in/out line stays.
+        let no_cache = reviewer_check_summary(&row_with(0), &[]);
+        assert!(no_cache.contains("- Tokens: 1200 in, 80 out ($0.05)"));
+        assert!(!no_cache.contains("cached"));
+    }
+
+    #[test]
     fn request_builders_target_the_right_endpoints() {
         let ctx = ctx();
         assert_eq!(

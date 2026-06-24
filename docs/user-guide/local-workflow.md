@@ -74,7 +74,7 @@ The event types:
 | `run.started` | The run began; lists the reviewers that matched and will run. |
 | `reviewer.started` | One reviewer was dispatched. |
 | `reviewer.resolved` | One reviewer finished; carries its `verdict`, `summary`, `findings`, `usage`, and a `has_transcript` flag. |
-| `run.completed` | The aggregate decision, the gate tally, and the run totals (`duration_ms`, `tokens_in`, `tokens_out`, `cache_read`, `cost_usd`) summed across reviewers. |
+| `run.completed` | The aggregate decision and the gate tally, plus the run's wall-clock `duration_ms` and the usage totals (`tokens_in`, `tokens_out`, `cache_read`, `cost_usd`) summed across reviewers. |
 
 How an agent should consume it:
 
