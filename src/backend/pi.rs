@@ -298,6 +298,7 @@ fn sum_usage(first: Option<Usage>, second: Option<Usage>) -> Option<Usage> {
         (Some(a), Some(b)) => Some(Usage {
             tokens_in: a.tokens_in + b.tokens_in,
             tokens_out: a.tokens_out + b.tokens_out,
+            cache_read: a.cache_read + b.cache_read,
             cost_usd: Money::from_cents(a.cost_usd.cents() + b.cost_usd.cents()),
         }),
     }
@@ -328,6 +329,8 @@ struct PiSession {
     tokens_in: u64,
     /// Output tokens, summed across the assistant turns Pi reported.
     tokens_out: u64,
+    /// Cache-read input tokens, summed across the assistant turns Pi reported.
+    cache_read: u64,
     /// Cost in dollars, summed across the assistant turns. Accumulated in dollars
     /// (not cents) and rounded once in [`PiSession::usage`], so per-turn fractional
     /// cents (Pi reports cost to six decimals) do not each round and drift.
@@ -408,6 +411,7 @@ impl PiSession {
         self.saw_usage = true;
         self.tokens_in += usage.input;
         self.tokens_out += usage.output;
+        self.cache_read += usage.cache_read;
         self.cost_dollars += usage.cost.as_ref().map_or(0.0, |c| c.total);
     }
 
@@ -417,6 +421,7 @@ impl PiSession {
         self.saw_usage.then(|| Usage {
             tokens_in: self.tokens_in,
             tokens_out: self.tokens_out,
+            cache_read: self.cache_read,
             cost_usd: super::money_from_dollars(self.cost_dollars),
         })
     }
@@ -536,8 +541,8 @@ enum PiContent {
 ///
 /// Pi reports a per-call figure on each assistant message (not a cumulative session
 /// total), and a `cost` block in US dollars, so Bastion sums across the assistant
-/// turns. Token sub-fields beyond input/output (`cacheRead`, `cacheWrite`) are
-/// ignored.
+/// turns. `cacheRead` (prompt-cache hits) is summed too; `cacheWrite` is not
+/// consumed.
 #[derive(Debug, Deserialize)]
 struct PiUsage {
     /// Input tokens consumed by this turn.
@@ -546,6 +551,9 @@ struct PiUsage {
     /// Output tokens produced by this turn.
     #[serde(default)]
     output: u64,
+    /// Cache-read input tokens (prompt-cache hits) for this turn.
+    #[serde(rename = "cacheRead", default)]
+    cache_read: u64,
     /// The cost block, when Pi reports it.
     #[serde(default)]
     cost: Option<PiCost>,
@@ -648,7 +656,8 @@ mod tests {
 
     /// Build a Pi `--mode json` stream: a `session` event followed by one assistant
     /// `message_end` per text, with the given usage attached to each assistant turn.
-    fn stream(session: &str, messages: &[&str], usage: Option<(u64, u64, f64)>) -> String {
+    /// `usage` is `(input, output, cacheRead, cost)`.
+    fn stream(session: &str, messages: &[&str], usage: Option<(u64, u64, u64, f64)>) -> String {
         let mut out = String::new();
         let session_event = serde_json::json!({ "type": "session", "id": session });
         out.push_str(&serde_json::to_string(&session_event).unwrap());
@@ -658,10 +667,11 @@ mod tests {
                 "role": "assistant",
                 "content": [{ "type": "text", "text": message }],
             });
-            if let Some((tin, tout, cost)) = usage {
+            if let Some((tin, tout, cache_read, cost)) = usage {
                 msg["usage"] = serde_json::json!({
                     "input": tin,
                     "output": tout,
+                    "cacheRead": cache_read,
                     "cost": { "total": cost },
                 });
             }
@@ -907,13 +917,35 @@ findings:
                 "intermediate thoughts",
                 "```yaml\nverdict: pass\nsummary: ok\n```",
             ],
-            Some((10_000, 500, 0.10)),
+            Some((10_000, 500, 3_000, 0.10)),
         );
         let (outcome, _) = review_with(&reviewer(), [ok_output(stdout)]).await;
         let usage = outcome.expect("parses").usage.expect("usage present");
         assert_eq!(usage.tokens_in, 20_000);
         assert_eq!(usage.tokens_out, 1_000);
+        // Cache-read tokens sum across the turns too.
+        assert_eq!(usage.cache_read, 6_000);
         assert_eq!(usage.cost_usd, Money::from_cents(20));
+    }
+
+    #[test]
+    fn usage_without_cache_read_defaults_to_zero() {
+        // A usage block that omits `cacheRead` (a turn with no prompt-cache hits, or
+        // an older Pi that did not report it) must still parse, defaulting cache_read
+        // to 0 rather than failing the whole stream.
+        let stdout = concat!(
+            r#"{"type":"session","id":"s-1"}"#,
+            "\n",
+            r#"{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"hi"}],"usage":{"input":300,"output":20,"cost":{"total":0.02}}}}"#,
+            "\n",
+        );
+        let usage = PiSession::parse(stdout)
+            .expect("parses")
+            .usage()
+            .expect("usage");
+        assert_eq!(usage.tokens_in, 300);
+        assert_eq!(usage.tokens_out, 20);
+        assert_eq!(usage.cache_read, 0);
     }
 
     #[test]
@@ -922,7 +954,7 @@ findings:
         // 5 cents. Rounding each turn to cents *before* summing would give 3 + 3 = 6
         // cents. Pi reports cost to six decimals, so this drift is real; the session
         // must accumulate dollars and round once.
-        let stdout = stream("s-1", &["a", "b"], Some((10, 1, 0.025815)));
+        let stdout = stream("s-1", &["a", "b"], Some((10, 1, 0, 0.025815)));
         let usage = PiSession::parse(&stdout)
             .expect("parses")
             .usage()
@@ -1046,12 +1078,12 @@ findings:
         let bad = ok_output(stream(
             "s-x",
             &["I did a thorough review of the database layer."],
-            Some((500, 40, 0.10)),
+            Some((500, 40, 100, 0.10)),
         ));
         let good = ok_output(stream(
             "s-x",
             &["```yaml\nverdict: pass\nsummary: ok\n```"],
-            Some((200, 10, 0.05)),
+            Some((200, 10, 50, 0.05)),
         ));
         let (outcome, _) = review_with(&reviewer(), [bad, good]).await;
         let outcome = outcome.expect("recovers");
@@ -1062,6 +1094,7 @@ findings:
         let usage = outcome.usage.expect("usage carried over");
         assert_eq!(usage.tokens_in, 700);
         assert_eq!(usage.tokens_out, 50);
+        assert_eq!(usage.cache_read, 150);
         assert_eq!(usage.cost_usd, Money::from_cents(15));
     }
 

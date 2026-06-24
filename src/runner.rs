@@ -247,14 +247,17 @@ pub async fn execute_with(
     } else {
         Decision::Block
     };
-    let cost = total_cost(&resolved);
+    let usage = total_usage(&resolved);
 
     let completed = RunEvent::RunCompleted {
         run: ctx.run.clone(),
         verdict: aggregate,
         gates,
         duration_ms: duration_ms(run_started.elapsed()),
-        cost_usd: cost,
+        tokens_in: usage.tokens_in,
+        tokens_out: usage.tokens_out,
+        cache_read: usage.cache_read,
+        cost_usd: usage.cost_usd,
     };
     emit(&completed);
 
@@ -398,13 +401,18 @@ fn tally(resolved: &[Resolved]) -> Gates {
     }
 }
 
-/// Sum reported cost across all reviewers.
-fn total_cost(resolved: &[Resolved]) -> Money {
-    let cents = resolved
+/// Sum reported usage (input/output tokens and cost) across all reviewers, gates
+/// and advisors alike. A reviewer that reported no usage contributes nothing.
+fn total_usage(resolved: &[Resolved]) -> Usage {
+    resolved
         .iter()
-        .filter_map(|item| item.usage.map(|u| u.cost_usd.cents()))
-        .fold(0u64, u64::saturating_add);
-    Money::from_cents(cents)
+        .filter_map(|item| item.usage)
+        .fold(Usage::default(), |acc, u| Usage {
+            tokens_in: acc.tokens_in.saturating_add(u.tokens_in),
+            tokens_out: acc.tokens_out.saturating_add(u.tokens_out),
+            cache_read: acc.cache_read.saturating_add(u.cache_read),
+            cost_usd: Money::from_cents(acc.cost_usd.cents().saturating_add(u.cost_usd.cents())),
+        })
 }
 
 /// Persist one reviewer's saved artifacts: transcript, raw verdict, and metadata.
@@ -534,6 +542,7 @@ mod tests {
             usage: Some(Usage {
                 tokens_in: 100,
                 tokens_out: 10,
+                cache_read: 40,
                 cost_usd: Money::from_cents(5),
             }),
             transcript: Some("t".into()),
@@ -797,25 +806,70 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cost_is_summed_across_reviewers() {
+    async fn cost_and_tokens_are_summed_across_reviewers() {
+        let g1 = reviewer("g1", Mode::Gate);
+        let g2 = reviewer("g2", Mode::Gate);
+        let reviewers = [&g1, &g2];
+        // Each `pass` reports 100 in / 10 out / 40 cached tokens and 5 cents.
+        let (_decision, events, _layout) = run_scenario(
+            &reviewers,
+            responses(vec![
+                ("g1", Response::Outcome(pass("a"))),
+                ("g2", Response::Outcome(pass("b"))),
+            ]),
+        )
+        .await;
+        let (tokens_in, tokens_out, cache_read, cost) = events
+            .iter()
+            .find_map(|e| match e {
+                RunEvent::RunCompleted {
+                    tokens_in,
+                    tokens_out,
+                    cache_read,
+                    cost_usd,
+                    ..
+                } => Some((*tokens_in, *tokens_out, *cache_read, *cost_usd)),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(cost, Money::from_cents(10));
+        assert_eq!(tokens_in, 200);
+        assert_eq!(tokens_out, 20);
+        assert_eq!(cache_read, 80);
+    }
+
+    #[tokio::test]
+    async fn a_reviewer_with_no_usage_contributes_zero_to_the_totals() {
+        // A gate that blocks reports no usage (see `block`); a passing gate does.
+        // The aggregate should reflect only the reviewer that reported usage, never
+        // panic or double-count the missing one.
         let g1 = reviewer("g1", Mode::Gate);
         let g2 = reviewer("g2", Mode::Gate);
         let reviewers = [&g1, &g2];
         let (_decision, events, _layout) = run_scenario(
             &reviewers,
             responses(vec![
-                ("g1", Response::Outcome(pass("a"))), // 5 cents
-                ("g2", Response::Outcome(pass("b"))), // 5 cents
+                ("g1", Response::Outcome(pass("a"))), // 100/10/40 tokens, 5 cents
+                ("g2", Response::Outcome(block("b"))), // no usage reported
             ]),
         )
         .await;
-        let cost = events
+        let (tokens_in, tokens_out, cache_read, cost) = events
             .iter()
             .find_map(|e| match e {
-                RunEvent::RunCompleted { cost_usd, .. } => Some(*cost_usd),
+                RunEvent::RunCompleted {
+                    tokens_in,
+                    tokens_out,
+                    cache_read,
+                    cost_usd,
+                    ..
+                } => Some((*tokens_in, *tokens_out, *cache_read, *cost_usd)),
                 _ => None,
             })
             .unwrap();
-        assert_eq!(cost, Money::from_cents(10));
+        assert_eq!(tokens_in, 100);
+        assert_eq!(tokens_out, 10);
+        assert_eq!(cache_read, 40);
+        assert_eq!(cost, Money::from_cents(5));
     }
 }

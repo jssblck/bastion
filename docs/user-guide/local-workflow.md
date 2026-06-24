@@ -63,8 +63,8 @@ happens. A run is a typed sequence of events:
 ```jsonl
 {"type":"run.started","run":"r-0f3a","branch":"feat/cart","base":"main","changed":12,"reviewers":[{"name":"file-responsibility","mode":"gate"},{"name":"tenant-isolation","mode":"gate"}]}
 {"type":"reviewer.started","run":"r-0f3a","reviewer":"tenant-isolation","mode":"gate","backend":"claude-code"}
-{"type":"reviewer.resolved","run":"r-0f3a","reviewer":"tenant-isolation","verdict":"block","summary":"A new query path reads rows without scoping by tenant id.","findings":[{"kind":"blocking","path":"src/server/db.rs","line_start":88,"line_end":91,"detail":"scope this query by tenant_id"}],"usage":{"tokens_in":18204,"tokens_out":1560,"cost_usd":0.21},"duration_ms":38120,"has_transcript":true}
-{"type":"run.completed","run":"r-0f3a","verdict":"block","gates":{"total":2,"passed":1,"blocked":1},"duration_ms":41030,"cost_usd":0.37}
+{"type":"reviewer.resolved","run":"r-0f3a","reviewer":"tenant-isolation","verdict":"block","summary":"A new query path reads rows without scoping by tenant id.","findings":[{"kind":"blocking","path":"src/server/db.rs","line_start":88,"line_end":91,"detail":"scope this query by tenant_id"}],"usage":{"tokens_in":18204,"tokens_out":1560,"cache_read":12000,"cost_usd":0.21},"duration_ms":38120,"has_transcript":true}
+{"type":"run.completed","run":"r-0f3a","verdict":"block","gates":{"total":2,"passed":1,"blocked":1},"duration_ms":41030,"tokens_in":20480,"tokens_out":1875,"cache_read":13100,"cost_usd":0.37}
 ```
 
 The event types:
@@ -74,7 +74,7 @@ The event types:
 | `run.started` | The run began; lists the reviewers that matched and will run. |
 | `reviewer.started` | One reviewer was dispatched. |
 | `reviewer.resolved` | One reviewer finished; carries its `verdict`, `summary`, `findings`, `usage`, and a `has_transcript` flag. |
-| `run.completed` | The aggregate decision and the gate tally. |
+| `run.completed` | The aggregate decision and the gate tally, plus the run's wall-clock `duration_ms` and the usage totals (`tokens_in`, `tokens_out`, `cache_read`, `cost_usd`) summed across reviewers. |
 
 How an agent should consume it:
 
@@ -107,6 +107,13 @@ See [Teach your agents to use Bastion](./getting-started.md#7-teach-your-agents-
 
 Cost fields (`cost_usd`) serialize as dollars (`0.21`) even though Bastion tracks
 exact cents internally, so you never see floating-point cent drift in the stream.
+Token fields (`tokens_in`, `tokens_out`, `cache_read`) are plain integer counts;
+on `run.completed` they are the totals summed across every reviewer that reported
+usage, the same way `cost_usd` is. `cache_read` is the input tokens served from the
+provider's prompt cache (cache hits); each backend names it differently natively
+(Claude's `cache_read_input_tokens`, Codex's `cached_input_tokens`, Pi's
+`cacheRead`) and Bastion normalizes them to one field. It is 0 when a backend
+reports no cache usage.
 
 ## What is streamed vs. what is saved
 

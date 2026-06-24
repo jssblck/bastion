@@ -282,6 +282,7 @@ impl Envelope {
         let usage = self.result.usage.as_ref()?;
         let tokens_in = usage.input_tokens.unwrap_or(0);
         let tokens_out = usage.output_tokens.unwrap_or(0);
+        let cache_read = usage.cache_read_input_tokens.unwrap_or(0);
         let cost = self
             .result
             .total_cost_usd
@@ -289,12 +290,13 @@ impl Envelope {
             .unwrap_or_default();
         // Report usage only if at least one signal is present; an all-zero block
         // with no cost is indistinguishable from "not reported".
-        if tokens_in == 0 && tokens_out == 0 && cost.cents() == 0 {
+        if tokens_in == 0 && tokens_out == 0 && cache_read == 0 && cost.cents() == 0 {
             return None;
         }
         Some(Usage {
             tokens_in,
             tokens_out,
+            cache_read,
             cost_usd: cost,
         })
     }
@@ -334,6 +336,11 @@ struct UsageJson {
     input_tokens: Option<u64>,
     #[serde(default)]
     output_tokens: Option<u64>,
+    /// Cache-read input tokens (prompt-cache hits), reported separately from
+    /// `input_tokens` by the Anthropic usage block. Cache-creation tokens are not
+    /// consumed; only the read figure is surfaced.
+    #[serde(default)]
+    cache_read_input_tokens: Option<u64>,
 }
 
 /// Parse the `claude` JSON envelope from a finished process.
@@ -426,6 +433,7 @@ fn combine_session_usage(first: Option<Usage>, second: Option<Usage>) -> Option<
         (Some(a), Some(b)) => Some(Usage {
             tokens_in: a.tokens_in.max(b.tokens_in),
             tokens_out: a.tokens_out.max(b.tokens_out),
+            cache_read: a.cache_read.max(b.cache_read),
             cost_usd: Money::from_cents(a.cost_usd.cents().max(b.cost_usd.cents())),
         }),
     }
@@ -579,12 +587,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn usage_without_cache_read_defaults_to_zero() {
+        // A usage block that omits `cache_read_input_tokens` (no prompt-cache hits)
+        // must still parse, defaulting cache_read to 0.
+        let envelope = serde_json::json!({
+            "result": "done",
+            "session_id": "s-1",
+            "total_cost_usd": 0.05,
+            "usage": { "input_tokens": 500, "output_tokens": 40 },
+            "structured_output": { "verdict": "pass", "summary": "ok", "findings": [] }
+        })
+        .to_string();
+        let outcome = review_with(vec![ok(&envelope)], &reviewer())
+            .await
+            .expect("verdict parses");
+        let usage = outcome.usage.expect("usage reported");
+        assert_eq!(usage.tokens_in, 500);
+        assert_eq!(usage.cache_read, 0);
+    }
+
+    #[tokio::test]
     async fn parses_structured_output_into_a_pass_verdict() {
         let envelope = serde_json::json!({
             "result": "done",
             "session_id": "s-1",
             "total_cost_usd": 0.21,
-            "usage": { "input_tokens": 1200, "output_tokens": 80 },
+            "usage": { "input_tokens": 1200, "output_tokens": 80, "cache_read_input_tokens": 950 },
             "structured_output": {
                 "verdict": "pass",
                 "summary": "looks fine",
@@ -600,6 +628,7 @@ mod tests {
         assert_eq!(outcome.verdict.summary, "looks fine");
         let usage = outcome.usage.expect("usage reported");
         assert_eq!(usage.tokens_in, 1200);
+        assert_eq!(usage.cache_read, 950);
         assert_eq!(usage.cost_usd, Money::from_cents(21));
         assert!(outcome.transcript.is_some());
     }
@@ -839,16 +868,19 @@ mod tests {
         let first = Some(Usage {
             tokens_in: 1000,
             tokens_out: 100,
+            cache_read: 400,
             cost_usd: Money::from_cents(20),
         });
         let second = Some(Usage {
             tokens_in: 1500,
             tokens_out: 150,
+            cache_read: 900,
             cost_usd: Money::from_cents(30),
         });
         let combined = combine_session_usage(first, second).expect("present");
         assert_eq!(combined.tokens_in, 1500);
         assert_eq!(combined.tokens_out, 150);
+        assert_eq!(combined.cache_read, 900);
         assert_eq!(combined.cost_usd, Money::from_cents(30));
         // One side missing yields the other untouched.
         assert_eq!(combine_session_usage(first, None), first);

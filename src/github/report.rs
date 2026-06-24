@@ -139,6 +139,14 @@ struct RunDigest {
     gates: Option<Gates>,
     cost: Option<Money>,
     duration_ms: Option<u64>,
+    /// Total input tokens across reviewers, as recorded on `run.completed`. 0 when
+    /// no backend reported usage or the run predates token tracking.
+    tokens_in: u64,
+    /// Total output tokens across reviewers, as recorded on `run.completed`.
+    tokens_out: u64,
+    /// Total cache-read input tokens across reviewers, as recorded on
+    /// `run.completed`. 0 when no backend reported cache usage.
+    cache_read: u64,
 }
 
 /// Fold an event stream into a [`RunDigest`].
@@ -200,12 +208,18 @@ fn digest(events: &[RunEvent]) -> RunDigest {
                 verdict,
                 gates,
                 duration_ms,
+                tokens_in,
+                tokens_out,
+                cache_read,
                 cost_usd,
                 ..
             } => {
                 digest.aggregate = Some(*verdict);
                 digest.gates = Some(*gates);
                 digest.duration_ms = Some(*duration_ms);
+                digest.tokens_in = *tokens_in;
+                digest.tokens_out = *tokens_out;
+                digest.cache_read = *cache_read;
                 digest.cost = Some(*cost_usd);
             }
         }
@@ -276,7 +290,8 @@ fn comment_body(digest: &RunDigest, suggest_dedicated_app: bool) -> String {
     out
 }
 
-/// The one-line headline: the aggregate decision plus the gate tally and run cost.
+/// The one-line headline: the aggregate decision plus the gate tally, run time,
+/// token usage, and cost.
 fn status_line(digest: &RunDigest) -> String {
     let reviewers = digest.rows.len();
     let (passed, total) = digest.gates.map_or((0, 0), |g| (g.passed, g.total));
@@ -284,6 +299,16 @@ fn status_line(digest: &RunDigest) -> String {
         .duration_ms
         .map(|ms| format!(", {}s", ms / 1000))
         .unwrap_or_default();
+    // Mirrors the local counter (both call `verdict::format_token_counter`):
+    // omitted when no backend reported usage, so a mock or zero-reviewer run stays
+    // clean.
+    let tokens = crate::verdict::format_token_counter(
+        digest.tokens_in,
+        digest.tokens_out,
+        digest.cache_read,
+    )
+    .map(|segment| format!(", {segment}"))
+    .unwrap_or_default();
     let cost = digest
         .cost
         .filter(|c| c.cents() > 0)
@@ -306,7 +331,7 @@ fn status_line(digest: &RunDigest) -> String {
         Some(Decision::Block) => format!("**Blocked.** {passed} of {total} gate(s) passed."),
         None => "**Incomplete.** The run did not finish.".to_string(),
     };
-    format!("{headline} {reviewers} reviewer(s) ran{timing}{cost}.")
+    format!("{headline} {reviewers} reviewer(s) ran{timing}{tokens}{cost}.")
 }
 
 /// The reviewer summary table.
@@ -508,8 +533,13 @@ fn reviewer_check_summary(row: &ReviewerRow, annotations: &[Annotation]) -> Stri
         row.duration_ms / 1000,
     );
     if let Some(usage) = row.usage {
+        let cached = if usage.cache_read > 0 {
+            format!(", {} cached", usage.cache_read)
+        } else {
+            String::new()
+        };
         out.push_str(&format!(
-            "- Tokens: {} in, {} out ({})\n",
+            "- Tokens: {} in, {} out{cached} ({})\n",
             usage.tokens_in, usage.tokens_out, usage.cost_usd,
         ));
     }
@@ -918,6 +948,7 @@ mod tests {
                 usage: Some(Usage {
                     tokens_in: 1820,
                     tokens_out: 156,
+                    cache_read: 900,
                     cost_usd: Money::from_cents(21),
                 }),
                 duration_ms: 38_000,
@@ -958,6 +989,9 @@ mod tests {
                     blocked: 1,
                 },
                 duration_ms: 40_000,
+                tokens_in: 1820,
+                tokens_out: 156,
+                cache_read: 900,
                 cost_usd: Money::from_cents(21),
             },
         ]
@@ -982,6 +1016,48 @@ mod tests {
     }
 
     #[test]
+    fn status_line_carries_time_tokens_cache_and_cost_in_order() {
+        // The sample run's only reviewer with usage reported 1820 in / 156 out / 900
+        // cached, so the aggregate counter mirrors the local one: time, then tokens
+        // (with the cache-read figure), then cost.
+        let line = status_line(&digest(&sample_events()));
+        assert!(
+            line.contains("3 reviewer(s) ran, 40s, 1820 in / 156 out / 900 cached tokens, $0.21.")
+        );
+    }
+
+    #[test]
+    fn status_line_omits_tokens_when_none_were_reported() {
+        // A zero-reviewer run reports no usage; the counter drops the token segment
+        // rather than printing "0 in / 0 out tokens".
+        let events = vec![
+            RunEvent::RunStarted {
+                run: RunId("r".into()),
+                branch: "b".into(),
+                base: "main".into(),
+                changed: 0,
+                reviewers: vec![],
+            },
+            RunEvent::RunCompleted {
+                run: RunId("r".into()),
+                verdict: Decision::Pass,
+                gates: Gates {
+                    total: 0,
+                    passed: 0,
+                    blocked: 0,
+                },
+                duration_ms: 0,
+                tokens_in: 0,
+                tokens_out: 0,
+                cache_read: 0,
+                cost_usd: Money::from_cents(0),
+            },
+        ];
+        let line = status_line(&digest(&events));
+        assert!(!line.contains("tokens"), "no token segment: {line}");
+    }
+
+    #[test]
     fn comment_handles_zero_reviewers() {
         let events = vec![
             RunEvent::RunStarted {
@@ -1000,6 +1076,9 @@ mod tests {
                     blocked: 0,
                 },
                 duration_ms: 0,
+                tokens_in: 0,
+                tokens_out: 0,
+                cache_read: 0,
                 cost_usd: Money::from_cents(0),
             },
         ];
@@ -1035,6 +1114,9 @@ mod tests {
                     blocked: 0,
                 },
                 duration_ms: 0,
+                tokens_in: 0,
+                tokens_out: 0,
+                cache_read: 0,
                 cost_usd: Money::from_cents(0),
             },
         ];
@@ -1066,6 +1148,13 @@ mod tests {
         assert_eq!(blocked.annotations[0].level, "failure");
         assert_eq!(blocked.annotations[1].level, "warning");
         assert_eq!(blocked.head_sha, "deadbeef");
+        // The per-reviewer summary lists its token usage, including the cache-read
+        // figure when nonzero.
+        assert!(
+            blocked
+                .summary
+                .contains("- Tokens: 1820 in, 156 out, 900 cached ($0.21)")
+        );
 
         // The advisor, even with a finding, concludes success and never gates.
         let advisor = by_name("bastion / style");
@@ -1123,6 +1212,9 @@ mod tests {
             verdict: completed.0,
             gates: completed.1,
             duration_ms: 1000,
+            tokens_in: 0,
+            tokens_out: 0,
+            cache_read: 0,
             cost_usd: Money::from_cents(0),
         });
         events
@@ -1277,6 +1369,9 @@ mod tests {
                     blocked: 0,
                 },
                 duration_ms: 1000,
+                tokens_in: 0,
+                tokens_out: 0,
+                cache_read: 0,
                 cost_usd: Money::from_cents(0),
             },
         ];
@@ -1326,6 +1421,9 @@ mod tests {
                     blocked: 0,
                 },
                 duration_ms: 1000,
+                tokens_in: 0,
+                tokens_out: 0,
+                cache_read: 0,
                 cost_usd: Money::from_cents(0),
             },
         ];
@@ -1446,6 +1544,34 @@ mod tests {
         assert!(summary.contains(&format!(
             "{overflow} more located finding(s) are listed above but not pinned to the diff"
         )));
+    }
+
+    #[test]
+    fn reviewer_summary_tokens_line_includes_cache_only_when_nonzero() {
+        let row_with = |cache_read: u64| ReviewerRow {
+            name: "r".into(),
+            mode: Mode::Gate,
+            backend: Some(Backend::ClaudeCode),
+            decision: Decision::Pass,
+            summary: "ok".into(),
+            findings: vec![],
+            duration_ms: 1000,
+            usage: Some(Usage {
+                tokens_in: 1200,
+                tokens_out: 80,
+                cache_read,
+                cost_usd: Money::from_cents(5),
+            }),
+        };
+
+        // Cache hits present: the cached figure rides the token line.
+        let with_cache = reviewer_check_summary(&row_with(600), &[]);
+        assert!(with_cache.contains("- Tokens: 1200 in, 80 out, 600 cached ($0.05)"));
+
+        // No cache hits: the cached segment is omitted, the in/out line stays.
+        let no_cache = reviewer_check_summary(&row_with(0), &[]);
+        assert!(no_cache.contains("- Tokens: 1200 in, 80 out ($0.05)"));
+        assert!(!no_cache.contains("cached"));
     }
 
     #[test]

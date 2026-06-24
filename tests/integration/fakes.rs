@@ -36,7 +36,8 @@ use std::sync::OnceLock;
 ///   reviewer `timeout` to force a timeout; or a generous one to test concurrency).
 ///
 /// Extra knobs, all read from the propagated environment: `FAKE_COST_CENTS`
-/// (default 5), `FAKE_TOKENS_IN`/`FAKE_TOKENS_OUT`, `FAKE_SUMMARY`,
+/// (default 5), `FAKE_TOKENS_IN`/`FAKE_TOKENS_OUT`, `FAKE_CACHE_READ` (default 0,
+/// emitted under each backend's native cache-read field name), `FAKE_SUMMARY`,
 /// `FAKE_EXPECT_PROMPT_CONTAINS` (assert the delivered prompt contains a marker --
 /// used to verify `${...}` interpolation end to end), and `FAKE_MARKER_FILE`
 /// (written only *after* the sleep, so a killed-on-timeout child never writes it).
@@ -199,6 +200,7 @@ fn main() {
     let cost_cents: u64 = env_or("FAKE_COST_CENTS", "5").parse().unwrap_or(5);
     let tin: u64 = env_or("FAKE_TOKENS_IN", "100").parse().unwrap_or(100);
     let tout: u64 = env_or("FAKE_TOKENS_OUT", "10").parse().unwrap_or(10);
+    let cache: u64 = env_or("FAKE_CACHE_READ", "0").parse().unwrap_or(0);
     let dollars = format!("{}.{:02}", cost_cents / 100, cost_cents % 100);
     let mut summary = env_or("FAKE_SUMMARY", "fake reviewer verdict");
     // If asked, echo the value of a named environment variable into the summary, so a
@@ -212,15 +214,15 @@ fn main() {
     }
 
     if is_codex {
-        emit_codex(effective, &summary, &dollars, tin, tout);
+        emit_codex(effective, &summary, &dollars, tin, tout, cache);
     } else if is_pi {
-        emit_pi(effective, &summary, &dollars, tin, tout);
+        emit_pi(effective, &summary, &dollars, tin, tout, cache);
     } else {
-        emit_claude(effective, &summary, &dollars, tin, tout);
+        emit_claude(effective, &summary, &dollars, tin, tout, cache);
     }
 }
 
-fn emit_pi(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64) {
+fn emit_pi(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64, cache: u64) {
     // The session event carries the id the backend resumes by on a reprompt.
     println!("{}", r#"{"type":"session","id":"pi-fake"}"#);
 
@@ -257,13 +259,15 @@ fn emit_pi(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64) {
     line.push_str(&tin.to_string());
     line.push_str(r#","output":"#);
     line.push_str(&tout.to_string());
+    line.push_str(r#","cacheRead":"#);
+    line.push_str(&cache.to_string());
     line.push_str(r#","cost":{"total":"#);
     line.push_str(dollars);
     line.push_str(r#"}}}}"#);
     println!("{}", line);
 }
 
-fn emit_codex(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64) {
+fn emit_codex(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64, cache: u64) {
     // The verdict travels inside a JSON-lines `agent_message` as a fenced YAML
     // block. The `\n` below are JSON string escapes: serde_json decodes them into
     // real newlines when the backend parses each event line, so the fenced block
@@ -304,13 +308,15 @@ fn emit_codex(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64)
     usage.push_str(&tin.to_string());
     usage.push_str(r#","output_tokens":"#);
     usage.push_str(&tout.to_string());
+    usage.push_str(r#","cached_input_tokens":"#);
+    usage.push_str(&cache.to_string());
     usage.push_str(r#","cost_usd":"#);
     usage.push_str(dollars);
     usage.push_str(r#"}}"#);
     println!("{}", usage);
 }
 
-fn emit_claude(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64) {
+fn emit_claude(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64, cache: u64) {
     let mut body = String::new();
     match behavior {
         "malformed" => {
@@ -323,6 +329,8 @@ fn emit_claude(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64
             body.push_str(&tin.to_string());
             body.push_str(r#","output_tokens":"#);
             body.push_str(&tout.to_string());
+            body.push_str(r#","cache_read_input_tokens":"#);
+            body.push_str(&cache.to_string());
             body.push_str(r#"},"structured_output":{"verdict":"block","summary":""#);
             body.push_str(summary);
             body.push_str(r#"","findings":[{"kind":"blocking","path":"src/extra.rs","line_start":1,"line_end":1,"detail":"simulated blocking finding"}]}}"#);
@@ -339,6 +347,8 @@ fn emit_claude(behavior: &str, summary: &str, dollars: &str, tin: u64, tout: u64
             body.push_str(&tin.to_string());
             body.push_str(r#","output_tokens":"#);
             body.push_str(&tout.to_string());
+            body.push_str(r#","cache_read_input_tokens":"#);
+            body.push_str(&cache.to_string());
             body.push_str(r#"},"structured_output":{"verdict":"pass","summary":""#);
             body.push_str(summary);
             body.push_str(r#"","findings":[]}}"#);

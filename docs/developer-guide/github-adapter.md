@@ -50,28 +50,27 @@ There's a wrinkle GitHub forces on us. Branch protection requires you to name th
 
 The fix is a single always-present check, `bastion`, and it is the only one branch protection requires. It always runs, even when zero reviewers match (a trivial pass in that case), so it is a stable required check. Internally it reflects the aggregate: `success` only when every triggered gate passed, and `failure` if any gate blocked, errored, or timed out (fail-closed, per the core design). The per-reviewer check runs stay informational; `bastion` is the gate.
 
+The aggregate check summary and the sticky comment share one headline (the status line): the decision and gate tally, then the run's wall-clock duration and the usage totals summed across reviewers (input and output tokens, cache-read tokens when nonzero, and cost). The token and cache figures are omitted when no backend reported usage, including a mock run or a zero-reviewer run. These are the run-level totals; the per-reviewer breakdown lives on each reviewer's own check (see [Reviewer detail](#reviewer-detail)).
+
 ### Reviewer detail
 
 Each reviewer's check run is also where its detail lives; a reader clicks "Details" on that reviewer in the checks list and lands on a page Bastion owns the markdown for. This is for humans and for the occasional surprising decision, not part of the implementing agent's normal loop; the agent already has the feedback in the sticky comment. Two things are presented there.
 
 - **Metadata and decision.** A short header: the reviewer name, its mode (`gate` or `advisor`), the backend it ran on, and how long it took; then the verdict and summary. The check run _title_ carries the one-line decision ("Blocked: `src/foo.ts` concentrates three responsibilities") so it is legible without opening anything.
-- **Tokens and cost, when available.** When the backend reports usage, a small table shows input and output token counts and the session cost; when it doesn't, the block is omitted rather than shown empty. This is per reviewer, so an expensive e2e reviewer and a cheap hermetic one are each individually accountable.
+- **Tokens and cost, when available.** When the backend reports usage, a token line lists the input and output token counts, the cache-read tokens (prompt-cache hits, shown only when nonzero), and the session cost; when the backend reports no usage, the line is omitted rather than shown empty. Usage is per reviewer, so an expensive e2e reviewer and a cheap hermetic one show separate totals.
 
 The full agent session is not embedded in the check output; the run, transcripts included, is uploaded as the workflow artifact, and the sticky comment footer points there. The aggregate `bastion` check renders a plain Markdown table of the triggered reviewers with columns `Reviewer`, `Mode`, `Verdict`, and `Summary`.
 
 A sketch of a reviewer's check output:
 
 ```markdown
-> - Check: tenant-isolation
-> - Kind: gate
+> - Mode: gate
 > - Agent: claude-code
+> - Verdict: block
 > - Duration: 38s
+> - Tokens: 18204 in, 1560 out, 12000 cached ($0.21)
 
-**Blocked:** A new query path reads rows without scoping by tenant id.
-
-| tokens in | tokens out | cost  |
-| --------- | ---------- | ----- |
-| 18,204    | 1,560      | $0.21 |
+A new query path reads rows without scoping by tenant id.
 ```
 
 ---
