@@ -127,8 +127,10 @@ version:
   them their own named suite. `.github/workflows/bastion.yml` mints that app token via
   `actions/create-github-app-token` when the `BASTION_APP_ID`/`BASTION_APP_PRIVATE_KEY`
   secrets exist and falls back to `GITHUB_TOKEN` otherwise; the hosted walkthrough at
-  `bastion.jessica.black/github-app` (`site/src/pages/github-app.astro`) drives the
-  manifest flow that provisions the app. `report` decides whether to nudge toward a
+  `bastion.jessica.black/github-app` (`site/src/pages/github-app.astro`) walks adopters
+  through creating that app by hand in GitHub's UI (GitHub's app-manifest flow is not
+  used: completing it needs a backend to exchange the temporary code for credentials,
+  and Bastion deliberately custodies none). `report` decides whether to nudge toward a
   dedicated app on its own (no workflow flag): it reads the `app.slug` GitHub stamps
   on the check runs it creates, and when that is the shared `github-actions` identity
   it closes the sticky comment with a note linking to that walkthrough. This is why
