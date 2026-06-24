@@ -6,6 +6,17 @@ import Footer from "../components/Footer.astro";
 const repo = "https://github.com/jssblck/bastion";
 const ciGuide = "/guide/continuous-integration";
 
+// Where GitHub returns the browser after the app is created. The manifest flow
+// rejects the POST outright ("redirect_url wasn't supplied") unless the manifest
+// carries one, even though GitHub's docs do not flag it as required. We have no
+// backend to exchange the temporary code for credentials (and deliberately so:
+// the app's private key should travel only between the user and GitHub, never
+// through anything Bastion serves), so we send the browser straight back to this
+// page and the inline script below turns the `?code` return into a confirmation
+// that points at the right settings page. Built from `Astro.site` so it tracks
+// the canonical origin.
+const redirectUrl = new URL("/github-app", Astro.site).href;
+
 // The manifest GitHub pre-fills the app-creation form from. It requests exactly
 // the permissions the report step needs and no webhook: Bastion runs in your CI,
 // it does not receive events. The name is only a suggestion: the submit handler
@@ -15,6 +26,7 @@ const ciGuide = "/guide/continuous-integration";
 const manifest = {
   name: "Bastion",
   url: repo,
+  redirect_url: redirectUrl,
   public: false,
   default_permissions: {
     checks: "write",
@@ -41,6 +53,21 @@ const description =
           Bastion can optionally post checks and comments through a GitHub App.
           This page shows how to set it up.
         </p>
+
+        <!-- Shown only on the return leg, when GitHub redirects back here with a
+             `?code`. The script below unhides it, points the link at the right
+             settings page (personal or org, read from the echoed `state`), and
+             strips the code from the address bar. -->
+        <div id="app-created" class="app-created" data-reveal hidden>
+          <h2 class="app-created-title">Your app was created on GitHub.</h2>
+          <p class="app-created-text">
+            Now finish steps 2 and 3 below: generate its private key, note the
+            App ID, install it, and store the two secrets.
+          </p>
+          <a id="app-created-link" class="btn btn--primary" href="https://github.com/settings/apps" rel="noopener">
+            Open your GitHub Apps
+          </a>
+        </div>
 
         <!-- Step 1: create the app from the manifest. -->
         <div class="app-card" data-reveal>
@@ -155,11 +182,35 @@ const description =
 
   <!-- The manifest POSTs to a different URL for an org vs a personal account, so
        set the form action from the account field just before submitting. The same
-       field also names the app "<account>'s Bastion" in the posted manifest. An
-       account login here is read as an organization; leave it blank for the
+       field also names the app "<account>'s Bastion" in the posted manifest and is
+       echoed through `state` so the return leg can link to the right settings page.
+       An account login here is read as an organization; leave it blank for the
        personal account you are signed in as. -->
   <script is:inline>
     (function () {
+      // Return leg: GitHub redirects back with `?code` (and the `state` we sent)
+      // after the app is created. We have no backend to exchange the code, so just
+      // confirm success, deep-link to the matching settings page, and clean the URL.
+      var params = new URLSearchParams(window.location.search);
+      if (params.get("code")) {
+        var created = document.getElementById("app-created");
+        var state = params.get("state") || "";
+        var org = state.indexOf("org:") === 0 ? state.slice(4) : "";
+        if (created) {
+          var link = document.getElementById("app-created-link");
+          if (link && org) {
+            link.href =
+              "https://github.com/organizations/" +
+              encodeURIComponent(org) +
+              "/settings/apps";
+          }
+          created.hidden = false;
+          created.scrollIntoView({ block: "start" });
+        }
+        // Drop `code`/`state` from the address bar so a refresh is clean.
+        history.replaceState(null, "", window.location.pathname);
+      }
+
       var form = document.getElementById("manifest-form");
       if (!form) return;
       form.addEventListener("submit", function () {
@@ -172,11 +223,16 @@ const description =
             manifestField.value = JSON.stringify(manifest);
           } catch (e) {}
         }
-        form.action = account
-          ? "https://github.com/organizations/" +
-            encodeURIComponent(account) +
-            "/settings/apps/new"
-          : "https://github.com/settings/apps/new";
+        // Carry the account through `state` so the return leg knows whether to
+        // link at the personal or the org settings page. GitHub echoes it back.
+        form.action =
+          (account
+            ? "https://github.com/organizations/" +
+              encodeURIComponent(account) +
+              "/settings/apps/new"
+            : "https://github.com/settings/apps/new") +
+          "?state=" +
+          encodeURIComponent(account ? "org:" + account : "personal");
       });
     })();
   </script>
@@ -196,6 +252,27 @@ const description =
     max-width: var(--measure);
     font-size: var(--text-md);
     color: var(--ink-2);
+  }
+
+  .app-created {
+    margin-top: 2rem;
+    background: var(--pass-bg);
+    border: 1px solid var(--pass-line);
+    border-radius: var(--radius-3);
+    padding: clamp(1.25rem, 1rem + 1.5vw, 1.75rem);
+  }
+  .app-created-title {
+    font-size: var(--text-lg);
+    color: var(--pass-ink);
+  }
+  .app-created-text {
+    margin-top: 0.6rem;
+    max-width: var(--measure);
+    font-size: var(--text-base);
+    color: var(--ink-2);
+  }
+  .app-created .btn {
+    margin-top: 1.1rem;
   }
 
   .app-card {
