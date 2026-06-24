@@ -122,6 +122,19 @@ pub enum RunEvent {
         gates: Gates,
         /// Total wall-clock duration in milliseconds.
         duration_ms: u64,
+        /// Total input tokens across reviewers. Defaults to 0 for runs persisted
+        /// before this field existed, and for runs whose backends report no usage.
+        #[serde(default)]
+        tokens_in: u64,
+        /// Total output tokens across reviewers. Defaults to 0 for runs persisted
+        /// before this field existed, and for runs whose backends report no usage.
+        #[serde(default)]
+        tokens_out: u64,
+        /// Total cache-read input tokens across reviewers. Defaults to 0 for runs
+        /// persisted before this field existed, and for runs whose backends report
+        /// no cache usage.
+        #[serde(default)]
+        cache_read: u64,
         /// Total cost across reviewers.
         cost_usd: Money,
     },
@@ -162,6 +175,7 @@ mod tests {
             usage: Some(Usage {
                 tokens_in: 18204,
                 tokens_out: 1560,
+                cache_read: 12000,
                 cost_usd: Money::from_cents(21),
             }),
             duration_ms: 38120,

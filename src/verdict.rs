@@ -123,8 +123,32 @@ pub struct Usage {
     pub tokens_in: u64,
     /// Output tokens produced.
     pub tokens_out: u64,
+    /// Input tokens served from the provider's prompt cache (cache-read tokens),
+    /// when the backend reports them. Reported as the backend gives it: how it
+    /// relates to `tokens_in` (subset or separate) varies by provider, so treat it
+    /// as an independent figure. Defaults to 0 for a backend or run that reports no
+    /// cache usage.
+    #[serde(default)]
+    pub cache_read: u64,
     /// Session cost.
     pub cost_usd: Money,
+}
+
+/// Format a token-counter segment like `1820 in / 156 out / 900 cached tokens`,
+/// returning `None` when nothing was reported. The cache-read figure is appended
+/// only when nonzero. Shared by the local counter ([`crate::render`]) and the
+/// GitHub status line ([`crate::github`]) so the two surfaces never drift.
+#[must_use]
+pub fn format_token_counter(tokens_in: u64, tokens_out: u64, cache_read: u64) -> Option<String> {
+    if tokens_in == 0 && tokens_out == 0 && cache_read == 0 {
+        return None;
+    }
+    let cached = if cache_read > 0 {
+        format!(" / {cache_read} cached")
+    } else {
+        String::new()
+    };
+    Some(format!("{tokens_in} in / {tokens_out} out{cached} tokens"))
 }
 
 /// A reviewer's complete structured judgment.
@@ -165,6 +189,22 @@ impl Verdict {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn token_counter_formats_in_out_and_optional_cache() {
+        // All three figures present.
+        assert_eq!(
+            format_token_counter(4200, 270, 3100).as_deref(),
+            Some("4200 in / 270 out / 3100 cached tokens"),
+        );
+        // No cache hits: the cached segment is dropped, the in/out counter stays.
+        assert_eq!(
+            format_token_counter(4200, 270, 0).as_deref(),
+            Some("4200 in / 270 out tokens"),
+        );
+        // Nothing reported at all: no segment.
+        assert_eq!(format_token_counter(0, 0, 0), None);
+    }
 
     #[test]
     fn parses_a_blocking_verdict_from_the_design_schema() {

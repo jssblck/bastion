@@ -394,6 +394,9 @@ enum CodexEvent {
         /// Output tokens produced.
         #[serde(default)]
         output_tokens: u64,
+        /// Cached input tokens (prompt-cache hits), a subset of `input_tokens`.
+        #[serde(default)]
+        cached_input_tokens: u64,
         /// Session cost in US dollars, when Codex computes it.
         #[serde(default)]
         cost_usd: Option<f64>,
@@ -431,6 +434,9 @@ struct CodexUsage {
     /// Output tokens produced.
     #[serde(default)]
     output_tokens: u64,
+    /// Cached input tokens (prompt-cache hits), a subset of `input_tokens`.
+    #[serde(default)]
+    cached_input_tokens: u64,
     /// Session cost in US dollars, when Codex reports it.
     #[serde(default)]
     cost_usd: Option<f64>,
@@ -461,10 +467,17 @@ impl SessionAccumulator {
     }
 
     /// Record token/cost usage.
-    fn record_usage(&mut self, input_tokens: u64, output_tokens: u64, cost_usd: Option<f64>) {
+    fn record_usage(
+        &mut self,
+        input_tokens: u64,
+        output_tokens: u64,
+        cached_input_tokens: u64,
+        cost_usd: Option<f64>,
+    ) {
         self.usage = Some(Usage {
             tokens_in: input_tokens,
             tokens_out: output_tokens,
+            cache_read: cached_input_tokens,
             cost_usd: cost_usd.map_or_else(Money::default, super::money_from_dollars),
         });
     }
@@ -481,15 +494,21 @@ impl CodexEvent {
                 CodexItem::Other => {}
             },
             CodexEvent::TurnCompleted { usage } => {
-                acc.record_usage(usage.input_tokens, usage.output_tokens, usage.cost_usd);
+                acc.record_usage(
+                    usage.input_tokens,
+                    usage.output_tokens,
+                    usage.cached_input_tokens,
+                    usage.cost_usd,
+                );
             }
             CodexEvent::AgentMessage { message } => acc.record_message(message),
             CodexEvent::AgentReasoning { text } => acc.record_reasoning(&text),
             CodexEvent::TokenCount {
                 input_tokens,
                 output_tokens,
+                cached_input_tokens,
                 cost_usd,
-            } => acc.record_usage(input_tokens, output_tokens, cost_usd),
+            } => acc.record_usage(input_tokens, output_tokens, cached_input_tokens, cost_usd),
             CodexEvent::Other => {}
         }
     }
@@ -583,19 +602,21 @@ mod tests {
         }
     }
 
-    /// A JSON-lines stream in the legacy flat schema.
-    fn stream(messages: &[&str], usage: Option<(u64, u64, f64)>) -> String {
+    /// A JSON-lines stream in the legacy flat schema. `usage` is
+    /// `(input, output, cached_input, cost)`.
+    fn stream(messages: &[&str], usage: Option<(u64, u64, u64, f64)>) -> String {
         let mut out = String::new();
         for message in messages {
             let event = serde_json::json!({ "type": "agent_message", "message": message });
             out.push_str(&serde_json::to_string(&event).unwrap());
             out.push('\n');
         }
-        if let Some((tin, tout, cost)) = usage {
+        if let Some((tin, tout, cached, cost)) = usage {
             let event = serde_json::json!({
                 "type": "token_count",
                 "input_tokens": tin,
                 "output_tokens": tout,
+                "cached_input_tokens": cached,
                 "cost_usd": cost,
             });
             out.push_str(&serde_json::to_string(&event).unwrap());
@@ -604,11 +625,12 @@ mod tests {
         out
     }
 
-    /// A JSON-lines stream in the current threaded schema.
+    /// A JSON-lines stream in the current threaded schema. `usage` is
+    /// `(input, output, cached_input, cost)`.
     fn threaded_stream(
         thread_id: &str,
         messages: &[&str],
-        usage: Option<(u64, u64, f64)>,
+        usage: Option<(u64, u64, u64, f64)>,
     ) -> String {
         let mut out = String::new();
         let started = serde_json::json!({ "type": "thread.started", "thread_id": thread_id });
@@ -622,10 +644,15 @@ mod tests {
             out.push_str(&serde_json::to_string(&event).unwrap());
             out.push('\n');
         }
-        if let Some((tin, tout, cost)) = usage {
+        if let Some((tin, tout, cached, cost)) = usage {
             let event = serde_json::json!({
                 "type": "turn.completed",
-                "usage": { "input_tokens": tin, "output_tokens": tout, "cost_usd": cost },
+                "usage": {
+                    "input_tokens": tin,
+                    "output_tokens": tout,
+                    "cached_input_tokens": cached,
+                    "cost_usd": cost,
+                },
             });
             out.push_str(&serde_json::to_string(&event).unwrap());
             out.push('\n');
@@ -819,12 +846,16 @@ findings:
         let message = "```yaml\nverdict: pass\nsummary: ok\n```";
         let (outcome, _) = review_with(
             &reviewer(),
-            [ok_output(stream(&[message], Some((18204, 1560, 0.21))))],
+            [ok_output(stream(
+                &[message],
+                Some((18204, 1560, 4096, 0.21)),
+            ))],
         )
         .await;
         let usage = outcome.expect("parses").usage.expect("usage present");
         assert_eq!(usage.tokens_in, 18204);
         assert_eq!(usage.tokens_out, 1560);
+        assert_eq!(usage.cache_read, 4096);
         assert_eq!(usage.cost_usd, Money::from_cents(21));
     }
 
@@ -881,13 +912,14 @@ findings:
     #[tokio::test]
     async fn current_threaded_schema_parses_message_and_usage() {
         let message = "```yaml\nverdict: pass\nsummary: threaded\n```";
-        let stdout = threaded_stream("th-123", &[message], Some((100, 20, 0.05)));
+        let stdout = threaded_stream("th-123", &[message], Some((100, 20, 64, 0.05)));
         let (outcome, specs) = review_with(&reviewer(), [ok_output(stdout)]).await;
         let outcome = outcome.expect("threaded schema parses");
         assert_eq!(outcome.verdict.summary, "threaded");
         let usage = outcome.usage.expect("usage from turn.completed");
         assert_eq!(usage.tokens_in, 100);
         assert_eq!(usage.tokens_out, 20);
+        assert_eq!(usage.cache_read, 64);
         assert_eq!(usage.cost_usd, Money::from_cents(5));
         assert_eq!(specs.len(), 1);
     }
@@ -934,7 +966,7 @@ findings:
         let bad = ok_output(threaded_stream(
             "th-x",
             &["I did a thorough review of the database layer."],
-            Some((500, 40, 0.10)),
+            Some((500, 40, 128, 0.10)),
         ));
         let good = ok_output(threaded_stream(
             "th-x",

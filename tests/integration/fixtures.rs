@@ -419,6 +419,24 @@ impl ReviewRun {
         panic!("no run.completed in stream; stderr:\n{}", self.stderr);
     }
 
+    /// The aggregate token and cost totals from the closing `run.completed`:
+    /// `(tokens_in, tokens_out, cache_read, cost)`.
+    pub(crate) fn completed_usage(&self) -> (u64, u64, u64, Money) {
+        for event in &self.events {
+            if let RunEvent::RunCompleted {
+                tokens_in,
+                tokens_out,
+                cache_read,
+                cost_usd,
+                ..
+            } = event
+            {
+                return (*tokens_in, *tokens_out, *cache_read, *cost_usd);
+            }
+        }
+        panic!("no run.completed in stream; stderr:\n{}", self.stderr);
+    }
+
     /// The resolved verdict, summary, findings, and usage for one reviewer.
     pub(crate) fn resolved(&self, name: &str) -> (Decision, String, Vec<Finding>, Option<Usage>) {
         for event in &self.events {
