@@ -174,7 +174,7 @@ jobs:
         # "Security"). The mint runs on `always()` so reporting works even when the
         # review blocked and failed the job above. See docs/developer-guide/github-adapter.md.
         if: ${{ always() && env.HAS_BASTION_APP == 'true' }}
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.BASTION_APP_ID }}
           private-key: ${{ secrets.BASTION_APP_PRIVATE_KEY }}
