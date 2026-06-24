@@ -929,6 +929,26 @@ findings:
     }
 
     #[test]
+    fn usage_without_cache_read_defaults_to_zero() {
+        // A usage block that omits `cacheRead` (a turn with no prompt-cache hits, or
+        // an older Pi that did not report it) must still parse, defaulting cache_read
+        // to 0 rather than failing the whole stream.
+        let stdout = concat!(
+            r#"{"type":"session","id":"s-1"}"#,
+            "\n",
+            r#"{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"hi"}],"usage":{"input":300,"output":20,"cost":{"total":0.02}}}}"#,
+            "\n",
+        );
+        let usage = PiSession::parse(stdout)
+            .expect("parses")
+            .usage()
+            .expect("usage");
+        assert_eq!(usage.tokens_in, 300);
+        assert_eq!(usage.tokens_out, 20);
+        assert_eq!(usage.cache_read, 0);
+    }
+
+    #[test]
     fn usage_sums_fractional_cents_before_rounding() {
         // Two turns at $0.025815 each: summing the dollars first gives $0.05163 ->
         // 5 cents. Rounding each turn to cents *before* summing would give 3 + 3 = 6

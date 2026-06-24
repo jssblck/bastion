@@ -910,6 +910,20 @@ findings:
     }
 
     #[tokio::test]
+    async fn usage_without_cached_input_tokens_defaults_to_zero() {
+        // A token_count event that omits `cached_input_tokens` (no prompt-cache hits)
+        // must still parse, defaulting cache_read to 0.
+        let stdout = concat!(
+            "{\"type\":\"agent_message\",\"message\":\"```yaml\\nverdict: pass\\nsummary: ok\\n```\"}\n",
+            "{\"type\":\"token_count\",\"input_tokens\":500,\"output_tokens\":40,\"cost_usd\":0.05}\n",
+        );
+        let (outcome, _) = review_with(&reviewer(), [ok_output(stdout)]).await;
+        let usage = outcome.expect("parses").usage.expect("usage present");
+        assert_eq!(usage.tokens_in, 500);
+        assert_eq!(usage.cache_read, 0);
+    }
+
+    #[tokio::test]
     async fn current_threaded_schema_parses_message_and_usage() {
         let message = "```yaml\nverdict: pass\nsummary: threaded\n```";
         let stdout = threaded_stream("th-123", &[message], Some((100, 20, 64, 0.05)));

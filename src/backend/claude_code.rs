@@ -587,6 +587,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn usage_without_cache_read_defaults_to_zero() {
+        // A usage block that omits `cache_read_input_tokens` (no prompt-cache hits)
+        // must still parse, defaulting cache_read to 0.
+        let envelope = serde_json::json!({
+            "result": "done",
+            "session_id": "s-1",
+            "total_cost_usd": 0.05,
+            "usage": { "input_tokens": 500, "output_tokens": 40 },
+            "structured_output": { "verdict": "pass", "summary": "ok", "findings": [] }
+        })
+        .to_string();
+        let outcome = review_with(vec![ok(&envelope)], &reviewer())
+            .await
+            .expect("verdict parses");
+        let usage = outcome.usage.expect("usage reported");
+        assert_eq!(usage.tokens_in, 500);
+        assert_eq!(usage.cache_read, 0);
+    }
+
+    #[tokio::test]
     async fn parses_structured_output_into_a_pass_verdict() {
         let envelope = serde_json::json!({
             "result": "done",
