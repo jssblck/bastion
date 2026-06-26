@@ -21,9 +21,8 @@ things stop teams from unlocking that:
   you have a ball of mud nobody can work in.
 
 The usual shape of agentic review hands the whole diff to one reviewer that checks
-everything and writes comments designed for a person to act on. It does not scale
-in the dimension that matters. As you ask one generic reviewer to check more
-things, its recall on any single one degrades. A one-item checklist agent works
+everything and writes comments designed for a person to act on. As you ask one
+generic reviewer to check more things, its recall on any single one degrades. A one-item checklist agent works
 great; at ten items it is weaker; at a hundred it is not effective at all, because
 an agent's attention is finite just as a person's is.
 

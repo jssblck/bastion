@@ -25,7 +25,7 @@ Agents write most of the code on a growing number of teams. Output volume is clo
 
 The usual shape of agentic review hands the whole diff to one reviewer and has it write comments, clearly designed for a human to act on.
 
-That shape doesn't scale in the dimension that matters: as you ask one generic reviewer to check more things, its recall on any one of them degrades. A 1-item checklist agent works great, at 10 items it's less effective, at 100 items it's not effective at all.
+As you ask one generic reviewer to check more things, its recall on any one of them degrades. A 1-item checklist agent works great, at 10 items it's less effective, at 100 items it's not effective at all.
 
 This is because attention is scarce: it's scarce for humans, and it's still scarce for agents.
 This is unlikely to change as agents get smarter; intelligence doesn't seem to be correlated with attention so far.

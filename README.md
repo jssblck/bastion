@@ -14,9 +14,8 @@ to _engineers x 100_ than _x 1_. Two things stop teams from fully unlocking that
   you have a ball of mud nobody can work in.
 
 The usual shape of agentic review hands the whole diff to one reviewer and has it
-leave comments for a person to act on. That does not scale in the dimension that
-matters. As you ask one generic reviewer to check more things, its recall on any
-single concern collapses. A 1-item checklist agent works great; at 10 items it
+leave comments for a person to act on. As you ask one generic reviewer to check
+more things, its recall on any single concern collapses. A 1-item checklist agent works great; at 10 items it
 slips; at 100 it is useless. Attention is scarce, for humans and still for agents,
 and smarter models do not seem to change that.
 
