@@ -94,6 +94,13 @@ auth come along for free. Install and sign in to one of:
   Pi runs against whatever provider you have configured it with locally, unless a
   reviewer pins a `model` (Pi's `provider/id` form, which selects the provider too).
 
+A **subscription** is fine; you do not need an API key. Because Bastion just runs
+the CLI, whatever you signed in with works: a ChatGPT subscription through `codex`,
+a Claude subscription through `claude`, and so on. The CLI reads its own auth file
+(`~/.codex/auth.json`, `~/.claude`) and refreshes its token itself. Getting that same
+subscription to bill the right person in CI is its own step, covered in
+[Continuous integration](./continuous-integration.md#authentication--billing).
+
 Bastion invokes the backend as a plain executable on your `PATH` (`claude`,
 `codex`, or `pi`), so confirm the one you intend to use is installed and
 authenticated before running a review:
@@ -248,11 +255,7 @@ The same override is available as the `BASTION_DATA_DIR` environment variable.
 Note that `bastion review` always runs your reviewers on a real backend: there is
 no built-in mode that fabricates verdicts without an agent, so a review still costs
 a model call. To keep cost down while iterating, start with one cheap, fast
-reviewer and a tight `timeout`. (The internal subprocess seam that lets the test
-suite run reviewers against a fake executable, via `BASTION_CLAUDE_BIN` /
-`BASTION_CODEX_BIN`, is documented for contributors in
-[the developer guide](../developer-guide/backends.md#the-subprocess-seam), not as an
-end-user feature.)
+reviewer and a tight `timeout`.
 
 ## When something goes wrong
 
@@ -262,7 +265,8 @@ The most common first-run snags and what they mean:
   `.bastion.yml`) in this repo or any ancestor. Create one (step 3).
 - **A reviewer registry error (malformed YAML, duplicate name, missing field).**
   The registry is validated before any agent runs, so these fail fast with a clear
-  message. Fix the file and re-run; see [Authoring reviewers](./authoring-reviewers.md).
+  message. Run `bastion validate` to check the file on its own (no model call), fix
+  it, and re-run; see [Authoring reviewers](./authoring-reviewers.md).
 - **The review blocks immediately with "did not produce a verdict".** A gate failed
   closed, usually because the backend binary is missing or unauthenticated. Re-check
   `claude --version` / `codex --version` and that you are signed in (step 2).

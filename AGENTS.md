@@ -50,6 +50,7 @@ first; see CONTRIBUTING.md). Commands:
 
 ```sh
 bastion --version
+bastion validate
 bastion review --base main
 bastion review --base main --format jsonl
 bastion runs

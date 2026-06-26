@@ -32,6 +32,7 @@ pub const LEGACY_REGISTRY_RELPATH: &str = "bastion/reviewers.yaml";
 
 /// The parsed reviewer registry.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// Registry-wide defaults inherited by every reviewer that does not set the
     /// field itself.
@@ -49,6 +50,7 @@ pub struct Config {
 /// can set a house model and effort in one place without repeating them on every
 /// reviewer.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct Defaults {
     /// Default model for reviewers that do not pin one. Like a reviewer's own
@@ -106,6 +108,20 @@ impl Config {
     /// Returns an error if no registry is found in any ancestor directory, or if
     /// the discovered file fails to load.
     pub fn discover(start: &Path) -> Result<Self> {
+        Self::discover_located(start).map(|(_, config)| config)
+    }
+
+    /// Like [`Config::discover`], but also returns the [`Found`] location the
+    /// registry was loaded from. A caller that needs both the parsed config and its
+    /// path (to report it, say) takes them from one discovery rather than walking the
+    /// tree a second time, so the path it reports cannot disagree with the file it
+    /// parsed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no registry is found in any ancestor directory, or if
+    /// the discovered file fails to load.
+    pub fn discover_located(start: &Path) -> Result<(Found, Self)> {
         let found = locate_kind(start).ok_or_else(|| {
             eyre!(
                 "no reviewer registry found; expected {} (or {}) in this repo or an ancestor",
@@ -120,7 +136,8 @@ impl Config {
                 REGISTRY_FILE,
             );
         }
-        Self::load(&found.path)
+        let config = Self::load(&found.path)?;
+        Ok((found, config))
     }
 
     /// Fold the registry-wide [`Defaults`] into each reviewer: a reviewer's own
@@ -311,6 +328,43 @@ reviewers:
 ";
         let err = Config::from_yaml(yaml).unwrap_err();
         assert!(err.to_string().contains("backend: any"));
+    }
+
+    #[test]
+    fn rejects_an_unknown_reviewer_field() {
+        // A misspelled or stray key is a mistake, not a no-op: `deny_unknown_fields`
+        // turns it into a clear load error rather than silently ignoring it.
+        let yaml = r"
+reviewers:
+  - name: typo
+    trigger: [src/**]
+    mode: gate
+    bakend: codex
+    prompt: p
+";
+        let err = Config::from_yaml(yaml).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("unknown field `bakend`"),
+            "error should name the unknown field, got: {err:#}"
+        );
+    }
+
+    #[test]
+    fn rejects_an_unknown_top_level_field() {
+        // `reviewer:` instead of `reviewers:` would otherwise parse to an empty
+        // registry and silently review nothing; reject it at the boundary.
+        let yaml = r"
+reviewer:
+  - name: oops
+    trigger: [src/**]
+    mode: gate
+    prompt: p
+";
+        let err = Config::from_yaml(yaml).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("unknown field `reviewer`"),
+            "error should name the unknown top-level field, got: {err:#}"
+        );
     }
 
     #[test]

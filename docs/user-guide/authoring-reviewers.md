@@ -172,6 +172,17 @@ effort: high
 The default is **`high`** (accepted by every backend). Lower it on cheap,
 mechanical reviewers to save tokens; raise it on the ones that need to reason hard.
 
+> **The `model:effort` shorthand.** People often write a model and effort together
+> as `gpt-5.5:high` or `claude-opus-4-8:max`. Bastion has no combined field: that is
+> just `model:` plus `effort:`. Split it across the two fields, with a `backend`
+> pinned so the model id is unambiguous:
+>
+> ```yaml
+> backend: codex
+> model: gpt-5.5      # the part before the colon
+> effort: high        # the part after it
+> ```
+
 ### `timeout`
 
 A per-reviewer wall-clock limit, written in human form (`90s`, `15m`). When a
@@ -287,8 +298,7 @@ environment beyond the least-privilege default. Where these stand:
   silent fail-open). Leave them out.
 
 The least-privilege default (no `runner`, `network: false`, no `mcp` or `skills`)
-runs natively on the host. The authoritative description is in the
-[core design](../developer-guide/design.md#the-reviewer).
+runs natively on the host.
 
 ## A fully-loaded example
 
@@ -346,7 +356,7 @@ The prompt is the reviewer. A few habits keep recall high:
   the author fixes the whole set from one run.
 
 Some worked examples, taken from Bastion's own registry
-([`.bastion.yaml`](../../.bastion.yaml)):
+([`.bastion.yaml`](https://github.com/jssblck/bastion/blob/main/.bastion.yaml)):
 
 ```yaml
   - name: error-handling
@@ -373,9 +383,24 @@ Some worked examples, taken from Bastion's own registry
 
 ## Validating your registry
 
-There is no separate lint command; the registry is validated when it loads, before
-any agent runs. Run `bastion review` and Bastion will report a malformed file, a
-duplicate name, or a reviewer missing a required field with a clear error.
+Run `bastion validate` to parse the registry and report any problem without running
+a single reviewer or spending a model call:
+
+```sh
+bastion validate                          # discover .bastion.yaml by walking up from here
+bastion validate path/to/.bastion.yaml    # check a specific file
+```
+
+It loads the file through the same path `bastion review` uses, so it catches exactly
+the errors a real review would hit at load time: malformed YAML, an unknown field, a
+duplicate name, a reviewer missing a required field, or a model pinned under
+`backend: any`. A valid registry prints a one-line summary and the reviewers it
+parsed, and exits zero; an invalid one prints the error and exits non-zero, so the
+command works as a pre-commit or CI lint as well as a quick local check.
+
+The registry is also validated whenever it loads for a real `bastion review`, so a
+malformed file fails fast there too. `bastion validate` just lets you check it on its
+own, for free, before you run anything.
 
 ---
 

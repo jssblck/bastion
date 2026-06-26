@@ -1333,6 +1333,84 @@ fn an_invalid_registry_is_a_hard_error() {
     assert!(store::list_runs(&repo.layout()).unwrap().is_empty());
 }
 
+/// `bastion validate` parses the registry without running a reviewer: a well-formed
+/// file exits zero with a summary, and a malformed one exits non-zero naming the
+/// problem, the same load-time errors a review would hit. No model call is made, so
+/// no fake-agent behavior is exercised; the binary never reaches a backend.
+#[test]
+fn validate_reports_valid_and_invalid_registries_without_a_review() {
+    let Some(fake) = tooling() else { return };
+
+    // Valid: exit 0, a summary on stdout, no run recorded (validate persists nothing).
+    let ok = TestRepo::new(
+        "reviewers:\n  - name: a\n    trigger: [src/**]\n    mode: gate\n    prompt: p\n  - name: b\n    trigger: [docs/**]\n    mode: advisor\n    prompt: p\n",
+    );
+    let output = ok.run(fake, &["validate"], &[]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "a valid registry must exit 0; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("is valid"), "stdout:\n{stdout}");
+    assert!(
+        stdout.contains("2 reviewer(s), 1 gate(s), 1 advisor(s)"),
+        "stdout:\n{stdout}"
+    );
+    // The per-reviewer detail lines name each reviewer with its mode and backend.
+    assert!(
+        stdout.contains("- a (gate, backend: any"),
+        "stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("- b (advisor, backend: any"),
+        "stdout:\n{stdout}"
+    );
+    assert!(
+        ok.run(fake, &["runs", "--format", "jsonl"], &[])
+            .status
+            .success(),
+        "validate must not have recorded a run"
+    );
+    assert!(
+        store::list_runs(&ok.layout()).unwrap().is_empty(),
+        "validate persists nothing"
+    );
+
+    // Invalid (duplicate name): non-zero exit, the error names the duplicate.
+    let bad = TestRepo::new(
+        "reviewers:\n  - name: dup\n    trigger: [src/**]\n    mode: gate\n    prompt: p\n  - name: dup\n    trigger: [src/**]\n    mode: gate\n    prompt: p\n",
+    );
+    let output = bad.run(fake, &["validate"], &[]);
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "an invalid registry must exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("duplicate reviewer name"),
+        "stderr:\n{stderr}"
+    );
+
+    // Invalid (unknown field): rejected too, so a typo cannot slip through silently.
+    let typo = TestRepo::new(
+        "reviewers:\n  - name: typo\n    trigger: [src/**]\n    mode: gate\n    bakend: codex\n    prompt: p\n",
+    );
+    let output = typo.run(fake, &["validate"], &[]);
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "an unknown field must exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown field `bakend`"),
+        "stderr:\n{stderr}"
+    );
+}
+
 /// A base that does not resolve is a hard error (git fails), not a block.
 #[test]
 fn an_unresolvable_base_is_a_hard_error() {
