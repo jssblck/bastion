@@ -51,8 +51,8 @@ local twin:
 The local stream additionally carries `run.started` and `reviewer.started` for an
 agent reacting as the run goes; those have no separate GitHub surface, because
 `bastion github report` runs after the review finishes and renders the result in one
-pass. Understand one surface and you understand the other; that is deliberate, so an
-agent's local loop and the CI gate never disagree about what a review means.
+pass. This mapping is deliberate, so an agent's local loop and the CI gate stay
+aligned on what a review means.
 
 ## The one required check
 
@@ -341,8 +341,9 @@ backend that matches the subscription you have:
 Dependabot opens **same-repo** PRs, so they clear the fork guard and Bastion reviews
 them like any other PR. With the `permissions:` block the example workflow declares,
 the default `GITHUB_TOKEN` posts the `bastion` check on a Dependabot PR, so you can
-require it for those PRs too: there is no special token deadlock. One thing about
-Dependabot is genuinely different, and one more applies only if you bill per author:
+require it for those PRs too. There is no read-only-token deadlock to work around.
+Dependabot has one required difference for everyone and one extra step that applies
+only to per-author billing:
 
 - **Secrets come from a separate store (applies to everyone).** GitHub serves
   secrets to Dependabot-triggered runs from a *Dependabot* secret store, not the

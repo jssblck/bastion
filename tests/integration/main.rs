@@ -1358,6 +1358,15 @@ fn validate_reports_valid_and_invalid_registries_without_a_review() {
         stdout.contains("2 reviewer(s), 1 gate(s), 1 advisor(s)"),
         "stdout:\n{stdout}"
     );
+    // The per-reviewer detail lines name each reviewer with its mode and backend.
+    assert!(
+        stdout.contains("- a (gate, backend: any"),
+        "stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("- b (advisor, backend: any"),
+        "stdout:\n{stdout}"
+    );
     assert!(
         ok.run(fake, &["runs", "--format", "jsonl"], &[])
             .status
@@ -1382,6 +1391,22 @@ fn validate_reports_valid_and_invalid_registries_without_a_review() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("duplicate reviewer name"),
+        "stderr:\n{stderr}"
+    );
+
+    // Invalid (unknown field): rejected too, so a typo cannot slip through silently.
+    let typo = TestRepo::new(
+        "reviewers:\n  - name: typo\n    trigger: [src/**]\n    mode: gate\n    bakend: codex\n    prompt: p\n",
+    );
+    let output = typo.run(fake, &["validate"], &[]);
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "an unknown field must exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown field `bakend`"),
         "stderr:\n{stderr}"
     );
 }

@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use color_eyre::eyre::{Context, Result};
 
-use crate::config::{self, Config};
+use crate::config::Config;
 use crate::event::{ReviewerRef, RunEvent, RunId};
 use crate::git;
 use crate::paths::Layout;
@@ -149,13 +149,12 @@ pub fn validate(cwd: &Path, file: Option<&Path>) -> Result<()> {
             // Resolve from the repo root when we are inside one (so the command
             // works from any subdirectory, like `review`), falling back to `cwd`
             // when git cannot tell us, which keeps a not-yet-initialized repo
-            // working. `discover` warns on the deprecated location and gives the
-            // clear "no registry found" error; `locate` re-finds the path for the
-            // success summary.
+            // working. `discover_located` warns on the deprecated location, gives
+            // the clear "no registry found" error, and hands back the path it
+            // loaded, so the summary reports exactly the file that was parsed.
             let root = git::repo_root(cwd).unwrap_or_else(|_| cwd.to_path_buf());
-            let config = Config::discover(&root)?;
-            let path = config::locate(&root).unwrap_or_else(|| root.join(config::REGISTRY_FILE));
-            (path, config)
+            let (found, config) = Config::discover_located(&root)?;
+            (found.path, config)
         }
     };
 
@@ -529,6 +528,22 @@ mod tests {
         assert!(
             format!("{err:#}").contains("duplicate reviewer name"),
             "error should name the duplicate, got: {err:#}"
+        );
+    }
+
+    #[test]
+    fn validate_reports_an_unknown_field() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".bastion.yaml");
+        std::fs::write(
+            &path,
+            "reviewers:\n  - name: typo\n    trigger: [src/**]\n    mode: gate\n    bakend: codex\n    prompt: p\n",
+        )
+        .unwrap();
+        let err = validate(tmp.path(), Some(&path)).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("unknown field `bakend`"),
+            "validate should reject an unknown field, got: {err:#}"
         );
     }
 

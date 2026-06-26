@@ -130,6 +130,7 @@ pub const DEFAULT_EFFORT: &str = "high";
 /// Capabilities a reviewer opts into. Least privilege is the default: an empty
 /// block grants nothing beyond the checkout and the model provider.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct Capabilities {
     /// General outbound network beyond the model provider. In a container this is the
@@ -157,6 +158,7 @@ impl Capabilities {
 /// How a reviewer's execution environment is provisioned. Absent means the
 /// reviewer runs native/in-process on the runner.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct RunnerSpec {
     /// A Dockerfile to build the environment from. Takes precedence over `image`.
@@ -173,6 +175,7 @@ pub struct RunnerSpec {
 /// by [`crate::routing`] (parse-don't-validate: the compiled form is a distinct
 /// type produced once, at the boundary).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Reviewer {
     /// Unique reviewer name; also the check-run name in CI.
     pub name: String,
