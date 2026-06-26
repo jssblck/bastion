@@ -20,14 +20,10 @@ things stop teams from unlocking that:
 - **Without review, codebases rot.** Things go fine until they do not, and then
   you have a ball of mud nobody can work in.
 
-Existing agentic reviewers (Copilot, CodeRabbit, and the like) do a decent job,
-but they were built for the *old* world: agentic review *for humans writing
-code*. They read the whole diff at once and write comments designed for a person
-to act on, and they do not scale in the dimension that matters. As you ask one
+The usual shape of agentic review hands the whole diff to one reviewer that checks
+everything and writes comments designed for a person to act on. As you ask one
 generic reviewer to check more things, its recall on any single one degrades. A
-one-item checklist agent works great; at ten items it is weaker; at a hundred it
-is not effective at all, because an agent's attention is finite just as a person's
-is.
+one-item checklist agent works; at ten items it is weaker; at a hundred it fails.
 
 ## The core idea
 

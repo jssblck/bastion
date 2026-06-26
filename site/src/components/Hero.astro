@@ -37,12 +37,13 @@ const policyHtml = [
       </h1>
 
       <p class="hero-lede prose" data-reveal style="--reveal-delay:120ms">
-        Most AI reviewers hand the whole diff to one model. Bastion splits review
-        into many narrow reviewers, each checking exactly one concern. They run
-        in parallel and aggregate into one verdict; the gate
-        <strong>blocks whenever any reviewer can't return a clean pass</strong>.
-        You author them, version them in your repo, and run them on your own
-        infrastructure.
+        A single model reviewing the whole diff loses recall on individual
+        concerns as its checklist grows. Bastion splits review into many narrow
+        reviewers, each checking exactly one concern. They run in parallel and
+        aggregate into one verdict; the gate <strong
+          >blocks whenever a gate reviewer can't return a clean pass</strong
+        >, while advisors comment without blocking. You author them, version them
+        in your repo, and run them on your own infrastructure.
       </p>
 
       <div class="hero-cta" data-reveal style="--reveal-delay:180ms">
