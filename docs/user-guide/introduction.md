@@ -23,8 +23,7 @@ things stop teams from unlocking that:
 The usual shape of agentic review hands the whole diff to one reviewer that checks
 everything and writes comments designed for a person to act on. As you ask one
 generic reviewer to check more things, its recall on any single one degrades. A
-one-item checklist agent works; at ten items it is weaker; at a hundred it fails
-because agent and human attention are finite.
+one-item checklist agent works; at ten items it is weaker; at a hundred it fails.
 
 ## The core idea
 

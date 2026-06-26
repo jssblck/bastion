@@ -15,9 +15,9 @@ to _engineers x 100_ than _x 1_. Two things stop teams from fully unlocking that
 
 The usual shape of agentic review hands the whole diff to one reviewer and has it
 leave comments for a person to act on. As you ask one generic reviewer to check
-more things, its recall on any single concern collapses. A 1-item checklist agent works great; at 10 items it
-slips; at 100 it is useless. Human and agent attention are limited, and smarter
-models have not changed that.
+more things, its recall on any single concern collapses, and a more capable model
+does not change that. A 1-item checklist agent works great; at 10 items it slips;
+at 100 it is useless.
 
 ## What Bastion does
 
