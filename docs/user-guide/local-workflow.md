@@ -207,12 +207,14 @@ reaches a containerized one only if you write its literal value into that review
 reviewer typically reaches a host service over the container network rather than
 `localhost`.
 
-## Reference: the full local surface
+## The same surface in CI
 
-This chapter is the task-oriented view. The design rationale behind the
-stream/save split, the event-to-GitHub parity table, and the deferred features
-(watch mode, a shared verdict cache) live in the
-[local surface reference](../developer-guide/local-surface.md).
+These local events are not a separate system from CI; they are the same decisions in
+a finer-grained form. Every JSONL event here has a GitHub twin (a check run, a
+comment, an annotation), laid out side by side in the
+[Continuous integration](./continuous-integration.md#how-a-run-maps-to-github)
+chapter. That is why a green local loop predicts a green PR: the two surfaces compute
+the same review.
 
 ---
 

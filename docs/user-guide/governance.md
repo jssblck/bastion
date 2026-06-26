@@ -98,9 +98,10 @@ Govern with these limits in mind; they are deliberate, not gaps to be closed:
   stronger (signing, external rule storage, an enumerated trusted-computing-base)
   is deliberately out of scope.
 
-The full threat model and trust boundary (the assumptions these limits follow
-from) are in the
-[core design](../developer-guide/design.md#threat-model--trust-boundary).
+These limits follow from one assumption: the threat being managed is an
+aligned-but-fallible agent, not a determined adversary. Govern accordingly. Bastion
+is a control on honest mistakes and drift, layered with the rest of your CI, not a
+boundary that holds against someone actively trying to defeat it.
 
 ## A governance checklist
 
@@ -117,6 +118,6 @@ For a healthy deployment:
 
 ---
 
-That is the guide. For the design rationale behind any of it, see the
-[core design](../developer-guide/design.md); to change Bastion itself, see the
-[developer guide](../developer-guide/README.md).
+That is the guide. If you want to work on Bastion itself rather than use it, the
+design notes and contributor docs live in the
+[Bastion repository](https://github.com/jssblck/bastion).

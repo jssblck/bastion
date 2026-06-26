@@ -37,8 +37,22 @@ two GitHub surfaces:
   reports `success`; an advisor reports `success` with its findings attached.
 
 The local-to-GitHub mapping is one-to-one: the JSONL events you read locally are
-the same decisions GitHub renders as checks and a comment. The full parity table is
-in the [local surface reference](../developer-guide/local-surface.md#parity-with-github).
+the same decisions GitHub renders as checks and a comment. Each GitHub surface has a
+local twin:
+
+| GitHub                                                         | Local                               |
+| -------------------------------------------------------------- | ----------------------------------- |
+| A per-reviewer check run reaching its conclusion               | `reviewer.resolved` event           |
+| Findings in the sticky PR comment and as check-run annotations | `findings` in `reviewer.resolved`   |
+| Tokens and cost in the check output                            | `usage` in `reviewer.resolved`      |
+| The aggregate `bastion` check and the sticky PR comment        | `run.completed` event               |
+| Transcript in the uploaded run artifact                        | saved on disk, `bastion transcript` |
+
+The local stream additionally carries `run.started` and `reviewer.started` for an
+agent reacting as the run goes; those have no separate GitHub surface, because
+`bastion github report` runs after the review finishes and renders the result in one
+pass. Understand one surface and you understand the other; that is deliberate, so an
+agent's local loop and the CI gate never disagree about what a review means.
 
 ## The one required check
 
@@ -101,12 +115,13 @@ jobs:
           fetch-depth: 0          # full history; reviewers diff against the base
 
       # 1. Install a published bastion release (not built from the PR).
-      # 2. For native reviewers: install and authenticate your backend CLI (e.g.
-      #    claude, codex, or pi) on the runner, ideally billed to the PR author; see the
-      #    auth pattern referenced below. For reviewers with a `runner`: ensure a
-      #    container engine is on the runner (docker by default, or set
-      #    BASTION_CONTAINER_ENGINE) and that the backend CLI and its auth live inside
-      #    the image; the provider credential variables are forwarded in by name.
+      # 2. For native reviewers: install your backend CLI (claude, codex, or pi) on
+      #    the runner and authenticate it as the PR author. The concrete per-author
+      #    auth step is in "Authentication & billing" below; drop it in here. For
+      #    reviewers with a `runner`: ensure a container engine is on the runner
+      #    (docker by default, or set BASTION_CONTAINER_ENGINE) and that the backend
+      #    CLI and its auth live inside the image; the provider credential variables
+      #    are forwarded in by name.
       # 3. Stand up anything your reviewers consume (a preview env, a database).
 
       - name: Review
@@ -211,9 +226,10 @@ linking here; once a dedicated app is configured the note disappears. Because th
 report reads GitHub's response, the workflow does not pass a flag.
 
 For a complete, working example (latest-release install, per-author backend
-credentials, and fork-PR safety), see this repository's own
-[`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml) and the
-[GitHub adapter reference](../developer-guide/github-adapter.md).
+credentials, and fork-PR safety), see Bastion's own
+[`.github/workflows/bastion.yml`](https://github.com/jssblck/bastion/blob/main/.github/workflows/bastion.yml).
+It wires up the per-author auth recipe in [Authentication & billing](#authentication--billing)
+below, on the Pi backend.
 
 Configure branch protection on your default branch to require this job (and to
 require review of the reviewer-policy paths; see [Governance](./governance.md)).
@@ -223,21 +239,134 @@ job is green GitHub merges. A push re-triggers the workflow and it resolves agai
 ## Authentication & billing
 
 Coding-agent subscriptions tie usage to an individual, not a team, so Bastion bills
-a PR's reviews to the *PR author*. The adapter resolves the author's GitHub login
-to a secret name and reads that secret at run time. Bastion never stores
-credentials; the team stores them as Actions secrets and tells Bastion the mapping.
+a PR's reviews to the *PR author*. Reviewing Alice's PR is billed to Alice's
+subscription, which is the ToS-compliant reading: each contributor's plan powers the
+review of their own changes. Bastion never stores credentials. The team stores each
+author's credential as an Actions secret, and the workflow maps the PR author's
+GitHub login to the matching secret at run time.
 
-This is the ToS-compliant reading: reviewing Alice's PR is billed to Alice's
-subscription. If no subscription is mapped for an author, the team can choose to
-fall back to a shared metered API key (so a new contributor is never blocked) or to
-fail closed. Under heavy volume, a throttled subscription reads as a blocked merge
-(gates fail closed), so some teams use API billing in CI and keep subscriptions for
-the local loop.
+Bastion just runs your backend CLI, and the backend reads whatever auth it finds on
+the runner. Your job in CI is to place the right author's credential where that CLI
+looks before `bastion review` runs. The pattern is the same for every backend:
 
-The full mechanics (per-author secret naming, the rehydration step, fork-PR
-safety) are in the
-[GitHub adapter reference](../developer-guide/github-adapter.md#authentication--billing),
-including the worked example of Bastion reviewing its own PRs.
+1. **Capture the credential once, locally.** Each contributor signs in to the
+   backend on their own machine. The CLI writes a credential file:
+
+   | Backend       | Sign-in            | Credential file the CLI reads                  |
+   | ------------- | ------------------ | ---------------------------------------------- |
+   | `codex`       | `codex login`      | `~/.codex/auth.json` (relocatable: `CODEX_HOME`) |
+   | `pi`          | `pi` auth flow     | `~/.pi/agent/auth.json`                         |
+   | `claude-code` | `claude` sign-in   | `~/.claude` (OAuth token)                       |
+
+   For a ChatGPT or Claude **subscription**, this file holds an OAuth credential (an
+   access token plus a refresh token); the CLI refreshes the short-lived access
+   token from the stored refresh token on each run, so the secret does not need
+   rotating every time the access token expires. A Codex `auth.json` from a ChatGPT
+   sign-in carries `"auth_mode": "chatgpt"`, and the native `backend: codex` reads it
+   directly: you do **not** need Pi to spend a ChatGPT subscription (see
+   [Spending a subscription in CI](#spending-a-subscription-in-ci) below).
+
+2. **Store it as a per-author secret.** Copy the file's contents into a repository
+   secret named `<BACKEND>_AUTH_<LOGIN>`: the backend, then the GitHub login
+   uppercased. For the `codex` backend and the login `jssblck`, that is
+   `CODEX_AUTH_JSSBLCK`; for `pi`, `PI_AUTH_JSSBLCK`. The name is a convention you
+   pick and reference in the workflow, not something Bastion parses.
+
+3. **Map the login to the secret in the workflow.** Resolve
+   `github.event.pull_request.user.login` to the matching secret through a `case`
+   arm, then write it back to the path the CLI reads:
+
+   ```yaml
+   - name: Authenticate Codex as the PR author
+     env:
+       AUTHOR: ${{ github.event.pull_request.user.login }}
+       CODEX_AUTH_JSSBLCK: ${{ secrets.CODEX_AUTH_JSSBLCK }}
+     run: |
+       set -euo pipefail
+       author="$(printf '%s' "$AUTHOR" | tr '[:upper:]' '[:lower:]')"
+       case "$author" in
+         jssblck) cred="$CODEX_AUTH_JSSBLCK" ;;
+         *)
+           echo "::error::No Codex credential mapped for PR author '$AUTHOR'. Add a CODEX_AUTH_<LOGIN> secret and a case arm." >&2
+           exit 1 ;;
+       esac
+       if [ -z "$cred" ]; then
+         echo "::error::Codex credential for '$AUTHOR' is mapped but its secret is empty." >&2
+         exit 1
+       fi
+       mkdir -p "$HOME/.codex"
+       printf '%s' "$cred" > "$HOME/.codex/auth.json"
+       chmod 600 "$HOME/.codex/auth.json"
+   ```
+
+   Onboarding a contributor is then two reviewed lines: their secret and a `case`
+   arm. Because the mapping lives in the workflow, which is a CODEOWNERS-protected
+   path (see [Governance](./governance.md)), changing who may spend a subscription is
+   itself a human-reviewed change.
+
+An author with no mapped secret **fails closed**: the step errors and the gate
+blocks, rather than silently billing someone else's subscription. If you would
+rather a new contributor never be blocked, point the `*)` arm at a shared metered
+**API key** instead of erroring: store the provider's API key as a secret and export
+it (for example `CODEX_API_KEY` / `ANTHROPIC_API_KEY`) into the review step rather
+than writing an `auth.json`. The same login-to-secret shape applies. Under heavy
+volume a subscription's rate limits can throttle reviewers, and because gates fail
+closed a throttled reviewer reads as a blocked merge, so some teams use API billing
+in CI and keep subscriptions for the local loop.
+
+### Spending a subscription in CI
+
+A ChatGPT or Claude subscription works in CI the same way it does locally: the
+backend CLI reads its OAuth `auth.json` and refreshes the token itself. Use the
+backend that matches the subscription you have:
+
+- **`backend: codex` with a ChatGPT subscription.** Sign in with `codex login`
+  (ChatGPT), store `~/.codex/auth.json` as `CODEX_AUTH_<LOGIN>`, and rehydrate it to
+  `$HOME/.codex/auth.json` as shown above. This is the direct path; no Pi involved.
+- **`backend: claude-code` with a Claude subscription.** Same shape against the
+  `claude` CLI's auth.
+- **`backend: pi` with the `openai-codex` provider.** Pi can also spend a ChatGPT
+  subscription, through its `openai-codex` provider (`model: openai-codex/gpt-5.5`).
+  Reach for this only when you specifically want Pi's multi-provider routing; for
+  plain Codex-on-ChatGPT, the native `codex` backend is simpler.
+
+> **The two `auth.json` files are different.** `~/.codex/auth.json` (Codex CLI) and
+> `~/.pi/agent/auth.json` (Pi CLI) are distinct file formats backed by the same
+> ChatGPT account. The secret you store must match the backend you pin: a Codex
+> `auth.json` rehydrated where Pi looks (or the reverse) will not authenticate. Pick
+> the backend first, then capture that CLI's file.
+
+### Dependabot and bot authors
+
+Dependabot opens **same-repo** PRs, so they clear the fork guard and Bastion reviews
+them like any other PR. With the `permissions:` block the example workflow declares,
+the default `GITHUB_TOKEN` posts the `bastion` check on a Dependabot PR, so you can
+require it for those PRs too: there is no special token deadlock. One thing about
+Dependabot is genuinely different, and one more applies only if you bill per author:
+
+- **Secrets come from a separate store (applies to everyone).** GitHub serves
+  secrets to Dependabot-triggered runs from a *Dependabot* secret store, not the
+  Actions store. Whatever credential your review step reads, an `ANTHROPIC_API_KEY`
+  or a per-author `<BACKEND>_AUTH_<LOGIN>`, must be set in that store as well
+  (`gh secret set <NAME> --app dependabot`), or it arrives empty on a Dependabot PR
+  and the gate fails closed.
+- **A bot has no subscription of its own (per-author billing only).** If you map
+  per-author credentials, the bot author needs a `case` arm pointing at a maintainer
+  who sponsors its reviews, and the bracketed login must be quoted, since `[bot]` is
+  a glob character class in a shell `case` pattern:
+  `'dependabot[bot]') cred="$CODEX_AUTH_JSSBLCK" ;;`. An arm that maps to an empty
+  secret fails closed with a "mapped but empty" error, usually the sign the
+  Dependabot-store copy is missing. Billing with a shared API key instead of
+  per-author secrets avoids this entirely: there is no per-author arm to maintain.
+
+### Fork-PR safety
+
+GitHub does not expose secrets to workflows triggered by **fork** pull requests, and
+an agentic backend should never run over untrusted code with a live credential
+anyway. The example workflow guards on
+`github.event.pull_request.head.repo.full_name == github.repository`, so it runs for
+same-repo PRs only. A fork contribution is reviewed by a maintainer re-running it
+from a trusted branch in the repo.
 
 ## Environments & inputs
 
@@ -264,12 +393,11 @@ starts once it exists. (See
 
 ## Self-hosting note
 
-This repository dogfoods the adapter through
-[`.github/workflows/bastion.yml`](../../.github/workflows/bastion.yml), running the
-latest published `bastion` release rather than a binary built from the PR's own
-sources, so a change can never edit the engine that judges it. That workflow is
-the concrete, self-hosted adapter described in the
-[GitHub adapter reference](../developer-guide/github-adapter.md).
+Bastion dogfoods the adapter through
+[`.github/workflows/bastion.yml`](https://github.com/jssblck/bastion/blob/main/.github/workflows/bastion.yml),
+running the latest published `bastion` release rather than a binary built from the
+PR's own sources, so a change can never edit the engine that judges it. That workflow
+is a concrete, self-hosted instance of everything this chapter describes.
 
 ---
 

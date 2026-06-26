@@ -172,6 +172,17 @@ effort: high
 The default is **`high`** (accepted by every backend). Lower it on cheap,
 mechanical reviewers to save tokens; raise it on the ones that need to reason hard.
 
+> **The `model:effort` shorthand.** People often write a model and effort together
+> as `gpt-5.5:high` or `claude-opus-4-8:max`. Bastion has no combined field: that is
+> just `model:` plus `effort:`. Split it across the two fields, with a `backend`
+> pinned so the model id is unambiguous:
+>
+> ```yaml
+> backend: codex
+> model: gpt-5.5      # the part before the colon
+> effort: high        # the part after it
+> ```
+
 ### `timeout`
 
 A per-reviewer wall-clock limit, written in human form (`90s`, `15m`). When a
@@ -287,8 +298,7 @@ environment beyond the least-privilege default. Where these stand:
   silent fail-open). Leave them out.
 
 The least-privilege default (no `runner`, `network: false`, no `mcp` or `skills`)
-runs natively on the host. The authoritative description is in the
-[core design](../developer-guide/design.md#the-reviewer).
+runs natively on the host.
 
 ## A fully-loaded example
 
@@ -346,7 +356,7 @@ The prompt is the reviewer. A few habits keep recall high:
   the author fixes the whole set from one run.
 
 Some worked examples, taken from Bastion's own registry
-([`.bastion.yaml`](../../.bastion.yaml)):
+([`.bastion.yaml`](https://github.com/jssblck/bastion/blob/main/.bastion.yaml)):
 
 ```yaml
   - name: error-handling
@@ -376,6 +386,12 @@ Some worked examples, taken from Bastion's own registry
 There is no separate lint command; the registry is validated when it loads, before
 any agent runs. Run `bastion review` and Bastion will report a malformed file, a
 duplicate name, or a reviewer missing a required field with a clear error.
+
+Because loading happens before any reviewer runs, you can validate the file without
+paying for a model call: run `bastion review` against a base where nothing in your
+changeset matches a trigger (or with no changes at all). The registry still loads and
+reports any schema error, but zero reviewers match, so no backend is invoked. That is
+the cheap way to check a registry edit in isolation.
 
 ---
 

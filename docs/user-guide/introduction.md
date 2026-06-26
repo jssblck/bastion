@@ -88,9 +88,8 @@ Two non-guarantees are deliberate. Keep them in mind before you adopt it:
 Bastion is also **not an adversarial security boundary**. It is the agent-era
 equivalent of team code review for aligned contributors: a speed bump and a set of
 good defaults that keep earnest actors on the rails, not a defense against a
-determined malicious one. The full reasoning is in the
-[threat model](../developer-guide/design.md#threat-model--trust-boundary), and the
-practical consequences for you show up in [Governance](./governance.md).
+determined malicious one. The practical consequences for you, and how to govern
+within these limits, show up in [Governance](./governance.md).
 
 ---
 
