@@ -265,7 +265,8 @@ The most common first-run snags and what they mean:
   `.bastion.yml`) in this repo or any ancestor. Create one (step 3).
 - **A reviewer registry error (malformed YAML, duplicate name, missing field).**
   The registry is validated before any agent runs, so these fail fast with a clear
-  message. Fix the file and re-run; see [Authoring reviewers](./authoring-reviewers.md).
+  message. Run `bastion validate` to check the file on its own (no model call), fix
+  it, and re-run; see [Authoring reviewers](./authoring-reviewers.md).
 - **The review blocks immediately with "did not produce a verdict".** A gate failed
   closed, usually because the backend binary is missing or unauthenticated. Re-check
   `claude --version` / `codex --version` and that you are signed in (step 2).

@@ -54,9 +54,10 @@ path; each step links to its details:
 
 1. **Install the CLI and pick a backend.** [Getting started](./getting-started.md)
    (a subscription works; no API key required).
-2. **Write `.bastion.yaml`** at your repo root with one or two reviewers.
-   [Authoring reviewers](./authoring-reviewers.md). To pin a model like
-   `gpt-5.5:high`, set `model:` and `effort:` separately under a pinned `backend:`.
+2. **Write `.bastion.yaml`** at your repo root with one or two reviewers, and check
+   it with `bastion validate`. [Authoring reviewers](./authoring-reviewers.md). To
+   pin a model like `gpt-5.5:high`, set `model:` and `effort:` separately under a
+   pinned `backend:`.
 3. **Add the workflow** and the per-author auth step.
    [Continuous integration](./continuous-integration.md#the-workflow). The complete,
    copy-pasteable auth recipe (the `<BACKEND>_AUTH_<LOGIN>` secret convention, the

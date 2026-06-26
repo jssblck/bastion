@@ -86,6 +86,8 @@ The commands that read saved data back are the local equivalent of clicking "Det
 
 `show` and `runs` accept `--format human|jsonl`; `transcript` is raw text by default, since a transcript is already a document.
 
+Separate from these run-inspection commands, `bastion validate [FILE]` parses the reviewer registry (the discovered `.bastion.yaml`, or an explicit `FILE`) through the same `Config` load path `review` uses, and reports any load-time error (malformed YAML, an unknown field, a duplicate name, a model under `backend: any`) without running a reviewer or spending a model call. A valid registry prints a summary and exits zero; an invalid one prints the error and exits non-zero, so it serves as a cheap pre-commit or CI lint. It has no GitHub mirror: in CI the same validation happens implicitly when `review` loads the registry.
+
 ---
 
 ## Parity with GitHub

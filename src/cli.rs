@@ -44,6 +44,14 @@ pub enum Command {
         #[arg(long, value_enum, default_value_t = Format::Human)]
         format: Format,
     },
+    /// Parse the reviewer registry and report any problems, without running a
+    /// reviewer or spending a model call.
+    Validate {
+        /// Registry file to validate. Defaults to discovery: the `.bastion.yaml`
+        /// (or `.bastion.yml`) found by walking up from the current directory.
+        #[arg(value_name = "FILE")]
+        file: Option<PathBuf>,
+    },
     /// Print a reviewer's saved session transcript (defaults to the latest run).
     Transcript {
         /// Either `<reviewer>` (latest run) or `<run> <reviewer>`.
@@ -173,6 +181,10 @@ pub async fn run() -> Result<ExitCode> {
                 Decision::Block => ExitCode::FAILURE,
             })
         }
+        Command::Validate { file } => {
+            let cwd = std::env::current_dir().wrap_err("determining the current directory")?;
+            crate::commands::validate(&cwd, file.as_deref()).map(|()| ExitCode::SUCCESS)
+        }
         Command::Transcript { first, second } => {
             let (run, reviewer) = match second {
                 Some(reviewer) => (Some(first), reviewer),
@@ -245,6 +257,20 @@ mod tests {
                 assert_eq!(format, Format::Human);
             }
             other => panic!("expected review, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_takes_an_optional_file_argument() {
+        let none = Cli::parse_from(["bastion", "validate"]);
+        assert!(matches!(none.command, Command::Validate { file: None }));
+
+        let some = Cli::parse_from(["bastion", "validate", "config/.bastion.yaml"]);
+        match some.command {
+            Command::Validate { file: Some(path) } => {
+                assert_eq!(path, PathBuf::from("config/.bastion.yaml"));
+            }
+            other => panic!("expected validate with a file, got {other:?}"),
         }
     }
 

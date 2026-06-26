@@ -14,11 +14,12 @@ use std::time::Duration;
 
 use color_eyre::eyre::{Context, Result};
 
-use crate::config::Config;
+use crate::config::{self, Config};
 use crate::event::{ReviewerRef, RunEvent, RunId};
 use crate::git;
 use crate::paths::Layout;
 use crate::render::{self, Format};
+use crate::reviewer::{Mode, ModelId};
 use crate::routing::Router;
 use crate::runner::{self, ExecContext};
 use crate::skills;
@@ -124,6 +125,66 @@ pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> 
     }
 
     Ok(aggregate)
+}
+
+/// `bastion validate`: parse the reviewer registry and report any problems.
+///
+/// Loads the registry (the explicit `file`, or the one discovered by walking up
+/// from `cwd`) through the same [`Config`] path `bastion review` uses, so it
+/// surfaces exactly the errors a real review would hit at load time: malformed
+/// YAML, an unknown field, a duplicate reviewer name, or a model pinned under
+/// `backend: any`. On success it prints a one-line summary and the parsed
+/// reviewers and returns `Ok`; on any problem it returns the error, which
+/// `color_eyre` renders before the process exits non-zero, so the command doubles
+/// as a CI lint and a cheap local check that never spends a model call.
+///
+/// # Errors
+///
+/// Returns an error if no registry is found, the file cannot be read, or it fails
+/// to parse or validate.
+pub fn validate(cwd: &Path, file: Option<&Path>) -> Result<()> {
+    let (path, config) = match file {
+        Some(file) => (file.to_path_buf(), Config::load(file)?),
+        None => {
+            // Resolve from the repo root when we are inside one (so the command
+            // works from any subdirectory, like `review`), falling back to `cwd`
+            // when git cannot tell us, which keeps a not-yet-initialized repo
+            // working. `discover` warns on the deprecated location and gives the
+            // clear "no registry found" error; `locate` re-finds the path for the
+            // success summary.
+            let root = git::repo_root(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+            let config = Config::discover(&root)?;
+            let path = config::locate(&root).unwrap_or_else(|| root.join(config::REGISTRY_FILE));
+            (path, config)
+        }
+    };
+
+    let gates = config
+        .reviewers
+        .iter()
+        .filter(|r| r.mode == Mode::Gate)
+        .count();
+    let advisors = config.reviewers.len() - gates;
+
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    writeln!(
+        out,
+        "{} is valid: {} reviewer(s), {gates} gate(s), {advisors} advisor(s).",
+        path.display(),
+        config.reviewers.len(),
+    )?;
+    for reviewer in &config.reviewers {
+        let model = reviewer.model.as_ref().map_or("default", ModelId::as_str);
+        writeln!(
+            out,
+            "  - {} ({}, backend: {}, model: {model})",
+            reviewer.name,
+            reviewer.mode.as_str(),
+            reviewer.backend.as_str(),
+        )?;
+    }
+    Ok(())
 }
 
 /// `bastion transcript [<run>] <reviewer>`: print a saved session transcript.
@@ -441,6 +502,68 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success(), "git {args:?} failed");
+    }
+
+    #[test]
+    fn validate_accepts_a_well_formed_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".bastion.yaml");
+        std::fs::write(
+            &path,
+            "reviewers:\n  - name: a\n    trigger: [src/**]\n    mode: gate\n    prompt: p\n",
+        )
+        .unwrap();
+        validate(tmp.path(), Some(&path)).expect("a well-formed file validates");
+    }
+
+    #[test]
+    fn validate_reports_a_duplicate_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".bastion.yaml");
+        std::fs::write(
+            &path,
+            "reviewers:\n  - name: dup\n    trigger: [a]\n    mode: gate\n    prompt: p\n  - name: dup\n    trigger: [b]\n    mode: gate\n    prompt: p\n",
+        )
+        .unwrap();
+        let err = validate(tmp.path(), Some(&path)).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("duplicate reviewer name"),
+            "error should name the duplicate, got: {err:#}"
+        );
+    }
+
+    #[test]
+    fn validate_reports_a_model_under_backend_any() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".bastion.yaml");
+        std::fs::write(
+            &path,
+            "reviewers:\n  - name: stray\n    trigger: [src/**]\n    mode: gate\n    model: gpt-5\n    prompt: p\n",
+        )
+        .unwrap();
+        let err = validate(tmp.path(), Some(&path)).unwrap_err();
+        assert!(format!("{err:#}").contains("backend: any"), "got: {err:#}");
+    }
+
+    #[test]
+    fn validate_discovers_from_the_directory_when_no_file_is_given() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(".bastion.yaml"),
+            "reviewers:\n  - name: a\n    trigger: [x]\n    mode: advisor\n    prompt: p\n",
+        )
+        .unwrap();
+        validate(tmp.path(), None).expect("discovered registry validates");
+    }
+
+    #[test]
+    fn validate_errors_clearly_when_no_registry_is_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = validate(tmp.path(), None).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("no reviewer registry found"),
+            "got: {err:#}"
+        );
     }
 
     #[tokio::test]

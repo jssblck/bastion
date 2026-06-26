@@ -383,15 +383,24 @@ Some worked examples, taken from Bastion's own registry
 
 ## Validating your registry
 
-There is no separate lint command; the registry is validated when it loads, before
-any agent runs. Run `bastion review` and Bastion will report a malformed file, a
-duplicate name, or a reviewer missing a required field with a clear error.
+Run `bastion validate` to parse the registry and report any problem without running
+a single reviewer or spending a model call:
 
-Because loading happens before any reviewer runs, you can validate the file without
-paying for a model call: run `bastion review` against a base where nothing in your
-changeset matches a trigger (or with no changes at all). The registry still loads and
-reports any schema error, but zero reviewers match, so no backend is invoked. That is
-the cheap way to check a registry edit in isolation.
+```sh
+bastion validate                          # discover .bastion.yaml by walking up from here
+bastion validate path/to/.bastion.yaml    # check a specific file
+```
+
+It loads the file through the same path `bastion review` uses, so it catches exactly
+the errors a real review would hit at load time: malformed YAML, an unknown field, a
+duplicate name, a reviewer missing a required field, or a model pinned under
+`backend: any`. A valid registry prints a one-line summary and the reviewers it
+parsed, and exits zero; an invalid one prints the error and exits non-zero, so the
+command works as a pre-commit or CI lint as well as a quick local check.
+
+The registry is also validated whenever it loads for a real `bastion review`, so a
+malformed file fails fast there too. `bastion validate` just lets you check it on its
+own, for free, before you run anything.
 
 ---
 
