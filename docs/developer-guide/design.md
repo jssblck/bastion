@@ -21,17 +21,11 @@ Agents write most of the code on a growing number of teams. Output volume is clo
 - **Human diff review does not scale.** Asking a 5-person team to review their agents' output is like asking 5 people in a 500-person org to review the other 495. You can't fix that by trying harder.
 - **Without review, codebases rot.** Things go great until they don't, and then you have a ball of mud no one can work in.
 
-### Why existing agentic reviewers don't fit
+### Why one generic reviewer doesn't scale
 
-There's a lot of existing code review agents, like GitHub Copilot or CodeRabbit. They do a decent job.
+The usual shape of agentic review hands the whole diff to one reviewer and has it write comments, clearly designed for a human to act on.
 
-But they're built for the _old_ world: agentic review, yes, but _for humans writing code_.
-They obviously market themselves as for agents too, but they fundamentally are designed
-in such a way that they are not well-suited for the _new_ world of agentic code review.
-
-They review the whole diff at once and write comments, really clearly designed for a human to act on.
-And they don't really scale: as you ask one generic reviewer to check more things, its recall on any one of them
-degrades. A 1-item checklist agent works great, at 10 items it's less effective, at 100 items it's not effective at all.
+That shape doesn't scale in the dimension that matters: as you ask one generic reviewer to check more things, its recall on any one of them degrades. A 1-item checklist agent works great, at 10 items it's less effective, at 100 items it's not effective at all.
 
 This is because attention is scarce: it's scarce for humans, and it's still scarce for agents.
 This is unlikely to change as agents get smarter; intelligence doesn't seem to be correlated with attention so far.

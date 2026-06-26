@@ -13,12 +13,12 @@ to _engineers x 100_ than _x 1_. Two things stop teams from fully unlocking that
 - **Without review, codebases rot.** Things go great until they don't, and then
   you have a ball of mud nobody can work in.
 
-Existing agentic reviewers (Copilot, CodeRabbit, and the like) do a decent job, but
-they were built for the _old_ world: agentic review _for humans writing code_. They
-read the whole diff at once and leave comments for a person to act on, and a single
-generic reviewer's recall collapses as you pile on concerns. A 1-item checklist
-agent works great; at 10 items it slips; at 100 it is useless. Attention is scarce,
-for humans and still for agents, and smarter models do not seem to change that.
+The usual shape of agentic review hands the whole diff to one reviewer and has it
+leave comments for a person to act on. That does not scale in the dimension that
+matters. As you ask one generic reviewer to check more things, its recall on any
+single concern collapses. A 1-item checklist agent works great; at 10 items it
+slips; at 100 it is useless. Attention is scarce, for humans and still for agents,
+and smarter models do not seem to change that.
 
 ## What Bastion does
 
