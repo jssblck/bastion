@@ -362,7 +362,7 @@ Some worked examples, taken from Bastion's own registry
   - name: error-handling
     trigger: [src/**/*.rs]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       Review the changeset for error-handling discipline: no `.unwrap()` or
       `.expect()` on recoverable errors in non-test code, errors propagated with
@@ -374,7 +374,7 @@ Some worked examples, taken from Bastion's own registry
   - name: test-coverage
     trigger: [src/**/*.rs]
     mode: advisor
-    backend: pi
+    backend: codex
     prompt: |
       Check whether new or changed behavior in this changeset is covered by
       tests. This is advisory: report uncovered behavior as optional findings so

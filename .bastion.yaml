@@ -10,28 +10,26 @@
 # spelling is also honored). This is the live registry Bastion uses to review its
 # own changes, both in the local loop (`bastion review`) and in CI
 # (`.github/workflows/bastion.yml`). Every
-# reviewer runs on the Pi backend, billed to the maintainer's ChatGPT
+# reviewer runs on the Codex backend, billed to the maintainer's ChatGPT
 # subscription; see the authentication notes in
 # docs/developer-guide/github-adapter.md. Adapt it to your repository.
 
 # Registry-wide defaults, inherited by every reviewer that does not set the field
 # itself (an explicit field on a reviewer wins). Every reviewer below pins
-# `backend: pi`, which satisfies the rule that an inherited model needs a pinned
-# backend (a model under `backend: any` is a load error). The Pi backend forwards
-# `model` as `--model` and `effort` as `--thinking`, so the model carries its
-# provider in Pi's `provider/id` form: here `openai-codex/gpt-5.5`, the
-# ChatGPT-subscription provider. A bare model id would fall to Pi's built-in default
-# provider (google). See
+# `backend: codex`, which satisfies the rule that an inherited model needs a
+# pinned backend (a model under `backend: any` is a load error). The Codex backend
+# forwards `model` as `-m` and `effort` as `model_reasoning_effort`, so this
+# registry pins Codex's `gpt-5.5` at high effort. See
 # docs/user-guide/authoring-reviewers.md#registry-wide-defaults.
 defaults:
-  model: openai-codex/gpt-5.5
+  model: gpt-5.5
   effort: high
 
 reviewers:
   - name: single-responsibility
     trigger: [src/**/*.rs]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       Review the changeset to determine whether any one file concentrates too
       many unrelated responsibilities. If a file has clearly taken on multiple
@@ -42,7 +40,7 @@ reviewers:
   - name: error-handling
     trigger: [src/**/*.rs]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       Review the changeset for error-handling discipline: no `.unwrap()` or
       `.expect()` on recoverable errors in non-test code, errors propagated with
@@ -54,7 +52,7 @@ reviewers:
   - name: fail-closed-gates
     trigger: [src/**/*.rs]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       Bastion's core safety invariant is that gates fail closed, advisors fail
       open, and every verdict is internally consistent. That invariant is
@@ -98,7 +96,7 @@ reviewers:
   - name: parse-dont-validate
     trigger: [src/**/*.rs]
     mode: advisor
-    backend: pi
+    backend: codex
     prompt: |
       This repo follows parse-don't-validate: data crossing a boundary (config
       files, CLI arguments, git output, subprocess output, agent responses) should
@@ -112,7 +110,7 @@ reviewers:
   - name: test-coverage
     trigger: [src/**/*.rs]
     mode: advisor
-    backend: pi
+    backend: codex
     prompt: |
       Check whether new or changed behavior in this changeset is covered by
       tests. This is advisory: report uncovered behavior as optional findings so
@@ -121,7 +119,7 @@ reviewers:
   - name: public-api-docs
     trigger: [src/**/*.rs]
     mode: advisor
-    backend: pi
+    backend: codex
     prompt: |
       This crate sets `#![warn(missing_docs)]` and documents fallible public
       functions with a `# Errors` section. As an advisor, check that new or
@@ -138,7 +136,7 @@ reviewers:
         ".github/workflows/installers.yml",
       ]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       Review changes to the public install and release path -- the install
       scripts and the release/installer workflows -- for robustness. Block the PR
@@ -162,7 +160,7 @@ reviewers:
   - name: shell-script-footguns
     trigger: [scripts/**, ".github/workflows/**"]
     mode: advisor
-    backend: pi
+    backend: codex
     prompt: |
       As an advisor, review shell and PowerShell code -- standalone scripts under
       scripts/ and inline `run:` steps in workflows -- for portability footguns
@@ -182,7 +180,7 @@ reviewers:
   - name: embedded-asset-line-endings
     trigger: [skills/**, src/skills.rs, .gitattributes]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       Bastion embeds text assets into the binary with `include_str!` (the bundled
       skills under skills/<slug>/SKILL.md) and then compares an installed copy
@@ -217,7 +215,7 @@ reviewers:
   - name: user-guide-integrity
     trigger: [docs/user-guide/**]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       The user guide under docs/user-guide is single-sourced: the same markdown
       is published at bastion.jessica.black/guide, where the site build sorts and
@@ -247,7 +245,7 @@ reviewers:
   - name: user-docs-in-sync
     trigger: [src/**/*.rs, docs/user-guide/**]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       The user guide under docs/user-guide is the end-user documentation for
       Bastion: it describes the CLI a user runs and the policy they author --
@@ -281,7 +279,7 @@ reviewers:
     trigger:
       [src/**/*.rs, build.rs, docs/developer-guide/**, AGENTS.md, CONTRIBUTING.md]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       The contributor documentation -- docs/developer-guide/ (architecture, the
       backend boundary, conventions, and the design references), AGENTS.md, and
@@ -350,7 +348,7 @@ reviewers:
         CLAUDE.md,
       ]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       As a gate, review only the user-facing PROSE in the changed files for
       AI-register "slop": the structural tics that make copy read as machine-
@@ -428,7 +426,7 @@ reviewers:
   - name: docs-as-snapshot
     trigger: [docs/**/*.md]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       As a gate, review the changed documentation prose so that it reads as a
       snapshot of the shipped release: it describes the tool as it is, does not
@@ -514,7 +512,7 @@ reviewers:
   - name: table-column-alignment
     trigger: [site/src/**/*.astro]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       As a gate, review changed Astro components for tabular, column-aligned
       views built as a separate CSS grid per row instead of as one table. A
@@ -566,7 +564,7 @@ reviewers:
   - name: deploy-trigger-coverage
     trigger: [".github/workflows/site.yml", "site/src/content.config.ts"]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       The marketing site in site/ is single-sourced: site/src/content.config.ts
       loads guide content with a glob whose `base` points outside site/ (today
@@ -616,7 +614,7 @@ reviewers:
         site/src/components/Footer.astro,
       ]
     mode: gate
-    backend: pi
+    backend: codex
     prompt: |
       The Open Graph card at site/public/og.png is the social-preview image for
       bastion.jessica.black. It is generated, not hand-drawn: site/scripts/og-gen.mjs
