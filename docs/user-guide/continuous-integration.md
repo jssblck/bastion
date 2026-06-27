@@ -229,7 +229,7 @@ For a complete, working example (latest-release install, per-author backend
 credentials, and fork-PR safety), see Bastion's own
 [`.github/workflows/bastion.yml`](https://github.com/jssblck/bastion/blob/main/.github/workflows/bastion.yml).
 It wires up the per-author auth recipe in [Authentication & billing](#authentication--billing)
-below, on the Pi backend.
+below, on the Codex backend.
 
 Configure branch protection on your default branch to require this job (and to
 require review of the reviewer-policy paths; see [Governance](./governance.md)).
