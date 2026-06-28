@@ -3,10 +3,11 @@
 //! This is the GitHub *producer* for the transport-neutral
 //! [`ReviewContext`](crate::context::ReviewContext): it reads
 //! a PR's description and its discussion over the same REST seam the reporting half
-//! uses, and maps them onto the generic shape the runner and backends consume. Every
-//! GitHub-specific notion dies here at the boundary:
+//! uses, and maps them onto the generic shape the runner and backends consume. It
+//! converts each GitHub-specific field here so none reaches the core:
 //!
-//! - a PR `body` becomes the [`ReviewContext::intent`](crate::context::ReviewContext::intent);
+//! - a non-empty PR `body` becomes the [`ReviewContext::intent`](crate::context::ReviewContext::intent)
+//!   (an empty body supplies none, so the local commit-message intent stands);
 //! - each human comment becomes a [`ContextComment`], with GitHub's `author_association`
 //!   mapped onto the generic [`Standing`] so a reviewer can weight a maintainer's word
 //!   above an outsider's;

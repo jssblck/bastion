@@ -68,10 +68,10 @@ Following one review top to bottom touches most of the crate:
 4. **Route** (`routing.rs`). Each reviewer's trigger globs are compiled and matched
    against the changed files; the matched reviewers are the ones that will run.
 5. **Gather context** (`context.rs`, `git.rs`, `store.rs`, `github/context.rs`).
-   Bastion assembles a `ReviewContext` for the run: the author's stated intent (the PR
-   body when reviewing a pull request, else this branch's commit messages), the prior
-   findings recalled from the last run of this branch, and (on GitHub) the PR's
-   discussion. It is best effort: a failure to reach GitHub falls back to the local
+   Bastion assembles a `ReviewContext` for the run: the author's stated intent (a
+   non-empty PR body when reviewing a pull request, otherwise this branch's commit
+   messages as the fallback), the prior findings recalled from the last run of this
+   branch, and (on GitHub) the PR's discussion. It is best effort: a failure to reach GitHub falls back to the local
    context. Empty context leaves every reviewer's prompt unchanged.
 6. **Run** (`runner.rs`). `execute` spawns every matched reviewer onto a `JoinSet`,
    bounds each by its `timeout` (default 15m), and emits `reviewer.started` up

@@ -185,7 +185,7 @@ Same setup for every reviewer. The prompt, not the runner, scopes attention.
 
 A reviewer sees more than the diff. Reviewing a changeset in a vacuum makes it re-litigate settled questions: it re-raises a finding the author already addressed, and it flags a deliberate decision (a breaking migration, a knowingly-accepted tradeoff) as a defect because the *why* lived in the pull request, not the code. Bastion assembles a transport-neutral `ReviewContext` ([`src/context.rs`](../../src/context.rs)) for each run with three parts:
 
-- **Intent**: the author's stated reason for the change. On a pull request this is the PR description; locally it is the branch's commit messages (`base..HEAD`). Shown to every reviewer.
+- **Intent**: the author's stated reason for the change. On a pull request this is the PR description when it is non-empty, falling back to the branch's commit messages; locally it is always those commit messages (`base..HEAD`). Shown to every reviewer.
 - **Prior findings**: what each reviewer raised on the last run of this same branch, recalled from the run store. A reviewer is shown only *its own* prior findings and told to decide, per finding, whether the current changeset still warrants it, so "already raised" never silently becomes "already resolved".
 - **Discussion**: the surrounding comments (pull request only). Bastion's own past comments are filtered out so a reviewer never reacts to a paraphrase of itself.
 
