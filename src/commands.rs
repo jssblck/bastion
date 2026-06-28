@@ -9,12 +9,14 @@
 //! `codeowners` is pure generation.
 
 use std::io::{self, Write};
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use color_eyre::eyre::{Context, Result};
+use color_eyre::eyre::{Context, Result, eyre};
 
 use crate::config::Config;
+use crate::context::ReviewContext;
 use crate::event::{ReviewerRef, RunEvent, RunId};
 use crate::git;
 use crate::paths::Layout;
@@ -41,11 +43,22 @@ use crate::verdict::{Decision, Money};
 /// `cwd` is the directory to resolve the repository and config from: the process
 /// working directory in normal use, but explicit so the handler is testable.
 ///
+/// `github` carries the `owner/name` slug and PR number when the review runs against a
+/// pull request, so the reviewers get its description and discussion as context. It is
+/// best effort: a failure to reach GitHub is logged and the review proceeds on the
+/// local context (commit messages and prior findings) alone.
+///
 /// # Errors
 ///
 /// Returns an error if the repository, config, git queries, or persistence fail.
 /// A blocked review is *not* an error: it returns `Ok(Decision::Block)`.
-pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> Result<Decision> {
+pub async fn review(
+    layout: &Layout,
+    cwd: &Path,
+    base: &str,
+    format: Format,
+    github: Option<GithubSource>,
+) -> Result<Decision> {
     let repo_root = git::repo_root(cwd)?;
     let branch = git::current_branch(&repo_root)?;
     let config = Config::discover(&repo_root)?;
@@ -97,6 +110,31 @@ pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> 
         return Ok(Decision::Pass);
     }
 
+    // Assemble the review context: the author's stated intent (the PR body, or this
+    // branch's commit messages locally), this branch's prior findings recalled from the
+    // run store, and the surrounding discussion (GitHub only). Empty when nothing
+    // applies, which leaves every reviewer's prompt exactly as it was.
+    let mut context = ReviewContext {
+        intent: git::commit_messages(&repo_root, base),
+        comments: Vec::new(),
+        prior_findings: store::prior_findings(layout, &branch),
+    };
+    if let Some(source) = github.as_ref() {
+        match gather_github_context(source).await {
+            Ok(gathered) => {
+                // A PR body is a better statement of intent than the commit messages,
+                // so it wins when present; the discussion is GitHub-only.
+                if gathered.intent.is_some() {
+                    context.intent = gathered.intent;
+                }
+                context.comments = gathered.comments;
+            }
+            Err(err) => {
+                eprintln!("bastion review: continuing without GitHub context ({err:#})");
+            }
+        }
+    }
+
     let ctx = ExecContext {
         run,
         repo_root,
@@ -104,6 +142,7 @@ pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> 
         base: base.to_string(),
         changed: changed_count,
         reviewers: reviewer_refs,
+        context,
     };
 
     // The runner streams the per-reviewer and completion events; render each as it
@@ -125,6 +164,53 @@ pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> 
     }
 
     Ok(aggregate)
+}
+
+/// The pull request a review is running against, so its description and discussion can
+/// be gathered as reviewer context. Present only when `bastion review` is given a PR.
+///
+/// The `owner/name` slug is parsed into its parts when the source is built, so a
+/// malformed repository is rejected at the boundary rather than re-checked later.
+#[derive(Debug, Clone)]
+pub struct GithubSource {
+    /// The repository owner (the part before the `/`).
+    owner: String,
+    /// The repository name (the part after the `/`).
+    name: String,
+    /// The pull request number.
+    pr: NonZeroU64,
+}
+
+impl GithubSource {
+    /// Parse an `owner/name` slug and pull request number into a source.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `repo` is not a single `owner/name` pair with both parts
+    /// non-empty.
+    pub fn new(repo: &str, pr: NonZeroU64) -> Result<Self> {
+        let (owner, name) = repo
+            .split_once('/')
+            .filter(|(owner, name)| !owner.is_empty() && !name.is_empty() && !name.contains('/'))
+            .ok_or_else(|| eyre!("expected an 'owner/name' repository, got '{repo}'"))?;
+        Ok(Self {
+            owner: owner.to_string(),
+            name: name.to_string(),
+            pr,
+        })
+    }
+}
+
+/// Gather a pull request's intent and discussion over a real GitHub client.
+///
+/// Builds the REST client from the environment (the same token the report step uses) and
+/// delegates to the GitHub context producer. Surfaced as an error the caller logs and
+/// recovers from, never one that fails the review.
+async fn gather_github_context(
+    source: &GithubSource,
+) -> Result<crate::github::context::GatheredContext> {
+    let client = crate::github::client::RestClient::from_env()?;
+    crate::github::context::gather(&client, &source.owner, &source.name, source.pr.get()).await
 }
 
 /// `bastion validate`: parse the reviewer registry and report any problems.
@@ -482,6 +568,24 @@ fn local_run_id(repo_root: &Path) -> RunId {
 mod tests {
     use super::*;
 
+    #[test]
+    fn github_source_parses_a_slug_and_rejects_malformed_ones() {
+        let pr = NonZeroU64::new(7).unwrap();
+        let ok = GithubSource::new("acme/app", pr).expect("a well-formed slug parses");
+        assert_eq!(ok.owner, "acme");
+        assert_eq!(ok.name, "app");
+        assert_eq!(ok.pr, pr);
+
+        // No slash, an empty half, or an extra path segment are all rejected at the
+        // boundary rather than reaching the GitHub client as a bad request.
+        for bad in ["acme", "acme/", "/app", "acme/app/extra", "", "/"] {
+            assert!(
+                GithubSource::new(bad, pr).is_err(),
+                "expected '{bad}' to be rejected"
+            );
+        }
+    }
+
     /// Run `git` with deterministic identity/config in `dir`.
     fn git(dir: &Path, args: &[&str]) {
         let isolate = [
@@ -602,7 +706,7 @@ mod tests {
         std::fs::write(dir.join("main.rs"), "fn main() {}\n").unwrap();
 
         let layout = Layout::with_root(data.path().to_path_buf());
-        let decision = review(&layout, dir, "main", Format::Jsonl)
+        let decision = review(&layout, dir, "main", Format::Jsonl, None)
             .await
             .expect("zero-match review passes");
         assert_eq!(decision, Decision::Pass);

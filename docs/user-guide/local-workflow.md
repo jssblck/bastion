@@ -10,8 +10,9 @@ order: 5
 > and inspecting what was saved.
 
 The local CLI is the surface an authoring agent optimizes against before opening a
-PR. It runs the *same* reviewers CI will run, so a green local loop means a PR that
-CI largely just confirms. This chapter covers the loop in depth.
+PR. It runs the *same* reviewers CI will run, so a green local loop usually means a PR
+that CI confirms. CI can still differ when it feeds reviewers the PR's description and
+discussion that a default local run lacks. This chapter covers the loop in depth.
 
 ## The loop
 
@@ -28,6 +29,10 @@ them in parallel with per-reviewer timeouts, and renders progress and verdicts.
 
 - `--base <branch>`: the branch to diff against. Defaults to `main`.
 - `--format <human|jsonl>`: output format. Defaults to `human`.
+- `--repo <owner/name>`: the GitHub repository to gather pull request context from. Defaults to `$GITHUB_REPOSITORY`.
+- `--pr <number>`: the pull request whose description and discussion the reviewers read as context. Requires a repository, from `--repo` or `$GITHUB_REPOSITORY`; passing `--pr` with no repository is an error.
+
+The CI workflow passes `--repo`/`--pr` so reviewers see the PR's stated intent and discussion. Locally you rarely need them: with no PR, intent comes from your branch's commit messages (`base..HEAD`), and each reviewer's prior findings come from the run store. When you do pass them, Bastion builds its GitHub REST client from `GITHUB_TOKEN` and `GITHUB_API_URL` (the latter defaults to the public API and points at a GitHub Enterprise host when set). Discussion gathering reads the first 100 conversation comments and the first 100 review comments and does not paginate, so later comments on a very long thread are not included. Gathering PR context is read-only and best effort, so an API or token failure never fails the review; it just drops back to the local context.
 
 ### Exit codes
 
@@ -213,8 +218,10 @@ These local events are not a separate system from CI; they are the same decision
 a finer-grained form. Every JSONL event here has a GitHub twin (a check run, a
 comment, an annotation), laid out side by side in the
 [Continuous integration](./continuous-integration.md#how-a-run-maps-to-github)
-chapter. A green local loop predicts a green PR because the two surfaces compute the
-same review.
+chapter. A green local loop predicts a green PR when both runs see the same context.
+The two surfaces run the same reviewers and aggregation, and CI adds the PR's
+description and discussion that a default local run does not, so a reviewer that
+weighs that context can decide differently.
 
 ---
 

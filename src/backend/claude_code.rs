@@ -223,14 +223,17 @@ const REPROMPT: &str = "Your previous response did not include a valid structure
 
 /// Build the prompt handed to `claude`: the shared changeset preamble (how to see
 /// the diff against the base branch), the reviewer's instruction with `${name}`
-/// inputs interpolated, the shared exhaustive-findings instruction (report every
-/// issue in one pass), and the schema instruction.
+/// inputs interpolated, the untrusted review-context block (intent, discussion, and
+/// this reviewer's prior findings, when a producer supplied any), the shared
+/// exhaustive-findings instruction (report every issue in one pass), and the schema
+/// instruction.
 fn build_prompt(request: &ReviewRequest<'_>) -> String {
     let reviewer = request.reviewer;
     let mut prompt = super::changeset_preamble(request.base);
     prompt.push_str("\n\n");
     prompt.push_str(&super::interpolate(&reviewer.prompt, &reviewer.inputs));
     prompt.push_str("\n\n");
+    prompt.push_str(&super::context_segment(request));
     prompt.push_str(super::EXHAUSTIVE_FINDINGS_INSTRUCTION);
     prompt.push_str(
         "\n\nWhen you have finished reviewing, return your judgment as structured output \
@@ -536,6 +539,7 @@ mod tests {
             run: &run,
             repo_root: &root,
             base: "main",
+            context: crate::context::ReviewContext::empty(),
         };
         backend.review(&request).await
     }
@@ -559,6 +563,7 @@ mod tests {
             run: &run,
             repo_root: &root,
             base: "main",
+            context: crate::context::ReviewContext::empty(),
         };
         backend.review(&request).await.expect("verdict parses");
         backend.runner.nth_args(0)
@@ -739,6 +744,7 @@ mod tests {
             run: &run,
             repo_root: &root,
             base: "main",
+            context: crate::context::ReviewContext::empty(),
         };
 
         let outcome = backend.review(&request).await.expect("reprompt succeeds");
@@ -836,6 +842,7 @@ mod tests {
             run: &run,
             repo_root: &root,
             base: "main",
+            context: crate::context::ReviewContext::empty(),
         };
         let err = backend.review(&request).await.unwrap_err();
         assert!(err.to_string().contains("execution error"));
@@ -897,6 +904,7 @@ mod tests {
             run: &run,
             repo_root: &root,
             base: "main",
+            context: crate::context::ReviewContext::empty(),
         };
         let prompt = build_prompt(&request);
         // The shared changeset preamble leads, naming the base and steering the
@@ -945,6 +953,7 @@ mod tests {
             run: &run,
             repo_root: &root,
             base: "main",
+            context: crate::context::ReviewContext::empty(),
         };
         backend.review(&request).await.expect("runs");
 
@@ -1038,6 +1047,7 @@ mod tests {
             run: &run,
             repo_root: &root,
             base: "main",
+            context: crate::context::ReviewContext::empty(),
         };
 
         let outcome = backend

@@ -77,6 +77,25 @@ pub fn changed_files(cwd: &Path, base: &str) -> Result<Vec<String>> {
     Ok(files.into_iter().collect())
 }
 
+/// The commit messages on `HEAD` since it diverged from `base`, oldest first, as the
+/// local stand-in for a pull request description.
+///
+/// This is the local mirror of a PR body: the author's stated intent for the change,
+/// drawn from the commits on this branch (`base..HEAD`). Returns `None` when the range
+/// is empty (nothing committed against `base` yet, e.g. work still entirely in the
+/// working tree) or git cannot resolve the range, so an absent intent simply leaves a
+/// reviewer's prompt unchanged.
+#[must_use]
+pub fn commit_messages(cwd: &Path, base: &str) -> Option<String> {
+    let range = format!("{base}..HEAD");
+    // `%B` is the raw subject and body; `--reverse` orders oldest commit first so the
+    // narrative reads in the order it was written.
+    run_git(cwd, &["log", "--reverse", "--format=%B", &range])
+        .ok()
+        .map(|messages| messages.trim().to_string())
+        .filter(|messages| !messages.is_empty())
+}
+
 /// The short commit hash of `HEAD`, or `None` when git cannot supply one (for
 /// example a repository with no commits yet).
 ///
@@ -138,6 +157,40 @@ mod tests {
             repo_root(dir).unwrap().canonicalize().unwrap(),
             dir.canonicalize().unwrap()
         );
+    }
+
+    #[test]
+    fn commit_messages_reads_the_branch_log_oldest_first_and_trims_empty_ranges() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        git(dir, &["init"]);
+        std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+        git(dir, &["add", "a.txt"]);
+        git(dir, &["commit", "-m", "base"]);
+        // Mark the base, then add two commits on top of it.
+        git(dir, &["branch", "base"]);
+        std::fs::write(dir.join("a.txt"), "two\n").unwrap();
+        git(dir, &["commit", "-am", "first change"]);
+        std::fs::write(dir.join("a.txt"), "three\n").unwrap();
+        git(dir, &["commit", "-am", "second change"]);
+
+        // The two commits on top of `base`, oldest first.
+        let messages = commit_messages(dir, "base").expect("commits exist past base");
+        let first = messages.find("first change").expect("first commit present");
+        let second = messages
+            .find("second change")
+            .expect("second commit present");
+        assert!(
+            first < second,
+            "oldest commit should come first: {messages:?}"
+        );
+        // The base commit is below the range and must not appear.
+        assert!(!messages.contains("base"), "base is excluded: {messages:?}");
+
+        // An empty range (HEAD is at base) trims to `None` rather than an empty string.
+        assert_eq!(commit_messages(dir, "HEAD"), None);
+        // An unresolvable range is also `None`, not an error.
+        assert_eq!(commit_messages(dir, "no-such-ref"), None);
     }
 
     #[test]

@@ -79,6 +79,8 @@ Formalized, Bastion is built around the following threat model:
 3. The bar is **reasonable reduction proportionate to effort**. Bastion is not a proof that gaming or exfiltration is impossible; it's a speed bump and good defaults that keep aligned actors on the rails, exactly like lint and CI and human review for a human author. The goal is to make it easy for aligned contributors to do the right thing, and hard for them to do the wrong thing, without trying to make it impossible.
 4. **Humans own the review policy.** Humans are responsible for the reviewers, the prompts, and the triggers. They are responsible for triaging escapes and improving the reviewers over time. The system is designed to make it easy for humans to govern the review process and to make it easy for them to detect and correct any gaming or erosion that happens. For this reason, any PR that modifies reviewer policy (the reviewer registry, the prompts, the triggers) requires human review before it can be merged. This ensures that humans are always in the loop and can catch any changes that might weaken the review process.
 
+The PR description and discussion Bastion feeds a reviewer (the [review context](#review-context)) are authored by the gate's *subject*, not its policy authority. They explain intent and carry the author's pushback, the way a human reviewer reads them, but Bastion presents them as untrusted claims and excludes them from the gate logic, so an author cannot talk a gate into passing. Granting an exception remains a human governance act.
+
 ---
 
 ## The reviewer
@@ -174,10 +176,24 @@ reviewers:
 
 ### What the reviewer sees
 
-The runner gives every reviewer a full checkout at the PR head, with request metadata such as "what is the base branch" and "what is the PR description".
+The runner gives every reviewer a full checkout at the PR head, with request metadata such as "what is the base branch" and the **review context** below.
 The reviewer explores freely like any coding agent and decides for itself how much to look at.
 
 Same setup for every reviewer. The prompt, not the runner, scopes attention.
+
+#### Review context
+
+Without review context, a reviewer re-litigates settled questions. It re-raises a finding the author already addressed or pushed back on, and it flags a deliberate decision (a breaking migration, a knowingly-accepted tradeoff) as a defect because the *why* lives in the pull request, not the code. Bastion assembles a transport-neutral `ReviewContext` ([`src/context.rs`](../../src/context.rs)) for each run with three parts:
+
+- **Intent**: the author's stated reason for the change. On a pull request this is the PR description when it is non-empty, falling back to the branch's commit messages; locally it is always those commit messages (`base..HEAD`). Shown to every reviewer.
+- **Prior findings**: what each reviewer raised on the last run of this same branch, recalled from the run store. A reviewer is shown only *its own* prior findings and told to decide, per finding, whether the current changeset still warrants it, so "already raised" never silently becomes "already resolved".
+- **Discussion**: the surrounding comments (pull request only). Bastion's own past comments are filtered out so a reviewer never reacts to a paraphrase of itself.
+
+This is the same data type regardless of transport. The local loop and the GitHub adapter are each a *producer* that fills a `ReviewContext`; the backends consume one identically. An empty context (a first review, no discussion) renders to nothing, so the reviewer receives the base prompt unchanged.
+
+**Routing.** A finding has a stable, content-derived identity (`FindingId`: the owning reviewer, path, kind, and detail text, deliberately *not* line numbers, which drift). That id keys prior-findings recall across runs. It also routes a reply: a comment whose thread root carries a finding's marker resolves back to the reviewer that raised it, while general discussion reaches every reviewer. The reporter posts one sticky comment and check runs, so PR comments arrive as general discussion.
+
+**This context is untrusted input.** The author and bystanders supply it, and the prompt frames it as claims to check against the code. A comment carries the commenter's `Standing` (a generic owner/member/contributor/outsider scale, mapped from GitHub's `author_association` at the adapter boundary) so a reviewer can *weight* a maintainer's word above a stranger's. Standing affects only the prompt wording; the gate logic ignores it, so no comment can flip a decision. Granting a hard exception to a finding is a separate governance act (a maintainer waiver).
 
 ### Agent backends
 

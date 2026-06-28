@@ -14,6 +14,8 @@ The guiding rule carries over: Bastion does not own your environment, it plugs i
 
 The intended use is the loop from the core design: an agent runs `bastion review`, reads the stream, fixes what blocks, runs it again, and repeats until it is green, before ever opening a PR.
 
+The [review context](./design.md#review-context) uses local inputs. There is no PR, so intent comes from the branch's commit messages (`base..HEAD`), and there is no discussion thread to gather. Prior-findings memory works because every local run is persisted: a second `bastion review` on the same branch shows each reviewer what it raised last time, recalled from the run store. GitHub adds the PR description and discussion on top.
+
 ---
 
 ## Streaming output

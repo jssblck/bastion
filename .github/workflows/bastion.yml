@@ -27,11 +27,13 @@ on:
 
 # Read the diff and fail the job, and write the surfaces `bastion github report`
 # posts after the review: the sticky PR comment (`pull-requests: write`) and the
-# per-reviewer and aggregate check runs (`checks: write`).
+# per-reviewer and aggregate check runs (`checks: write`). `actions: read` lets the
+# restore step list and download this branch's prior run artifact.
 permissions:
   contents: read
   pull-requests: write
   checks: write
+  actions: read
 
 # One in-flight review per PR; a new push cancels the previous run.
 concurrency:
@@ -141,6 +143,37 @@ jobs:
           printf '%s' "$cred" > "$HOME/.codex/auth.json"
           chmod 600 "$HOME/.codex/auth.json"
 
+      - name: Restore prior run history
+        # Best effort: bring the most recent prior run of this PR branch into the data
+        # directory so reviewers recall the findings they raised on the last push (a fresh
+        # Actions runner starts with an empty store, so without this the GitHub
+        # prior-findings memory would never see anything). A first push, or an expired
+        # artifact, simply restores nothing and reviews with no prior findings.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Pass workflow context through the environment instead of interpolating it
+          # into the script. A branch name is attacker-controlled and, spliced into the
+          # script text, could break out of the quoting and inject shell.
+          HEAD_REF: ${{ github.head_ref }}
+          RUN_ID: ${{ github.run_id }}
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORKSPACE/.bastion/runs"
+          # Expected absence (a first push) is non-fatal, but a real failure (auth, API,
+          # permissions) is surfaced as a notice rather than silently masquerading as
+          # "no prior run" and disabling prior-finding recall.
+          if ! prior=$(gh run list --workflow bastion.yml --branch "$HEAD_REF" \
+            --json databaseId \
+            --jq "map(select(.databaseId != $RUN_ID)) | .[0].databaseId // empty"); then
+            echo "::notice::could not list prior runs; reviewing without prior findings"
+            prior=
+          fi
+          if [ -n "$prior" ]; then
+            gh run download "$prior" -n bastion-run -D "$WORKSPACE/.bastion/runs" \
+              || echo "no prior bastion-run artifact to restore (first run or expired)"
+          fi
+
       - name: Run bastion review
         env:
           # Keep run history inside the workspace so it can be uploaded as an
@@ -148,11 +181,36 @@ jobs:
           BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
           # Resolve the `codex` binary npm just put on PATH.
           BASTION_CODEX_BIN: codex
+          # Lets the review gather the PR's description and discussion as reviewer
+          # context (read-only; best effort, so a failure here never fails the review).
+          GITHUB_TOKEN: ${{ github.token }}
+          # Workflow context goes through the environment, not the script text, so a
+          # branch name cannot inject shell (see the restore step).
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
         # Default GitHub bash runs with `-eo pipefail`, so a blocked review's
         # non-zero exit fails the job (and the required check). The human-readable
         # stream goes to the log; the canonical JSONL is persisted under
         # BASTION_DATA_DIR and uploaded below.
-        run: bastion review --base "origin/${{ github.base_ref }}"
+        #
+        # `--repo`/`--pr` feed the reviewers the PR's stated intent and discussion
+        # alongside their prior findings. Some installed release engines do not recognize
+        # the context flags, so probe `bastion review --help` for `--repo` (the
+        # capability-probe the report step also uses) and pass the flags only when the
+        # engine supports them. An engine without them reviews with the diff and prior
+        # findings alone.
+        run: |
+          set -euo pipefail
+          # Capture the help text first and match in-shell: a `... | grep -q` pipeline
+          # under pipefail can SIGPIPE the producer when grep exits on the first match,
+          # which would falsely fail the probe.
+          help=$(bastion review --help 2>/dev/null || true)
+          ctx=()
+          if [[ "$help" == *"--repo"* ]]; then
+            ctx+=(--repo "$REPO" --pr "$PR_NUMBER")
+          fi
+          bastion review --base "origin/$BASE_REF" "${ctx[@]}"
 
       - name: Mint a dedicated app token for reporting
         id: app-token
@@ -213,4 +271,8 @@ jobs:
         with:
           name: bastion-run
           path: ${{ github.workspace }}/.bastion/runs/**
+          # The data dir is dot-prefixed (`.bastion`), so its files are hidden;
+          # without this the upload would silently exclude every run and the
+          # restore step on the next push would download nothing.
+          include-hidden-files: true
           if-no-files-found: warn

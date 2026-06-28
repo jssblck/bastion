@@ -306,14 +306,17 @@ fn sum_usage(first: Option<Usage>, second: Option<Usage>) -> Option<Usage> {
 
 /// Build the full prompt handed to Pi for `request`: the shared changeset preamble
 /// (how to see the diff against the base branch), the interpolated review
-/// instruction, the shared exhaustive-findings instruction (report every issue in
-/// one pass), and the shared schema instruction (end with a fenced YAML verdict).
+/// instruction, the untrusted review-context block (intent, discussion, and this
+/// reviewer's prior findings, when a producer supplied any), the shared
+/// exhaustive-findings instruction (report every issue in one pass), and the shared
+/// schema instruction (end with a fenced YAML verdict).
 fn build_prompt(request: &ReviewRequest<'_>) -> String {
     let reviewer = request.reviewer;
     let preamble = super::changeset_preamble(request.base);
     let interpolated = super::interpolate(&reviewer.prompt, &reviewer.inputs);
+    let context = super::context_segment(request);
     let exhaustive = super::EXHAUSTIVE_FINDINGS_INSTRUCTION;
-    format!("{preamble}\n\n{interpolated}\n\n{exhaustive}\n\n{SCHEMA_INSTRUCTION}")
+    format!("{preamble}\n\n{interpolated}\n\n{context}{exhaustive}\n\n{SCHEMA_INSTRUCTION}")
 }
 
 /// A parsed Pi `--mode json` session: the reconstructed transcript, the final
@@ -705,6 +708,7 @@ mod tests {
             run,
             repo_root: root,
             base: "main",
+            context: crate::context::ReviewContext::empty(),
         }
     }
 
@@ -725,6 +729,41 @@ mod tests {
     async fn id_is_pi() {
         let backend = PiBackend::with_program(FakeRunner::default(), DEFAULT_PROGRAM);
         assert_eq!(backend.id(), reviewer::Backend::Pi);
+    }
+
+    #[test]
+    fn build_prompt_splices_a_non_empty_review_context_after_the_instruction() {
+        // A non-empty context must reach the Pi prompt, spliced between the reviewer's own
+        // instruction and the exhaustive-findings instruction. Removing or misplacing the
+        // `context_segment` splice would fail this without needing a full review.
+        let reviewer = reviewer();
+        let run = RunId("r-test".into());
+        let root = PathBuf::from(".");
+        let context = crate::context::ReviewContext {
+            intent: Some("Deliberate schema change; the migration self-heals.".into()),
+            ..Default::default()
+        };
+        let req = ReviewRequest {
+            reviewer: &reviewer,
+            run: &run,
+            repo_root: &root,
+            base: "main",
+            context: &context,
+        };
+        let prompt = build_prompt(&req);
+        let prompt_at = prompt
+            .find("Check the thing.")
+            .expect("reviewer prompt present");
+        let context_at = prompt
+            .find("### Author's stated intent")
+            .expect("review context spliced in");
+        let exhaustive_at = prompt
+            .find(crate::backend::EXHAUSTIVE_FINDINGS_INSTRUCTION)
+            .expect("exhaustive instruction present");
+        assert!(
+            prompt_at < context_at && context_at < exhaustive_at,
+            "context must sit after the reviewer instruction and before the exhaustive one"
+        );
     }
 
     #[tokio::test]

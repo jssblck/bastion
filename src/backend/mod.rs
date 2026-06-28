@@ -20,6 +20,7 @@ use std::path::Path;
 
 use color_eyre::eyre::Result;
 
+use crate::context::ReviewContext;
 use crate::event::RunId;
 use crate::reviewer::{self, Reviewer};
 use crate::verdict::{Decision, Money, Usage, Verdict};
@@ -44,6 +45,10 @@ pub struct ReviewRequest<'a> {
     pub repo_root: &'a Path,
     /// The base branch the changeset is computed against.
     pub base: &'a str,
+    /// What the reviewer is told about the changeset beyond the diff: the author's
+    /// stated intent, the surrounding discussion, and this reviewer's prior findings.
+    /// Empty when no producer supplied any, in which case the prompt is unchanged.
+    pub context: &'a ReviewContext,
 }
 
 /// What a backend returns for one reviewer.
@@ -241,6 +246,22 @@ pub(crate) const EXHAUSTIVE_FINDINGS_INSTRUCTION: &str = "\
     changed file and list them all so the author can fix the complete set in one \
     pass. If the changeset is clean, still return a pass with no findings; do not \
     invent issues to pad the list.";
+
+/// The untrusted review-context block to splice into a prompt for `request`'s
+/// reviewer, already followed by a blank-line separator, or an empty string when no
+/// producer supplied context.
+///
+/// Shared by the backends so the context is rendered and positioned identically
+/// regardless of which agent runs the reviewer, the same way [`changeset_preamble`]
+/// and [`EXHAUSTIVE_FINDINGS_INSTRUCTION`] are. The block carries its own untrusted
+/// framing (see [`crate::context`]); the routing and scoping live in
+/// [`ReviewContext::render_for`](crate::context::ReviewContext::render_for).
+pub(crate) fn context_segment(request: &ReviewRequest<'_>) -> String {
+    match request.context.render_for(&request.reviewer.name) {
+        Some(block) => format!("{block}\n\n"),
+        None => String::new(),
+    }
+}
 
 /// Replace `${key}` occurrences in `template` with values from `inputs`.
 ///
@@ -556,6 +577,7 @@ findings: []
             run: &run,
             repo_root: &root,
             base: "main",
+            context: crate::context::ReviewContext::empty(),
         };
 
         let outcome = MockBackend.review(&request).await.expect("mock runs");
@@ -579,6 +601,7 @@ findings: []
             run: &run,
             repo_root: &root,
             base: "main",
+            context: crate::context::ReviewContext::empty(),
         };
         let err = dispatch(&request).await.unwrap_err();
         assert!(err.to_string().contains("skills"));

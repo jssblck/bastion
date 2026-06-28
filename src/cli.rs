@@ -6,12 +6,13 @@
 //! `clean`) inspect saved runs. `codeowners` generates the governance block from
 //! `docs/developer-guide/github-adapter.md`.
 
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use color_eyre::eyre::{Context, Result};
+use color_eyre::eyre::{Context, Result, bail};
 
 use crate::paths::Layout;
 use crate::render::Format;
@@ -43,6 +44,17 @@ pub enum Command {
         /// Output format.
         #[arg(long, value_enum, default_value_t = Format::Human)]
         format: Format,
+        /// The `owner/name` repository, used with `--pr` to gather the pull request's
+        /// description and discussion as reviewer context. Defaults to
+        /// `$GITHUB_REPOSITORY`.
+        #[arg(long, value_name = "OWNER/NAME", env = "GITHUB_REPOSITORY")]
+        repo: Option<String>,
+        /// The pull request number. When set (with `--repo`), the reviewers are given
+        /// the PR's description, discussion, and their prior findings as context.
+        /// Absent for a purely local review, which uses only the local context. A PR
+        /// number is positive, so `--pr 0` is rejected at parse time.
+        #[arg(long, value_name = "N")]
+        pr: Option<NonZeroU64>,
     },
     /// Parse the reviewer registry and report any problems, without running a
     /// reviewer or spending a model call.
@@ -171,9 +183,26 @@ pub async fn run() -> Result<ExitCode> {
     };
 
     match cli.command {
-        Command::Review { base, format } => {
+        Command::Review {
+            base,
+            format,
+            repo,
+            pr,
+        } => {
             let cwd = std::env::current_dir().wrap_err("determining the current directory")?;
-            let decision = crate::commands::review(&layout, &cwd, &base, format).await?;
+            // Parse the `--repo`/`--pr` pair into a GitHub source at the boundary so an
+            // impossible combination cannot reach dispatch. Gathering a PR's context
+            // needs both a number and a repository; `--repo` alone has no PR to read, and
+            // `--pr` without a resolvable repository is a usage error, not a silent local
+            // review.
+            let github = match (repo, pr) {
+                (Some(repo), Some(pr)) => Some(crate::commands::GithubSource::new(&repo, pr)?),
+                (None, Some(_)) => bail!(
+                    "`--pr` needs a repository: pass `--repo <owner/name>` or set $GITHUB_REPOSITORY"
+                ),
+                (Some(_), None) | (None, None) => None,
+            };
+            let decision = crate::commands::review(&layout, &cwd, &base, format, github).await?;
             // A blocked review is an expected, non-error outcome that must still
             // signal failure to the caller: map `block` to a non-zero exit.
             Ok(match decision {
@@ -252,12 +281,33 @@ mod tests {
     fn review_defaults_to_human_against_main() {
         let cli = Cli::parse_from(["bastion", "review"]);
         match cli.command {
-            Command::Review { base, format } => {
+            // `repo`/`pr` are ignored here: `repo` reads `$GITHUB_REPOSITORY`, which is
+            // set under Actions (including Bastion's own CI), so it is not deterministic.
+            Command::Review { base, format, .. } => {
                 assert_eq!(base, "main");
                 assert_eq!(format, Format::Human);
             }
             other => panic!("expected review, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn review_accepts_a_pull_request_for_context() {
+        let cli = Cli::parse_from(["bastion", "review", "--repo", "acme/app", "--pr", "42"]);
+        match cli.command {
+            Command::Review { repo, pr, .. } => {
+                assert_eq!(repo.as_deref(), Some("acme/app"));
+                assert_eq!(pr, NonZeroU64::new(42));
+            }
+            other => panic!("expected review, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn review_rejects_a_zero_pull_request_number() {
+        // A PR number is positive; `--pr 0` is rejected at parse time by `NonZeroU64`.
+        let err = Cli::try_parse_from(["bastion", "review", "--pr", "0"]).unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
     }
 
     #[test]

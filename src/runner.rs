@@ -21,6 +21,7 @@ use color_eyre::eyre::{Context, Result};
 use tokio::task::JoinSet;
 
 use crate::backend::{self, ReviewOutcome, ReviewRequest};
+use crate::context::ReviewContext;
 use crate::event::{Gates, ReviewerRef, RunEvent, RunId};
 use crate::paths::Layout;
 use crate::reviewer::{Mode, Reviewer};
@@ -53,6 +54,10 @@ pub struct OwnedRequest {
     pub repo_root: PathBuf,
     /// The base branch.
     pub base: String,
+    /// The shared review context (intent, discussion, prior findings). Cloned per
+    /// reviewer from the run's [`ExecContext`]; each reviewer's prompt scopes it to
+    /// its own concern.
+    pub context: ReviewContext,
 }
 
 impl OwnedRequest {
@@ -64,6 +69,7 @@ impl OwnedRequest {
                 run: &self.run,
                 repo_root: &self.repo_root,
                 base: &self.base,
+                context: &self.context,
             };
             backend::dispatch(&request).await
         })
@@ -89,6 +95,10 @@ pub struct ExecContext {
     pub changed: u32,
     /// The reviewers that matched and will run (for the persisted `run.started`).
     pub reviewers: Vec<ReviewerRef>,
+    /// The review context handed to every reviewer this run: the author's stated
+    /// intent, the surrounding discussion, and each reviewer's prior findings. Empty
+    /// when no producer supplied any, which leaves every reviewer's prompt unchanged.
+    pub context: ReviewContext,
 }
 
 /// How long a reviewer with no explicit `timeout` is allowed to run before it is
@@ -174,6 +184,7 @@ pub async fn execute_with(
             run: ctx.run.clone(),
             repo_root: ctx.repo_root.clone(),
             base: ctx.base.clone(),
+            context: ctx.context.clone(),
         };
         let timeout = reviewer.timeout.unwrap_or(DEFAULT_TIMEOUT);
         let future = exec(request);
@@ -529,6 +540,7 @@ mod tests {
                     mode: r.mode,
                 })
                 .collect(),
+            context: ReviewContext::default(),
         }
     }
 

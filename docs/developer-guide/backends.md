@@ -17,7 +17,7 @@ stays pure orchestration.
 
 | File | Role |
 | --- | --- |
-| [`mod.rs`](../../src/backend/mod.rs) | The `Backend` trait, `ReviewRequest`/`ReviewOutcome`, `MockBackend`, `dispatch`, and the shared prompt/helpers (`changeset_preamble`, `EXHAUSTIVE_FINDINGS_INSTRUCTION`, `interpolate`, `money_from_dollars`). |
+| [`mod.rs`](../../src/backend/mod.rs) | The `Backend` trait, `ReviewRequest`/`ReviewOutcome`, `MockBackend`, `dispatch`, and the shared prompt/helpers (`changeset_preamble`, `EXHAUSTIVE_FINDINGS_INSTRUCTION`, `context_segment`, `interpolate`, `money_from_dollars`). |
 | [`command.rs`](../../src/backend/command.rs) | The `CommandRunner` subprocess seam: `CommandSpec` and `SystemCommandRunner`, plus a fake runner for tests. |
 | [`claude_code.rs`](../../src/backend/claude_code.rs) | The Claude Code backend. |
 | [`codex.rs`](../../src/backend/codex.rs) | The Codex backend. |
@@ -33,9 +33,10 @@ pub trait Backend {
 }
 ```
 
-A backend is handed a `ReviewRequest` (the reviewer, the run id, the repo root, and
-the base branch) and returns a `ReviewOutcome` (the structured `Verdict`, optional
-`Usage`, and the optional full transcript). The trait is deliberately small and
+A backend is handed a `ReviewRequest` (the reviewer, the run id, the repo root, the
+base branch, and the untrusted `ReviewContext` for the run) and returns a
+`ReviewOutcome` (the structured `Verdict`, optional `Usage`, and the optional full
+transcript). The trait is deliberately small and
 stable: sibling backends implement the same signature, and `dispatch` is the single
 place that grows when one lands; the trait does not.
 
@@ -134,6 +135,13 @@ regardless of which agent runs it:
   through a fresh review cycle per issue. It changes only how completely a reviewer
   reports, never the gate decision: a clean changeset still returns `pass` with no
   findings, and the reviewer's own prompt still decides what counts as an issue.
+- **`context_segment`**: renders the run's `ReviewContext` (author intent, prior
+  findings, discussion) for the reviewer, or the empty string when there is nothing to
+  add. Every backend splices it into the same slot, after the interpolated reviewer
+  prompt and before `EXHAUSTIVE_FINDINGS_INSTRUCTION` and the schema instruction. The
+  block leads with an untrusted-input preamble and scopes prior findings and routed
+  replies to the running reviewer, so each agent consumes context identically and reads
+  it as claims to weigh, never as instructions.
 - **`interpolate`**: substitutes `${key}` placeholders in a prompt from the
   reviewer's `inputs`. Unknown placeholders are left as literal text (the reviewer
   author is trusted; a literal `${...}` is harmless).
@@ -206,9 +214,10 @@ and the [user-facing status](../user-guide/README.md#status).
    (it is `#[non_exhaustive]`; keep `as_str` and the kebab-case serde form in sync).
 2. Create `src/backend/<name>.rs` implementing the `Backend` trait, building its
    `CommandSpec` and parsing its CLI's structured-output envelope into a `Verdict`.
-   Reuse `changeset_preamble`, `interpolate`, and `money_from_dollars`, and append
-   `EXHAUSTIVE_FINDINGS_INSTRUCTION` to the prompt so the new backend enumerates
-   every finding in one pass like the others. If the CLI has no native
+   Reuse `changeset_preamble`, `interpolate`, and `money_from_dollars`, splice
+   `context_segment(request)` in after the reviewer prompt, and append
+   `EXHAUSTIVE_FINDINGS_INSTRUCTION` so the new backend feeds the review context and
+   enumerates every finding in one pass like the others. If the CLI has no native
    structured-output enforcement, reuse the shared fenced-YAML `SCHEMA_INSTRUCTION`,
    `REPROMPT_SUFFIX`, and `extract_verdict` (as the Codex and Pi backends do) rather
    than re-implementing verdict-block parsing.

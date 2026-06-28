@@ -24,15 +24,16 @@ through it.
 | [`src/config.rs`](../../src/config.rs) | Registry loading and discovery (walk up for `.bastion.yaml` or `.bastion.yml`, with a deprecated `bastion/reviewers.yaml` fallback that warns; validate name uniqueness). |
 | [`src/routing.rs`](../../src/routing.rs) | Compiling trigger globs and matching them against changed files. |
 | [`src/verdict.rs`](../../src/verdict.rs) | The structured verdict (`Decision`, `Verdict`, `Finding`, `Usage`, and `Money`, which carries cents but serializes as dollars). |
+| [`src/context.rs`](../../src/context.rs) | The transport-neutral review context (`ReviewContext`): the author's stated intent, the surrounding discussion (`ContextComment` with a generic `Standing`), and a reviewer's prior findings (`PriorFinding`, keyed by a content-derived `FindingId`). A producer fills it; the backends consume it through `render_for`. Everything in it is untrusted input. |
 | [`src/event.rs`](../../src/event.rs) | The run-event schema streamed as JSONL and persisted to `run.jsonl`. |
-| [`src/git.rs`](../../src/git.rs) | The git queries the CLI needs (changed files, branch, repo root). |
+| [`src/git.rs`](../../src/git.rs) | The git queries the CLI needs (changed files, branch, repo root, and the `base..HEAD` commit messages that serve as local intent when there is no PR body). |
 | [`src/paths.rs`](../../src/paths.rs) | The data-directory layout (`Layout`), resolved by platform convention or `BASTION_DATA_DIR`. |
-| [`src/store.rs`](../../src/store.rs) | Run-history persistence: writing/reading `run.jsonl`, listing and pruning runs. |
+| [`src/store.rs`](../../src/store.rs) | Run-history persistence: writing/reading `run.jsonl`, listing and pruning runs, and recalling a branch's prior findings (`prior_findings`) from its last run for the review context. |
 | [`src/render.rs`](../../src/render.rs) | Human and JSONL output (`Format`). |
 | [`src/runner.rs`](../../src/runner.rs) | The parallel, timeout-bounded runner: fans matched reviewers out over a `JoinSet`, fails closed on error/timeout, streams events, persists each run. |
 | [`src/skills.rs`](../../src/skills.rs) | The agent skills bundled into the binary (from `skills/<slug>/SKILL.md`) and installed into a consuming repo by `bastion skills install`/`check`/`list`. The rendered file is deterministic so `check` is a version-independent drift guard. |
 | [`src/backend/`](../../src/backend/) | The agent execution boundary. See [Backends](./backends.md). |
-| [`src/github/`](../../src/github/) | The GitHub adapter (CI surface): `codeowners.rs` generates the governance block, `client.rs` is the `reqwest`-backed REST seam (a proof-carrying `ApiRequest` plus a `GitHubApi` trait and a recording test double, modeled on the backend's `CommandRunner`), and `report.rs` posts a finished run as a sticky PR comment and check runs. See the [GitHub adapter](./github-adapter.md). |
+| [`src/github/`](../../src/github/) | The GitHub adapter (CI surface): `codeowners.rs` generates the governance block, `client.rs` is the `reqwest`-backed REST seam (a proof-carrying `ApiRequest` plus a `GitHubApi` trait and a recording test double, modeled on the backend's `CommandRunner`), `report.rs` posts a finished run as a sticky PR comment and check runs, and `context.rs` gathers a PR's description and discussion into a `ReviewContext` (the GitHub producer). See the [GitHub adapter](./github-adapter.md). |
 
 ## The two boundaries that shape the design
 
@@ -66,25 +67,31 @@ Following one review top to bottom touches most of the crate:
    current branch and repo root.
 4. **Route** (`routing.rs`). Each reviewer's trigger globs are compiled and matched
    against the changed files; the matched reviewers are the ones that will run.
-5. **Run** (`runner.rs`). `execute` spawns every matched reviewer onto a `JoinSet`,
+5. **Gather context** (`context.rs`, `git.rs`, `store.rs`, `github/context.rs`).
+   Bastion assembles a `ReviewContext` for the run: the author's stated intent (a
+   non-empty PR body when reviewing a pull request, otherwise this branch's commit
+   messages as the fallback), the prior findings recalled from the last run of this
+   branch, and (on GitHub) the PR's discussion. It is best effort: a failure to reach GitHub falls back to the local
+   context. Empty context leaves every reviewer's prompt unchanged.
+6. **Run** (`runner.rs`). `execute` spawns every matched reviewer onto a `JoinSet`,
    bounds each by its `timeout` (default 15m), and emits `reviewer.started` up
    front. Each task calls `backend::dispatch` (`backend/mod.rs`), which resolves the
    reviewer's `ExecutionPlan` (failing closed on an unprovisioned capability tier),
    selects the concrete backend, and runs the agent either natively or inside a
    container for a reviewer with a `runner` block and `capabilities.network: true`
    (`backend/container/`; see [Containers](./containers.md)).
-6. **Resolve & aggregate** (`runner.rs`). Each result has fail-closed/fail-open
+7. **Resolve & aggregate** (`runner.rs`). Each result has fail-closed/fail-open
    policy applied: a gate that blocks, errors, or times out resolves to `block`
    (with a synthetic blocking finding); an advisor that fails is dropped. The
    aggregate is `block` if any gate blocked, else `pass`.
-7. **Emit & persist** (`render.rs`, `store.rs`). Events stream out as human text or
+8. **Emit & persist** (`render.rs`, `store.rs`). Events stream out as human text or
    JSONL as they happen; the full event stream, plus per-reviewer transcript,
    verdict, and metadata, is written under the run's directory, and `latest` is
    updated.
-8. **Exit** (`cli.rs`). The aggregate `Decision` maps to the process exit code:
+9. **Exit** (`cli.rs`). The aggregate `Decision` maps to the process exit code:
    `pass` -> success, `block` -> failure, so an agent loop and CI agree on the gate.
 
-The read-back commands (`transcript`, `show`, `runs`, `clean`) skip steps 3-6 and
+The read-back commands (`transcript`, `show`, `runs`, `clean`) skip steps 3-7 and
 read the persisted run store directly.
 
 ## Why the runner owns persistence

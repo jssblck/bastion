@@ -86,8 +86,20 @@ version:
 - `src/routing.rs`: compiling trigger globs and matching changed files.
 - `src/verdict.rs` / `src/event.rs`: the structured verdict and run-event
   schemas (the `Money` type carries cents but serializes as dollars).
-- `src/git.rs`: the git queries the CLI needs (changed files, branch, root).
-- `src/paths.rs` / `src/store.rs`: the data-directory layout and run history.
+- `src/context.rs`: the transport-neutral `ReviewContext` a reviewer sees beyond the
+  diff: the author's stated intent, the surrounding discussion (`ContextComment` with a
+  generic `Standing`), and a reviewer's prior findings (`PriorFinding`, keyed by a
+  content-derived `FindingId` that excludes line numbers so it survives drift). A
+  producer fills it; the backends consume it via `render_for`, which scopes prior
+  findings and routed replies to the owning reviewer. Everything in it is untrusted
+  input: `Standing` lets a reviewer weight a maintainer over an outsider but is read
+  only when rendering the prompt, never in gate logic, so no comment can flip a
+  decision. The local producer is `commands::review` (commit-message intent +
+  `store::prior_findings` recall); the GitHub producer is `src/github/context.rs`.
+- `src/git.rs`: the git queries the CLI needs (changed files, branch, root,
+  `base..HEAD` commit messages for the local intent).
+- `src/paths.rs` / `src/store.rs`: the data-directory layout and run history
+  (`store::prior_findings` recalls the last run's findings for a branch).
 - `src/render.rs`: human and JSONL output.
 - `src/runner.rs`: the parallel, timeout-bounded runner: fans matched reviewers
   out over a `JoinSet`, fails closed on error/timeout, streams run events, and
@@ -116,7 +128,17 @@ version:
   the governance block (pure text, no network); `client.rs` is the REST seam,
   modeled on the backend's `CommandRunner`: a proof-carrying `ApiRequest`, a
   `GitHubApi` trait, the real `reqwest`-backed `RestClient`, and a recording double
-  for tests; `report.rs` distills a finished run's event stream into a sticky PR
+  for tests; `context.rs` is the GitHub *producer* of the review context (it gathers a
+  PR's body and discussion over the same REST seam, maps `author_association` to the
+  generic `Standing`, filters out Bastion's own marker-tagged comments, and resolves a
+  finding-thread reply back to its `FindingId` when one carries the marker, so the core
+  never sees a GitHub notion). Two caveats matter here: the reply-routing path is wired and
+  resolves a reply whose thread root carries a finding marker, but the reporter posts one
+  sticky comment and check runs (not per-finding threads), so PR comments arrive as general
+  discussion; and prior-findings memory on GitHub needs the workflow to persist and restore
+  the run store across runs (a fresh runner starts empty; `bastion.yml` does this with an
+  upload/download of the `bastion-run` artifact). Intent and discussion are gathered fresh
+  each run and need neither. `report.rs` distills a finished run's event stream into a sticky PR
   comment and check-run payloads (all pure and unit-tested) and posts them. `bastion
   github report` reads a persisted run and posts it: the sticky comment (with every
   finding, optional ones included), a check run per reviewer, and the always-present

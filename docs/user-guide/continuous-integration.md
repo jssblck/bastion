@@ -12,8 +12,9 @@ order: 6
 The local loop gets you to green before you open a PR. CI is the authoritative
 confirmation: it runs the *same* reviewers from the *same* `.bastion.yaml`
 and reports one merge gate. Because routing and aggregation are shared, CI rarely
-surprises an author who looped locally. This chapter covers the GitHub adapter,
-the one forge Bastion targets.
+surprises an author who looped locally, though it can when it adds the PR's
+description and discussion that a default local run lacks. This chapter covers the
+GitHub adapter, the one forge Bastion targets.
 
 > Bastion does not own CI; it plugs into yours. The workflow, the secrets, the
 > preview environments, and the branch-protection rules are GitHub's. Bastion
@@ -127,8 +128,19 @@ jobs:
       - name: Review
         env:
           BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
+          # Lets the reviewers read the PR's description and discussion as context
+          # (read-only, best effort; gathering reads the first 100 conversation comments
+          # and first 100 review comments, no pagination). Omit the --repo/--pr flags
+          # below to review the diff and local context without PR discussion.
+          GITHUB_TOKEN: ${{ github.token }}
         # Non-zero exit on a blocked gate fails the job; that is the merge gate.
-        run: bastion review --base "origin/${{ github.base_ref }}"
+        # --repo/--pr feed the reviewers the PR's stated intent and discussion alongside
+        # the diff. Cross-run prior-findings memory needs the run store persisted between
+        # runs (upload and restore .bastion/runs); a fresh runner starts without it.
+        run: |
+          bastion review --base "origin/${{ github.base_ref }}" \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}"
 
       # Optional: mint a token for a dedicated Bastion app so the check runs get
       # their own check suite and render under the app's name. Skipped (and the

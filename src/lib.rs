@@ -30,6 +30,7 @@ pub mod backend;
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod context;
 pub mod event;
 pub mod git;
 pub mod github;

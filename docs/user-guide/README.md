@@ -11,8 +11,9 @@ order: 0
 This guide teaches you how to use Bastion on your own project: what it is, how to
 run it, how to write reviewers, and how to wire it into CI and governance. It is
 written for two audiences at once (the human curating the review policy and the
-agent looping against it), because Bastion shows both the same review through
-whatever surface is natural to each.
+agent looping against it), because Bastion runs the same reviewers and merge gate for
+both through whatever surface is natural to each (CI can add the PR's description and
+discussion to the reviewers' context).
 
 This guide is self-contained: everything you need to run Bastion, write reviewers,
 and wire it into CI is here, with nothing essential living elsewhere. If you want to
@@ -75,7 +76,8 @@ You declare **reviewers** (focused agent prompts, one concern each) in
 finds the reviewers whose triggers match your working-tree changes, runs them in
 parallel, and aggregates their verdicts into one decision: all gates must pass.
 An authoring agent loops `bastion review` until it is green, then opens a PR where
-CI runs the very same reviewers and largely just confirms the result. Humans stay
+CI runs the very same reviewers. CI usually confirms the result, and can differ when
+it adds the PR's description and discussion to the reviewers' context. Humans stay
 in the loop by owning the reviewer registry, not by reading every diff.
 
 ## Status
