@@ -12,8 +12,9 @@ order: 6
 The local loop gets you to green before you open a PR. CI is the authoritative
 confirmation: it runs the *same* reviewers from the *same* `.bastion.yaml`
 and reports one merge gate. Because routing and aggregation are shared, CI rarely
-surprises an author who looped locally. This chapter covers the GitHub adapter,
-the one forge Bastion targets.
+surprises an author who looped locally, though it can when it adds the PR's
+description and discussion that a default local run lacks. This chapter covers the
+GitHub adapter, the one forge Bastion targets.
 
 > Bastion does not own CI; it plugs into yours. The workflow, the secrets, the
 > preview environments, and the branch-protection rules are GitHub's. Bastion

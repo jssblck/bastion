@@ -10,8 +10,9 @@ order: 5
 > and inspecting what was saved.
 
 The local CLI is the surface an authoring agent optimizes against before opening a
-PR. It runs the *same* reviewers CI will run, so a green local loop means a PR that
-CI largely just confirms. This chapter covers the loop in depth.
+PR. It runs the *same* reviewers CI will run, so a green local loop usually means a PR
+that CI confirms. CI can still differ when it feeds reviewers the PR's description and
+discussion that a default local run lacks. This chapter covers the loop in depth.
 
 ## The loop
 
