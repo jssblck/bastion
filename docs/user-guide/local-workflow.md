@@ -28,6 +28,10 @@ them in parallel with per-reviewer timeouts, and renders progress and verdicts.
 
 - `--base <branch>`: the branch to diff against. Defaults to `main`.
 - `--format <human|jsonl>`: output format. Defaults to `human`.
+- `--repo <owner/name>`: the GitHub repository to gather pull request context from. Defaults to `$GITHUB_REPOSITORY`.
+- `--pr <number>`: the pull request whose description and discussion the reviewers read as context. Requires a repository, from `--repo` or `$GITHUB_REPOSITORY`; passing `--pr` with no repository is an error.
+
+The CI workflow passes `--repo`/`--pr` so reviewers see the PR's stated intent and discussion. Locally you rarely need them: with no PR, intent comes from your branch's commit messages (`base..HEAD`), and each reviewer's prior findings come from the run store. Gathering PR context is read-only and best effort, so an API or token failure never fails the review; it just drops back to the local context.
 
 ### Exit codes
 

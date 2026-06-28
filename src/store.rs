@@ -436,6 +436,41 @@ mod tests {
     }
 
     #[test]
+    fn prior_findings_recalls_the_newest_of_several_runs_on_the_branch() {
+        // Several runs on the same branch: recall must return the newest one's findings,
+        // not stale findings from an earlier run. `list_runs` orders by modified time and
+        // breaks ties by descending run id, so the later-written, larger-id run wins
+        // either way.
+        use crate::verdict::{Finding, FindingKind};
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = Layout::with_root(tmp.path().to_path_buf());
+
+        let finding = |detail: &str| Finding {
+            kind: FindingKind::Blocking,
+            path: "src/p.rs".into(),
+            line_start: 1,
+            line_end: 1,
+            detail: detail.into(),
+        };
+        write_run(
+            &layout,
+            &RunId("r-1".into()),
+            &run_with_findings("r-1", "feat/x", "perf", vec![finding("old finding")]),
+        )
+        .unwrap();
+        write_run(
+            &layout,
+            &RunId("r-2".into()),
+            &run_with_findings("r-2", "feat/x", "perf", vec![finding("new finding")]),
+        )
+        .unwrap();
+
+        let recalled = prior_findings(&layout, "feat/x");
+        assert_eq!(recalled.len(), 1);
+        assert_eq!(recalled[0].detail, "new finding");
+    }
+
+    #[test]
     fn prior_findings_recalls_a_same_id_run_from_an_earlier_invocation() {
         // A local rerun on a dirty working tree reuses the same run id (keyed by HEAD).
         // Recall happens before the current run is persisted, so the previous

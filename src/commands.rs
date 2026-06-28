@@ -9,6 +9,7 @@
 //! `codeowners` is pure generation.
 
 use std::io::{self, Write};
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -167,29 +168,49 @@ pub async fn review(
 
 /// The pull request a review is running against, so its description and discussion can
 /// be gathered as reviewer context. Present only when `bastion review` is given a PR.
+///
+/// The `owner/name` slug is parsed into its parts when the source is built, so a
+/// malformed repository is rejected at the boundary rather than re-checked later.
 #[derive(Debug, Clone)]
 pub struct GithubSource {
-    /// The `owner/name` repository slug (from `--repo` / `$GITHUB_REPOSITORY`).
-    pub repo: String,
+    /// The repository owner (the part before the `/`).
+    pub owner: String,
+    /// The repository name (the part after the `/`).
+    pub name: String,
     /// The pull request number.
-    pub pr: u64,
+    pub pr: NonZeroU64,
+}
+
+impl GithubSource {
+    /// Parse an `owner/name` slug and pull request number into a source.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `repo` is not a single `owner/name` pair with both parts
+    /// non-empty.
+    pub fn new(repo: &str, pr: NonZeroU64) -> Result<Self> {
+        let (owner, name) = repo
+            .split_once('/')
+            .filter(|(owner, name)| !owner.is_empty() && !name.is_empty() && !name.contains('/'))
+            .ok_or_else(|| eyre!("expected an 'owner/name' repository, got '{repo}'"))?;
+        Ok(Self {
+            owner: owner.to_string(),
+            name: name.to_string(),
+            pr,
+        })
+    }
 }
 
 /// Gather a pull request's intent and discussion over a real GitHub client.
 ///
-/// Splits the slug, builds the REST client from the environment (the same token the
-/// report step uses), and delegates to the GitHub context producer. Surfaced as an
-/// error the caller logs and recovers from, never one that fails the review.
+/// Builds the REST client from the environment (the same token the report step uses) and
+/// delegates to the GitHub context producer. Surfaced as an error the caller logs and
+/// recovers from, never one that fails the review.
 async fn gather_github_context(
     source: &GithubSource,
 ) -> Result<crate::github::context::GatheredContext> {
-    let (owner, name) = source
-        .repo
-        .split_once('/')
-        .filter(|(owner, name)| !owner.is_empty() && !name.is_empty() && !name.contains('/'))
-        .ok_or_else(|| eyre!("expected an 'owner/name' repository, got '{}'", source.repo))?;
     let client = crate::github::client::RestClient::from_env()?;
-    crate::github::context::gather(&client, owner, name, source.pr).await
+    crate::github::context::gather(&client, &source.owner, &source.name, source.pr.get()).await
 }
 
 /// `bastion validate`: parse the reviewer registry and report any problems.

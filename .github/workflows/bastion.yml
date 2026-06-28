@@ -152,6 +152,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           mkdir -p "${{ github.workspace }}/.bastion/runs"
           prior=$(gh run list --workflow bastion.yml --branch "${{ github.head_ref }}" \
             --json databaseId \
@@ -184,6 +185,7 @@ jobs:
         # engine reviews with just the diff and the prior findings it already supports,
         # and the context flags light up on their own once a release includes them.
         run: |
+          set -euo pipefail
           ctx=()
           if bastion review --help 2>/dev/null | grep -q -- '--repo'; then
             ctx+=(--repo "${{ github.repository }}" \

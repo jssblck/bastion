@@ -160,6 +160,40 @@ mod tests {
     }
 
     #[test]
+    fn commit_messages_reads_the_branch_log_oldest_first_and_trims_empty_ranges() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        git(dir, &["init"]);
+        std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+        git(dir, &["add", "a.txt"]);
+        git(dir, &["commit", "-m", "base"]);
+        // Mark the base, then add two commits on top of it.
+        git(dir, &["branch", "base"]);
+        std::fs::write(dir.join("a.txt"), "two\n").unwrap();
+        git(dir, &["commit", "-am", "first change"]);
+        std::fs::write(dir.join("a.txt"), "three\n").unwrap();
+        git(dir, &["commit", "-am", "second change"]);
+
+        // The two commits on top of `base`, oldest first.
+        let messages = commit_messages(dir, "base").expect("commits exist past base");
+        let first = messages.find("first change").expect("first commit present");
+        let second = messages
+            .find("second change")
+            .expect("second commit present");
+        assert!(
+            first < second,
+            "oldest commit should come first: {messages:?}"
+        );
+        // The base commit is below the range and must not appear.
+        assert!(!messages.contains("base"), "base is excluded: {messages:?}");
+
+        // An empty range (HEAD is at base) trims to `None` rather than an empty string.
+        assert_eq!(commit_messages(dir, "HEAD"), None);
+        // An unresolvable range is also `None`, not an error.
+        assert_eq!(commit_messages(dir, "no-such-ref"), None);
+    }
+
+    #[test]
     fn short_head_reports_a_hash_after_a_commit_and_none_before() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();

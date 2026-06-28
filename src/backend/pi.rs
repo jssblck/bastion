@@ -731,6 +731,41 @@ mod tests {
         assert_eq!(backend.id(), reviewer::Backend::Pi);
     }
 
+    #[test]
+    fn build_prompt_splices_a_non_empty_review_context_after_the_instruction() {
+        // A non-empty context must reach the Pi prompt, spliced between the reviewer's own
+        // instruction and the exhaustive-findings instruction. Removing or misplacing the
+        // `context_segment` splice would fail this without needing a full review.
+        let reviewer = reviewer();
+        let run = RunId("r-test".into());
+        let root = PathBuf::from(".");
+        let context = crate::context::ReviewContext {
+            intent: Some("Deliberate schema change; the migration self-heals.".into()),
+            ..Default::default()
+        };
+        let req = ReviewRequest {
+            reviewer: &reviewer,
+            run: &run,
+            repo_root: &root,
+            base: "main",
+            context: &context,
+        };
+        let prompt = build_prompt(&req);
+        let prompt_at = prompt
+            .find("Check the thing.")
+            .expect("reviewer prompt present");
+        let context_at = prompt
+            .find("### Author's stated intent")
+            .expect("review context spliced in");
+        let exhaustive_at = prompt
+            .find(crate::backend::EXHAUSTIVE_FINDINGS_INSTRUCTION)
+            .expect("exhaustive instruction present");
+        assert!(
+            prompt_at < context_at && context_at < exhaustive_at,
+            "context must sit after the reviewer instruction and before the exhaustive one"
+        );
+    }
+
     #[tokio::test]
     async fn applies_house_default_thinking_and_no_model_when_unset() {
         let message = "```yaml\nverdict: pass\nsummary: ok\nfindings: []\n```";

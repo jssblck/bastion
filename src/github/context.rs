@@ -30,10 +30,10 @@ use crate::context::{ContextComment, FindingId, Standing};
 
 use super::client::{ApiRequest, GitHubApi};
 
-/// The hidden marker Bastion stamps on a per-finding comment, carrying the finding's
-/// [`FindingId`] so a reply thread can be routed back to it. The reporting half emits
-/// this when it posts a finding as its own comment thread; until then, resolving a
-/// reply against it simply finds no match and the reply is treated as general.
+/// The hidden marker carrying a finding's [`FindingId`] on a comment. A reply whose
+/// thread root carries this marker resolves back to that [`FindingId`] and reaches the
+/// reviewer that raised the finding. The reporter posts one sticky comment and check
+/// runs, so PR comments arrive as general discussion.
 const FINDING_MARKER_PREFIX: &str = "<!-- bastion-finding:";
 
 /// Any comment whose body carries a `<!-- bastion` marker is Bastion's own (the sticky
@@ -93,7 +93,7 @@ pub async fn gather<A: GitHubApi + ?Sized>(
     // thread's root comment. When that root is a Bastion finding comment, the reply is
     // routed back to the finding it answers. Build the id->body map over *all* review
     // comments (Bastion's included) so a reply onto a Bastion root resolves.
-    let roots: std::collections::HashMap<u64, &str> = review_comments
+    let roots: std::collections::HashMap<CommentId, &str> = review_comments
         .iter()
         .map(|raw| (raw.id, raw.body.as_str()))
         .collect();
@@ -138,11 +138,9 @@ fn finding_marker(body: &str) -> Option<FindingId> {
     let start = body.find(FINDING_MARKER_PREFIX)? + FINDING_MARKER_PREFIX.len();
     let rest = &body[start..];
     let end = rest.find("-->")?;
-    let id = rest[..end].trim();
-    if id.is_empty() {
-        return None;
-    }
-    Some(FindingId::from_raw(id))
+    // A checked parse: an empty, truncated, or otherwise malformed id resolves to no
+    // finding rather than a bogus id that could never match a real one.
+    FindingId::from_hex(rest[..end].trim())
 }
 
 /// `GET` the pull request itself (for its body).
@@ -197,12 +195,19 @@ struct PullRequest {
     body: Option<String>,
 }
 
+/// A GitHub comment id: the key that threads a review-comment reply onto its root. A
+/// newtype so a comment id cannot be confused with any other `u64` (a PR number, a finding
+/// hash) and so a missing-but-required id is a parse error, never a `0` that could collide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+struct CommentId(u64);
+
 /// The slice of a GitHub comment Bastion reads, shared by issue and review comments.
 /// Unknown fields are ignored.
 #[derive(Debug, Deserialize)]
 struct RawComment {
-    #[serde(default)]
-    id: u64,
+    /// The comment's own id. Required: every GitHub comment carries one, and a thread
+    /// reply routes by it, so a payload without it is malformed rather than defaultable.
+    id: CommentId,
     #[serde(default)]
     body: String,
     #[serde(default)]
@@ -212,7 +217,7 @@ struct RawComment {
     /// Present on a review comment that replies within a thread: the id of the thread's
     /// root comment. Absent on issue comments and on a thread's first comment.
     #[serde(default)]
-    in_reply_to_id: Option<u64>,
+    in_reply_to_id: Option<CommentId>,
 }
 
 impl RawComment {
@@ -269,9 +274,9 @@ mod tests {
         let client = responder(
             serde_json::json!({ "body": "## Why\nDeliberate schema nuke." }),
             serde_json::json!([
-                { "body": "Looks good to me.", "user": { "login": "grace" }, "author_association": "OWNER" },
-                { "body": "<!-- bastion-report -->\n## Bastion review\nBlocked.", "user": { "login": "github-actions[bot]" }, "author_association": "NONE" },
-                { "body": "   ", "user": { "login": "ada" }, "author_association": "CONTRIBUTOR" }
+                { "id": 1, "body": "Looks good to me.", "user": { "login": "grace" }, "author_association": "OWNER" },
+                { "id": 2, "body": "<!-- bastion-report -->\n## Bastion review\nBlocked.", "user": { "login": "github-actions[bot]" }, "author_association": "NONE" },
+                { "id": 3, "body": "   ", "user": { "login": "ada" }, "author_association": "CONTRIBUTOR" }
             ]),
             serde_json::json!([]),
         );
@@ -294,12 +299,12 @@ mod tests {
         let client = responder(
             serde_json::json!({ "body": "" }),
             serde_json::json!([
-                { "body": "owner", "user": { "login": "a" }, "author_association": "OWNER" },
-                { "body": "member", "user": { "login": "b" }, "author_association": "MEMBER" },
-                { "body": "collab", "user": { "login": "c" }, "author_association": "COLLABORATOR" },
-                { "body": "contrib", "user": { "login": "d" }, "author_association": "CONTRIBUTOR" },
-                { "body": "none", "user": { "login": "e" }, "author_association": "NONE" },
-                { "body": "weird", "user": { "login": "f" }, "author_association": "FIRST_TIMER" }
+                { "id": 1, "body": "owner", "user": { "login": "a" }, "author_association": "OWNER" },
+                { "id": 2, "body": "member", "user": { "login": "b" }, "author_association": "MEMBER" },
+                { "id": 3, "body": "collab", "user": { "login": "c" }, "author_association": "COLLABORATOR" },
+                { "id": 4, "body": "contrib", "user": { "login": "d" }, "author_association": "CONTRIBUTOR" },
+                { "id": 5, "body": "none", "user": { "login": "e" }, "author_association": "NONE" },
+                { "id": 6, "body": "weird", "user": { "login": "f" }, "author_association": "FIRST_TIMER" }
             ]),
             serde_json::json!([]),
         );
@@ -386,13 +391,25 @@ mod tests {
 
     #[test]
     fn finding_marker_parses_and_rejects() {
+        // A well-formed 16-hex-digit id parses.
         assert_eq!(
-            finding_marker("<!-- bastion-finding:deadbeef -->\nbody")
+            finding_marker("<!-- bastion-finding:abc123def4560000 -->\nbody")
                 .map(|f| f.as_str().to_string()),
-            Some("deadbeef".to_string())
+            Some("abc123def4560000".to_string())
         );
         // No marker, or an empty id, yields nothing.
         assert_eq!(finding_marker("just a comment"), None);
         assert_eq!(finding_marker("<!-- bastion-finding: -->"), None);
+        // A malformed id (wrong length, non-hex, or uppercase) is rejected by the
+        // checked parse rather than producing a bogus id that can never match.
+        assert_eq!(finding_marker("<!-- bastion-finding:deadbeef -->"), None);
+        assert_eq!(
+            finding_marker("<!-- bastion-finding:abc123def456000g -->"),
+            None
+        );
+        assert_eq!(
+            finding_marker("<!-- bastion-finding:ABC123DEF4560000 -->"),
+            None
+        );
     }
 }

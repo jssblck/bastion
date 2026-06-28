@@ -132,11 +132,11 @@ version:
   PR's body and discussion over the same REST seam, maps `author_association` to the
   generic `Standing`, filters out Bastion's own marker-tagged comments, and resolves a
   finding-thread reply back to its `FindingId` when one carries the marker, so the core
-  never sees a GitHub notion). Two caveats hold today: the reply-routing path is wired but
-  inactive until the reporter posts per-finding comment threads (it currently posts one
-  sticky comment and check runs, so PR comments arrive as general discussion), and
-  prior-findings memory on GitHub needs the workflow to persist and restore the run store
-  across runs (a fresh runner starts empty; `bastion.yml` does this with an
+  never sees a GitHub notion). Two caveats matter here: the reply-routing path is wired and
+  resolves a reply whose thread root carries a finding marker, but the reporter posts one
+  sticky comment and check runs (not per-finding threads), so PR comments arrive as general
+  discussion; and prior-findings memory on GitHub needs the workflow to persist and restore
+  the run store across runs (a fresh runner starts empty; `bastion.yml` does this with an
   upload/download of the `bastion-run` artifact). Intent and discussion are gathered fresh
   each run and need neither. `report.rs` distills a finished run's event stream into a sticky PR
   comment and check-run payloads (all pure and unit-tested) and posts them. `bastion

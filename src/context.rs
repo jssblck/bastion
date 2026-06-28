@@ -1,19 +1,19 @@
 //! The review context: what a reviewer is told *about* a changeset beyond the
 //! diff itself.
 //!
-//! A reviewer runs as a fitness function over a changeset, and for a long time the
-//! only thing it saw was the diff. That makes it re-litigate settled questions: it
-//! re-raises a finding the author already addressed or pushed back on, and it flags
-//! a deliberate decision (a breaking migration, a knowingly-accepted tradeoff) as a
-//! defect because the *why* lived in the pull request, not the code. [`ReviewContext`]
-//! carries that missing context: the author's stated intent, the surrounding
-//! discussion, and the reviewer's own prior findings on the same change.
+//! A reviewer runs as a fitness function over a changeset. A reviewer that sees only
+//! the diff re-litigates settled questions: it re-raises a finding the author already
+//! addressed or pushed back on, and it flags a deliberate decision (a breaking
+//! migration, a knowingly-accepted tradeoff) as a defect because the *why* lives in the
+//! pull request, not the code. [`ReviewContext`] carries that missing context: the
+//! author's stated intent, the surrounding discussion, and the reviewer's own prior
+//! findings on the same change.
 //!
 //! This module is deliberately transport-neutral. It knows nothing about GitHub,
 //! pull requests, or `author_association`. The local loop and the GitHub adapter are
 //! each a *producer* that fills a [`ReviewContext`]; the runner and the backends only
-//! ever consume one. That is the whole seam: a plain data type, populated by whichever
-//! transport is in play and consumed identically regardless. GitHub-specific notions
+//! ever consume one. The seam is a plain data type, populated by the active transport
+//! and consumed the same way by the runner and backends. GitHub-specific notions
 //! (an `author_association`, a reply thread) are mapped onto the generic [`Standing`]
 //! and [`FindingId`] at the adapter boundary and never leak inward.
 //!
@@ -112,10 +112,15 @@ impl FindingId {
         &self.0
     }
 
-    /// Wrap an already-computed id string (parsed from a marker the adapter posted).
+    /// Parse a finding id from the hex a marker carries (the `{:016x}` form
+    /// [`for_finding`](Self::for_finding) renders). Returns `None` unless `raw` is
+    /// exactly 16 lowercase hex digits, so a malformed or truncated marker resolves to no
+    /// finding rather than a bogus id that could never match a real one.
     #[must_use]
-    pub fn from_raw(raw: impl Into<String>) -> Self {
-        Self(raw.into())
+    pub fn from_hex(raw: &str) -> Option<Self> {
+        let well_formed =
+            raw.len() == 16 && raw.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+        well_formed.then(|| Self(raw.to_string()))
     }
 }
 
