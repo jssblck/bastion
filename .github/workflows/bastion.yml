@@ -27,11 +27,13 @@ on:
 
 # Read the diff and fail the job, and write the surfaces `bastion github report`
 # posts after the review: the sticky PR comment (`pull-requests: write`) and the
-# per-reviewer and aggregate check runs (`checks: write`).
+# per-reviewer and aggregate check runs (`checks: write`). `actions: read` lets the
+# restore step list and download this branch's prior run artifact.
 permissions:
   contents: read
   pull-requests: write
   checks: write
+  actions: read
 
 # One in-flight review per PR; a new push cancels the previous run.
 concurrency:
@@ -153,7 +155,8 @@ jobs:
           mkdir -p "${{ github.workspace }}/.bastion/runs"
           prior=$(gh run list --workflow bastion.yml --branch "${{ github.head_ref }}" \
             --json databaseId \
-            --jq "map(select(.databaseId != ${{ github.run_id }})) | .[0].databaseId // empty")
+            --jq "map(select(.databaseId != ${{ github.run_id }})) | .[0].databaseId // empty" \
+            || true)
           if [ -n "$prior" ]; then
             gh run download "$prior" -n bastion-run -D "${{ github.workspace }}/.bastion/runs" \
               || echo "no prior bastion-run artifact to restore (first run or expired)"
@@ -238,4 +241,8 @@ jobs:
         with:
           name: bastion-run
           path: ${{ github.workspace }}/.bastion/runs/**
+          # The data dir is dot-prefixed (`.bastion`), so its files are hidden;
+          # without this the upload would silently exclude every run and the
+          # restore step on the next push would download nothing.
+          include-hidden-files: true
           if-no-files-found: warn
