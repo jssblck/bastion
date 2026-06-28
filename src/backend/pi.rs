@@ -306,14 +306,17 @@ fn sum_usage(first: Option<Usage>, second: Option<Usage>) -> Option<Usage> {
 
 /// Build the full prompt handed to Pi for `request`: the shared changeset preamble
 /// (how to see the diff against the base branch), the interpolated review
-/// instruction, the shared exhaustive-findings instruction (report every issue in
-/// one pass), and the shared schema instruction (end with a fenced YAML verdict).
+/// instruction, the untrusted review-context block (intent, discussion, and this
+/// reviewer's prior findings, when a producer supplied any), the shared
+/// exhaustive-findings instruction (report every issue in one pass), and the shared
+/// schema instruction (end with a fenced YAML verdict).
 fn build_prompt(request: &ReviewRequest<'_>) -> String {
     let reviewer = request.reviewer;
     let preamble = super::changeset_preamble(request.base);
     let interpolated = super::interpolate(&reviewer.prompt, &reviewer.inputs);
+    let context = super::context_segment(request);
     let exhaustive = super::EXHAUSTIVE_FINDINGS_INSTRUCTION;
-    format!("{preamble}\n\n{interpolated}\n\n{exhaustive}\n\n{SCHEMA_INSTRUCTION}")
+    format!("{preamble}\n\n{interpolated}\n\n{context}{exhaustive}\n\n{SCHEMA_INSTRUCTION}")
 }
 
 /// A parsed Pi `--mode json` session: the reconstructed transcript, the final
@@ -705,6 +708,7 @@ mod tests {
             run,
             repo_root: root,
             base: "main",
+            context: crate::context::ReviewContext::empty(),
         }
     }
 

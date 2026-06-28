@@ -263,15 +263,18 @@ fn outcome(verdict: Verdict, session: CodexSession, prior: Option<&CodexSession>
 
 /// Build the full prompt handed to Codex for `request`: the shared changeset
 /// preamble (how to see the diff against the base branch), the interpolated review
-/// instruction, the shared exhaustive-findings instruction (report every issue in
-/// one pass), and the schema instruction.
+/// instruction, the untrusted review-context block (intent, discussion, and this
+/// reviewer's prior findings, when a producer supplied any), the shared
+/// exhaustive-findings instruction (report every issue in one pass), and the schema
+/// instruction.
 fn build_prompt(request: &ReviewRequest<'_>) -> String {
     let reviewer = request.reviewer;
     let preamble = super::changeset_preamble(request.base);
     let interpolated = super::interpolate(&reviewer.prompt, &reviewer.inputs);
+    let context = super::context_segment(request);
     let exhaustive = super::EXHAUSTIVE_FINDINGS_INSTRUCTION;
     let schema = super::SCHEMA_INSTRUCTION;
-    format!("{preamble}\n\n{interpolated}\n\n{exhaustive}\n\n{schema}")
+    format!("{preamble}\n\n{interpolated}\n\n{context}{exhaustive}\n\n{schema}")
 }
 
 /// A parsed Codex `exec --json` session: the reconstructed transcript, the final
@@ -683,6 +686,7 @@ mod tests {
             run,
             repo_root: root,
             base: "main",
+            context: crate::context::ReviewContext::empty(),
         }
     }
 

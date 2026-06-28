@@ -77,6 +77,25 @@ pub fn changed_files(cwd: &Path, base: &str) -> Result<Vec<String>> {
     Ok(files.into_iter().collect())
 }
 
+/// The commit messages on `HEAD` since it diverged from `base`, oldest first, as the
+/// local stand-in for a pull request description.
+///
+/// This is the local mirror of a PR body: the author's stated intent for the change,
+/// drawn from the commits on this branch (`base..HEAD`). Returns `None` when the range
+/// is empty (nothing committed against `base` yet, e.g. work still entirely in the
+/// working tree) or git cannot resolve the range, so an absent intent simply leaves a
+/// reviewer's prompt unchanged.
+#[must_use]
+pub fn commit_messages(cwd: &Path, base: &str) -> Option<String> {
+    let range = format!("{base}..HEAD");
+    // `%B` is the raw subject and body; `--reverse` orders oldest commit first so the
+    // narrative reads in the order it was written.
+    run_git(cwd, &["log", "--reverse", "--format=%B", &range])
+        .ok()
+        .map(|messages| messages.trim().to_string())
+        .filter(|messages| !messages.is_empty())
+}
+
 /// The short commit hash of `HEAD`, or `None` when git cannot supply one (for
 /// example a repository with no commits yet).
 ///

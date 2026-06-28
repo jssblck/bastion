@@ -43,6 +43,16 @@ pub enum Command {
         /// Output format.
         #[arg(long, value_enum, default_value_t = Format::Human)]
         format: Format,
+        /// The `owner/name` repository, used with `--pr` to gather the pull request's
+        /// description and discussion as reviewer context. Defaults to
+        /// `$GITHUB_REPOSITORY`.
+        #[arg(long, value_name = "OWNER/NAME", env = "GITHUB_REPOSITORY")]
+        repo: Option<String>,
+        /// The pull request number. When set (with `--repo`), the reviewers are given
+        /// the PR's description, discussion, and their prior findings as context.
+        /// Absent for a purely local review, which uses only the local context.
+        #[arg(long, value_name = "N")]
+        pr: Option<u64>,
     },
     /// Parse the reviewer registry and report any problems, without running a
     /// reviewer or spending a model call.
@@ -171,9 +181,18 @@ pub async fn run() -> Result<ExitCode> {
     };
 
     match cli.command {
-        Command::Review { base, format } => {
+        Command::Review {
+            base,
+            format,
+            repo,
+            pr,
+        } => {
             let cwd = std::env::current_dir().wrap_err("determining the current directory")?;
-            let decision = crate::commands::review(&layout, &cwd, &base, format).await?;
+            // A PR review needs both a repository and a number; `--pr` without a
+            // resolvable `--repo`/`$GITHUB_REPOSITORY` falls back to a local review.
+            let github =
+                pr.and_then(|pr| repo.map(|repo| crate::commands::GithubSource { repo, pr }));
+            let decision = crate::commands::review(&layout, &cwd, &base, format, github).await?;
             // A blocked review is an expected, non-error outcome that must still
             // signal failure to the caller: map `block` to a non-zero exit.
             Ok(match decision {
@@ -252,9 +271,23 @@ mod tests {
     fn review_defaults_to_human_against_main() {
         let cli = Cli::parse_from(["bastion", "review"]);
         match cli.command {
-            Command::Review { base, format } => {
+            // `repo`/`pr` are ignored here: `repo` reads `$GITHUB_REPOSITORY`, which is
+            // set under Actions (including Bastion's own CI), so it is not deterministic.
+            Command::Review { base, format, .. } => {
                 assert_eq!(base, "main");
                 assert_eq!(format, Format::Human);
+            }
+            other => panic!("expected review, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn review_accepts_a_pull_request_for_context() {
+        let cli = Cli::parse_from(["bastion", "review", "--repo", "acme/app", "--pr", "42"]);
+        match cli.command {
+            Command::Review { repo, pr, .. } => {
+                assert_eq!(repo.as_deref(), Some("acme/app"));
+                assert_eq!(pr, Some(42));
             }
             other => panic!("expected review, got {other:?}"),
         }

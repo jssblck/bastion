@@ -12,9 +12,10 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use color_eyre::eyre::{Context, Result};
+use color_eyre::eyre::{Context, Result, eyre};
 
 use crate::config::Config;
+use crate::context::ReviewContext;
 use crate::event::{ReviewerRef, RunEvent, RunId};
 use crate::git;
 use crate::paths::Layout;
@@ -41,11 +42,22 @@ use crate::verdict::{Decision, Money};
 /// `cwd` is the directory to resolve the repository and config from: the process
 /// working directory in normal use, but explicit so the handler is testable.
 ///
+/// `github` carries the `owner/name` slug and PR number when the review runs against a
+/// pull request, so the reviewers get its description and discussion as context. It is
+/// best effort: a failure to reach GitHub is logged and the review proceeds on the
+/// local context (commit messages and prior findings) alone.
+///
 /// # Errors
 ///
 /// Returns an error if the repository, config, git queries, or persistence fail.
 /// A blocked review is *not* an error: it returns `Ok(Decision::Block)`.
-pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> Result<Decision> {
+pub async fn review(
+    layout: &Layout,
+    cwd: &Path,
+    base: &str,
+    format: Format,
+    github: Option<GithubSource>,
+) -> Result<Decision> {
     let repo_root = git::repo_root(cwd)?;
     let branch = git::current_branch(&repo_root)?;
     let config = Config::discover(&repo_root)?;
@@ -97,6 +109,31 @@ pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> 
         return Ok(Decision::Pass);
     }
 
+    // Assemble the review context: the author's stated intent (the PR body, or this
+    // branch's commit messages locally), this branch's prior findings recalled from the
+    // run store, and the surrounding discussion (GitHub only). Empty when nothing
+    // applies, which leaves every reviewer's prompt exactly as it was.
+    let mut context = ReviewContext {
+        intent: git::commit_messages(&repo_root, base),
+        comments: Vec::new(),
+        prior_findings: store::prior_findings(layout, &branch, &run),
+    };
+    if let Some(source) = github.as_ref() {
+        match gather_github_context(source).await {
+            Ok(gathered) => {
+                // A PR body is a better statement of intent than the commit messages,
+                // so it wins when present; the discussion is GitHub-only.
+                if gathered.intent.is_some() {
+                    context.intent = gathered.intent;
+                }
+                context.comments = gathered.comments;
+            }
+            Err(err) => {
+                eprintln!("bastion review: continuing without GitHub context ({err:#})");
+            }
+        }
+    }
+
     let ctx = ExecContext {
         run,
         repo_root,
@@ -104,6 +141,7 @@ pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> 
         base: base.to_string(),
         changed: changed_count,
         reviewers: reviewer_refs,
+        context,
     };
 
     // The runner streams the per-reviewer and completion events; render each as it
@@ -125,6 +163,33 @@ pub async fn review(layout: &Layout, cwd: &Path, base: &str, format: Format) -> 
     }
 
     Ok(aggregate)
+}
+
+/// The pull request a review is running against, so its description and discussion can
+/// be gathered as reviewer context. Present only when `bastion review` is given a PR.
+#[derive(Debug, Clone)]
+pub struct GithubSource {
+    /// The `owner/name` repository slug (from `--repo` / `$GITHUB_REPOSITORY`).
+    pub repo: String,
+    /// The pull request number.
+    pub pr: u64,
+}
+
+/// Gather a pull request's intent and discussion over a real GitHub client.
+///
+/// Splits the slug, builds the REST client from the environment (the same token the
+/// report step uses), and delegates to the GitHub context producer. Surfaced as an
+/// error the caller logs and recovers from, never one that fails the review.
+async fn gather_github_context(
+    source: &GithubSource,
+) -> Result<crate::github::context::GatheredContext> {
+    let (owner, name) = source
+        .repo
+        .split_once('/')
+        .filter(|(owner, name)| !owner.is_empty() && !name.is_empty() && !name.contains('/'))
+        .ok_or_else(|| eyre!("expected an 'owner/name' repository, got '{}'", source.repo))?;
+    let client = crate::github::client::RestClient::from_env()?;
+    crate::github::context::gather(&client, owner, name, source.pr).await
 }
 
 /// `bastion validate`: parse the reviewer registry and report any problems.
@@ -602,7 +667,7 @@ mod tests {
         std::fs::write(dir.join("main.rs"), "fn main() {}\n").unwrap();
 
         let layout = Layout::with_root(data.path().to_path_buf());
-        let decision = review(&layout, dir, "main", Format::Jsonl)
+        let decision = review(&layout, dir, "main", Format::Jsonl, None)
             .await
             .expect("zero-match review passes");
         assert_eq!(decision, Decision::Pass);

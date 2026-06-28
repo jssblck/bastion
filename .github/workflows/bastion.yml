@@ -148,11 +148,18 @@ jobs:
           BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
           # Resolve the `codex` binary npm just put on PATH.
           BASTION_CODEX_BIN: codex
+          # Lets the review gather the PR's description and discussion as reviewer
+          # context (read-only; best effort, so a failure here never fails the review).
+          GITHUB_TOKEN: ${{ github.token }}
         # Default GitHub bash runs with `-eo pipefail`, so a blocked review's
         # non-zero exit fails the job (and the required check). The human-readable
         # stream goes to the log; the canonical JSONL is persisted under
-        # BASTION_DATA_DIR and uploaded below.
-        run: bastion review --base "origin/${{ github.base_ref }}"
+        # BASTION_DATA_DIR and uploaded below. `--repo`/`--pr` feed the reviewers the
+        # PR's stated intent and discussion alongside their prior findings.
+        run: |
+          bastion review --base "origin/${{ github.base_ref }}" \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}"
 
       - name: Mint a dedicated app token for reporting
         id: app-token

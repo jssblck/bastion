@@ -877,6 +877,63 @@ fn env_propagation_and_input_interpolation_reach_the_agent() {
     assert_eq!(gates.passed, 3);
 }
 
+/// A reviewer's prior findings reach its prompt on the next run of the same branch,
+/// through the real binary. The first run blocks with a finding; the second run, on a
+/// new commit of the same branch, is configured so the fake agent fails its contract
+/// unless the delivered prompt carries that prior finding's text. A clean pass on the
+/// second run proves the prior-findings context was recalled from the run store and
+/// rendered into the prompt end to end (recall + render + backend splice).
+#[test]
+fn prior_findings_reach_the_next_runs_prompt() {
+    let Some(fake) = tooling() else { return };
+
+    // Run 1: the reviewer blocks, persisting a finding (the fake's `block` behavior
+    // emits `detail: simulated blocking finding`).
+    let repo = TestRepo::new(&registry(&[
+        Reviewer::new("memory", "claude-code", "gate").behavior("block")
+    ]));
+    let first = repo.review(fake);
+    let (decision, _gates, _cost) = first.completed();
+    assert_eq!(decision, Decision::Block, "stderr:\n{}", first.stderr);
+
+    // Reconfigure the same reviewer to pass, but assert (via the fake's contract
+    // check) that the prompt now carries the prior finding's text. If the prior
+    // findings did not reach the prompt, the fake exits non-zero and the gate fails
+    // closed, so the run would block instead of pass.
+    std::fs::write(
+        repo.path().join(".bastion.yaml"),
+        registry(&[Reviewer::new("memory", "claude-code", "gate")
+            .env("FAKE_EXPECT_PROMPT_CONTAINS", "simulated blocking finding")]),
+    )
+    .unwrap();
+    // Advance HEAD so the second run gets its own run id (recall looks back at *prior*
+    // runs on the branch), then re-dirty so the reviewer still triggers.
+    repo.commit_all("iterate");
+    std::fs::write(
+        repo.path().join("src/memory_probe.rs"),
+        "pub fn probe() {}\n",
+    )
+    .unwrap();
+
+    let second = repo.review(fake);
+    assert!(second.exited_zero(), "stderr:\n{}", second.stderr);
+    let (decision, gates, _cost) = second.completed();
+    assert_eq!(
+        decision,
+        Decision::Pass,
+        "the second run should pass, which it only can if the prior finding reached the \
+         prompt (else the fake's contract check fails closed); stderr:\n{}",
+        second.stderr
+    );
+    assert_eq!(gates.passed, 1);
+    let (verdict, summary, _findings, _usage) = second.resolved("memory");
+    assert_eq!(verdict, Decision::Pass);
+    assert!(
+        !summary.contains("did not produce a verdict"),
+        "the reviewer should have produced a real verdict, not failed closed: {summary}"
+    );
+}
+
 /// Reviewers run concurrently, not serially. Eight reviewers each sleep two
 /// seconds; awaited concurrently the run finishes in a few seconds, far under the
 /// ~16s a serial execution would take.

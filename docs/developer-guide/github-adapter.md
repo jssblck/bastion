@@ -24,10 +24,13 @@ Bastion runs as a GitHub Actions workflow triggered on pull request events: `ope
 
 1. Computes the changed file set for the PR.
 2. Routes: selects the reviewers whose `trigger` globs match the changed files.
-3. Runs each selected reviewer through its backend, in parallel, with per-reviewer timeouts (see the core design's _Aggregation & the merge gate_).
-4. Reports each verdict back to the PR.
+3. Gathers the PR's [review context](./design.md#review-context): `bastion review --repo OWNER/NAME --pr N` reads the PR description and discussion over the REST seam ([`src/github/context.rs`](../../src/github/context.rs)) and hands the reviewers that context alongside their prior findings. Best effort: if the API call fails, the review proceeds on the local context (commit messages and prior findings) alone.
+4. Runs each selected reviewer through its backend, in parallel, with per-reviewer timeouts (see the core design's _Aggregation & the merge gate_).
+5. Reports each verdict back to the PR.
 
 Native reviewers run directly on the Actions runner. A reviewer that declares a container `runner` and `capabilities.network: true` runs its backend inside that container on the Actions runner (the engine is already present on GitHub-hosted runners); see [Containers](./containers.md). None of routing or aggregation is GitHub-specific; only the steps that read the PR and write results go through the adapter.
+
+The adapter is the GitHub *producer* of the review context. It maps GitHub's notions onto the transport-neutral `ReviewContext` and discards the rest at the boundary: the PR body becomes the author's stated intent; each non-Bastion comment becomes an untrusted claim carrying the commenter's `Standing` (mapped from `author_association`, so a reviewer can weight a maintainer above an outsider without ever obeying either); Bastion's own past comments are filtered out by their hidden marker so a reviewer never reads itself. A reply on a finding's thread is routed back to that finding by the `FindingId` Bastion stamps in a hidden marker, so the reply reaches the reviewer that raised it. The core never sees an `author_association` or a comment id.
 
 ---
 
@@ -185,8 +188,16 @@ jobs:
         env:
           BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
           PREVIEW_URL: ${{ steps.preview.outputs.url }}
+          # Lets the review gather the PR's description and discussion as context
+          # (read-only, best effort). Needs `pull-requests: read` or higher.
+          GITHUB_TOKEN: ${{ github.token }}
         # Non-zero exit on a blocked gate fails the job; that is the merge gate.
-        run: bastion review --base "origin/${{ github.base_ref }}"
+        # `--repo`/`--pr` feed the reviewers the PR's stated intent and discussion
+        # alongside their prior findings; omit them for a context-free review.
+        run: |
+          bastion review --base "origin/${{ github.base_ref }}" \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}"
 
       # Optional: mint a token for a dedicated Bastion app so the report's check
       # runs get their own named check suite (see "Check-run grouping" below).

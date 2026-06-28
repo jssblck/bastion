@@ -15,6 +15,7 @@
 
 pub mod client;
 pub mod codeowners;
+pub mod context;
 pub mod report;
 
 use color_eyre::eyre::{Result, eyre};

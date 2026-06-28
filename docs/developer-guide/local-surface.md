@@ -14,6 +14,8 @@ The guiding rule carries over: Bastion does not own your environment, it plugs i
 
 The intended use is the loop from the core design: an agent runs `bastion review`, reads the stream, fixes what blocks, runs it again, and repeats until it is green, before ever opening a PR.
 
+The [review context](./design.md#review-context) mirrors GitHub here too, with whatever the local surface makes natural. There is no PR, so the author's stated intent comes from the branch's commit messages (`base..HEAD`) instead of a PR description, and there is no discussion thread to gather. The one part that is identical to CI is prior-findings memory: because every run is persisted locally, a second `bastion review` on the same branch reminds each reviewer of what it raised last time, recalled straight from the run store. So the local loop already stops re-litigating its own prior findings, with no GitHub involved; the PR description and discussion are simply the extra context the GitHub surface can add on top.
+
 ---
 
 ## Streaming output
