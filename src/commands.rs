@@ -174,11 +174,11 @@ pub async fn review(
 #[derive(Debug, Clone)]
 pub struct GithubSource {
     /// The repository owner (the part before the `/`).
-    pub owner: String,
+    owner: String,
     /// The repository name (the part after the `/`).
-    pub name: String,
+    name: String,
     /// The pull request number.
-    pub pr: NonZeroU64,
+    pr: NonZeroU64,
 }
 
 impl GithubSource {
