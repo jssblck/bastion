@@ -217,8 +217,10 @@ These local events are not a separate system from CI; they are the same decision
 a finer-grained form. Every JSONL event here has a GitHub twin (a check run, a
 comment, an annotation), laid out side by side in the
 [Continuous integration](./continuous-integration.md#how-a-run-maps-to-github)
-chapter. A green local loop predicts a green PR because the two surfaces compute the
-same review.
+chapter. A green local loop predicts a green PR when both runs see the same context.
+The two surfaces run the same reviewers and aggregation, and CI adds the PR's
+description and discussion that a default local run does not, so a reviewer that
+weighs that context can decide differently.
 
 ---
 

@@ -112,8 +112,10 @@ verdicts into a single decision:
 
 Locally, that aggregate is the exit code of `bastion review`. In CI it is the result
 of the Bastion review job, and `bastion github report` also posts it as a single
-always-present check named `bastion`. Either way, the same reviewers compute the
-same decision in both places.
+always-present check named `bastion`. Either way it is the same reviewers and the same
+aggregation rule. The decision matches when both runs see the same context; CI can add
+the PR's description and discussion that a default local run does not, so a reviewer
+that weighs that context can decide differently.
 
 ## The backend
 
