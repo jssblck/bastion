@@ -42,8 +42,8 @@ compiler or a test cannot. The whole system follows from five principles:
    special; it is just another reviewer whose single concern is that property.
 2. **Reviewers run in the author's own loop, not only in CI.** The same reviewer
    runs locally (fast, pre-PR) and in CI (authoritative), so CI usually confirms a
-   green local loop instead of springing a slow surprise. The two can differ when CI
-   feeds reviewers the PR's description and discussion that a default local run lacks.
+   green local loop. The two can differ when CI feeds reviewers the PR's description
+   and discussion that a default local run lacks.
 3. **Humans sit at the policy layer.** The goal is not human-out-of-the-loop. It
    is to move the human from reviewing diffs to *authoring, curating, and
    governing reviewers*, plus triaging escapes (bugs that slipped through a review
