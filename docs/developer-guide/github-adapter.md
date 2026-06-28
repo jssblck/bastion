@@ -261,5 +261,5 @@ The workflow mints an installation token from those secrets with [`actions/creat
 GitHub-specific limitations, separate from the core design's list.
 
 - Merge queue. The adapter relies on GitHub auto-merge plus a required check; it does not integrate with GitHub merge queues.
-- Discussion gathering reads one page. The context gatherer requests the first 100 issue comments and the first 100 review comments and does not follow pagination. On a PR with more discussion than that, the older comments past the first page are not gathered (and a routed reply whose thread root sits on a later page does not resolve).
+- Discussion gathering reads one page. The context gatherer requests the first 100 issue comments and the first 100 review comments and does not follow pagination. GitHub returns both in ascending id order, so the first page holds the oldest comments; on a PR with more discussion than that, the newer comments past the first page are not gathered (and a routed reply whose thread root sits on a later page does not resolve).
 - Finding replies arrive as general discussion. Reply routing by `FindingId` is wired end to end and resolves a reply whose thread root carries a finding marker. The reporter posts one sticky comment and check runs, not per-finding comment threads, so PR comments reach reviewers as general discussion.

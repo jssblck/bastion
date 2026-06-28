@@ -128,11 +128,13 @@ jobs:
         env:
           BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
           # Lets the reviewers read the PR's description and discussion as context
-          # (read-only, best effort). Drop it for a diff-only review.
+          # (read-only, best effort). Omit the --repo/--pr flags below to review the
+          # diff and local context without PR discussion.
           GITHUB_TOKEN: ${{ github.token }}
         # Non-zero exit on a blocked gate fails the job; that is the merge gate.
-        # `--repo`/`--pr` feed the reviewers the PR's stated intent and discussion
-        # alongside the diff and their prior findings.
+        # --repo/--pr feed the reviewers the PR's stated intent and discussion alongside
+        # the diff. Cross-run prior-findings memory needs the run store persisted between
+        # runs (upload and restore .bastion/runs); a fresh runner starts without it.
         run: |
           bastion review --base "origin/${{ github.base_ref }}" \
             --repo "${{ github.repository }}" \
