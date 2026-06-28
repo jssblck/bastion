@@ -189,7 +189,7 @@ A reviewer sees more than the diff. Reviewing a changeset in a vacuum makes it r
 - **Prior findings**: what each reviewer raised on the last run of this same branch, recalled from the run store. A reviewer is shown only *its own* prior findings and told to decide, per finding, whether the current changeset still warrants it, so "already raised" never silently becomes "already resolved".
 - **Discussion**: the surrounding comments (pull request only). Bastion's own past comments are filtered out so a reviewer never reacts to a paraphrase of itself.
 
-This is the same data type regardless of transport. The local loop and the GitHub adapter are each a *producer* that fills a `ReviewContext`; the backends consume one identically. An empty context (a first review, no discussion) renders to nothing, so the prompt is exactly what it always was.
+This is the same data type regardless of transport. The local loop and the GitHub adapter are each a *producer* that fills a `ReviewContext`; the backends consume one identically. An empty context (a first review, no discussion) renders to nothing, so the reviewer receives the base prompt unchanged.
 
 **Routing.** A finding has a stable, content-derived identity (`FindingId`: the owning reviewer, path, kind, and detail text, deliberately *not* line numbers, which drift). That id keys prior-findings recall across runs. It also routes a reply: a comment whose thread root carries a finding's marker resolves back to the reviewer that raised it, while general discussion reaches every reviewer. The reporter posts one sticky comment and check runs, so PR comments arrive as general discussion.
 

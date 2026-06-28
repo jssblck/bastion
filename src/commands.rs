@@ -568,6 +568,24 @@ fn local_run_id(repo_root: &Path) -> RunId {
 mod tests {
     use super::*;
 
+    #[test]
+    fn github_source_parses_a_slug_and_rejects_malformed_ones() {
+        let pr = NonZeroU64::new(7).unwrap();
+        let ok = GithubSource::new("acme/app", pr).expect("a well-formed slug parses");
+        assert_eq!(ok.owner, "acme");
+        assert_eq!(ok.name, "app");
+        assert_eq!(ok.pr, pr);
+
+        // No slash, an empty half, or an extra path segment are all rejected at the
+        // boundary rather than reaching the GitHub client as a bad request.
+        for bad in ["acme", "acme/", "/app", "acme/app/extra", "", "/"] {
+            assert!(
+                GithubSource::new(bad, pr).is_err(),
+                "expected '{bad}' to be rejected"
+            );
+        }
+    }
+
     /// Run `git` with deterministic identity/config in `dir`.
     fn git(dir: &Path, args: &[&str]) {
         let isolate = [

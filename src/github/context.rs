@@ -1,11 +1,12 @@
 //! Gathering a pull request's context for the reviewers, from the GitHub side.
 //!
-//! This is the GitHub *producer* for the transport-neutral [`ReviewContext`]: it reads
+//! This is the GitHub *producer* for the transport-neutral
+//! [`ReviewContext`](crate::context::ReviewContext): it reads
 //! a PR's description and its discussion over the same REST seam the reporting half
 //! uses, and maps them onto the generic shape the runner and backends consume. Every
 //! GitHub-specific notion dies here at the boundary:
 //!
-//! - a PR `body` becomes the [`ReviewContext::intent`];
+//! - a PR `body` becomes the [`ReviewContext::intent`](crate::context::ReviewContext::intent);
 //! - each human comment becomes a [`ContextComment`], with GitHub's `author_association`
 //!   mapped onto the generic [`Standing`] so a reviewer can weight a maintainer's word
 //!   above an outsider's;
@@ -15,13 +16,15 @@
 //!   marker) is routed back to that [`FindingId`], so the reply reaches the reviewer that
 //!   raised it.
 //!
-//! The prior-findings half of a [`ReviewContext`] is recalled from the local run store
+//! The prior-findings half of a [`ReviewContext`](crate::context::ReviewContext) is recalled from the local run store
 //! (`crate::store::prior_findings`), the same way regardless of transport, and merged in
 //! by the caller; this module supplies only the intent and the discussion.
 //!
 //! Everything here is untrusted: the comments are authored by the subject of the gate
 //! and by bystanders. The mapping preserves who said what (for weighting) but grants no
 //! authority; see the framing in [`crate::context`].
+
+use std::num::NonZeroU64;
 
 use color_eyre::eyre::{Context, Result, bail};
 use serde::Deserialize;
@@ -196,10 +199,12 @@ struct PullRequest {
 }
 
 /// A GitHub comment id: the key that threads a review-comment reply onto its root. A
-/// newtype so a comment id cannot be confused with any other `u64` (a PR number, a finding
-/// hash) and so a missing-but-required id is a parse error, never a `0` that could collide.
+/// `NonZeroU64` newtype so a comment id cannot be confused with any other number (a PR
+/// number, a finding hash) and so neither a missing id nor a `0` is representable: a real
+/// GitHub comment id is positive, so an absent or zero id is a parse error, never a value
+/// that could collide in the routing map.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
-struct CommentId(u64);
+struct CommentId(NonZeroU64);
 
 /// The slice of a GitHub comment Bastion reads, shared by issue and review comments.
 /// Unknown fields are ignored.

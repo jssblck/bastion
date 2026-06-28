@@ -127,8 +127,16 @@ jobs:
       - name: Review
         env:
           BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
+          # Lets the reviewers read the PR's description and discussion as context
+          # (read-only, best effort). Drop it for a diff-only review.
+          GITHUB_TOKEN: ${{ github.token }}
         # Non-zero exit on a blocked gate fails the job; that is the merge gate.
-        run: bastion review --base "origin/${{ github.base_ref }}"
+        # `--repo`/`--pr` feed the reviewers the PR's stated intent and discussion
+        # alongside the diff and their prior findings.
+        run: |
+          bastion review --base "origin/${{ github.base_ref }}" \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}"
 
       # Optional: mint a token for a dedicated Bastion app so the check runs get
       # their own check suite and render under the app's name. Skipped (and the
