@@ -128,8 +128,9 @@ jobs:
         env:
           BASTION_DATA_DIR: ${{ github.workspace }}/.bastion
           # Lets the reviewers read the PR's description and discussion as context
-          # (read-only, best effort). Omit the --repo/--pr flags below to review the
-          # diff and local context without PR discussion.
+          # (read-only, best effort; gathering reads the first 100 conversation comments
+          # and first 100 review comments, no pagination). Omit the --repo/--pr flags
+          # below to review the diff and local context without PR discussion.
           GITHUB_TOKEN: ${{ github.token }}
         # Non-zero exit on a blocked gate fails the job; that is the merge gate.
         # --repo/--pr feed the reviewers the PR's stated intent and discussion alongside

@@ -232,7 +232,7 @@ jobs:
             --sha "${{ github.event.pull_request.head.sha }}"
 ```
 
-This example omits one thing for brevity: cross-run prior-findings memory. The reviewers still get the PR's intent and discussion (gathered fresh each run), but for a reviewer to recall the findings it raised on the previous push, the run store has to survive between runs. Persist it by uploading the run as an artifact after the report, and restore the previous one before `bastion review`. Bastion's own [self-review workflow](../../.github/workflows/bastion.yml) shows the pattern (an `actions/upload-artifact` of `.bastion/runs` plus a `gh run download` of the most recent prior run for the branch).
+For brevity, this example omits cross-run prior-findings memory. The reviewers still get the PR's intent and discussion, gathered fresh each run. For a reviewer to recall the findings it raised on the previous push, the run store has to survive between runs. Upload the run as an artifact after the report, and restore the previous one before `bastion review`. Bastion's own [self-review workflow](../../.github/workflows/bastion.yml) shows the pattern (an `actions/upload-artifact` of `.bastion/runs` plus a `gh run download` of the most recent prior run for the branch).
 
 Branch protection on the default branch requires the `bastion` check and review of the owned reviewer-config paths; everything else is standard GitHub.
 

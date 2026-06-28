@@ -137,7 +137,7 @@ regardless of which agent runs it:
   findings, and the reviewer's own prompt still decides what counts as an issue.
 - **`context_segment`**: renders the run's `ReviewContext` (author intent, prior
   findings, discussion) for the reviewer, or the empty string when there is nothing to
-  add. Every backend splices it into the same slot: after the interpolated reviewer
+  add. Every backend splices it into the same slot, after the interpolated reviewer
   prompt and before `EXHAUSTIVE_FINDINGS_INSTRUCTION` and the schema instruction. The
   block leads with an untrusted-input preamble and scopes prior findings and routed
   replies to the running reviewer, so each agent consumes context identically and reads

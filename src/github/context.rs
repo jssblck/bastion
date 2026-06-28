@@ -21,9 +21,9 @@
 //! (`crate::store::prior_findings`), the same way regardless of transport, and merged in
 //! by the caller; this module supplies only the intent and the discussion.
 //!
-//! Everything here is untrusted: the comments are authored by the subject of the gate
-//! and by bystanders. The mapping preserves who said what (for weighting) but grants no
-//! authority; see the framing in [`crate::context`].
+//! Comments are authored by the gate's subject and by bystanders. The mapping preserves
+//! who said what (for weighting) but grants no authority; see the framing in
+//! [`crate::context`].
 
 use std::num::NonZeroU64;
 
