@@ -141,6 +141,24 @@ jobs:
           printf '%s' "$cred" > "$HOME/.codex/auth.json"
           chmod 600 "$HOME/.codex/auth.json"
 
+      - name: Restore prior run history
+        # Best effort: bring the most recent prior run of this PR branch into the data
+        # directory so reviewers recall the findings they raised on the last push (a fresh
+        # Actions runner starts with an empty store, so without this the GitHub
+        # prior-findings memory would never see anything). A first push, or an expired
+        # artifact, simply restores nothing and reviews with no prior findings.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "${{ github.workspace }}/.bastion/runs"
+          prior=$(gh run list --workflow bastion.yml --branch "${{ github.head_ref }}" \
+            --json databaseId \
+            --jq "map(select(.databaseId != ${{ github.run_id }})) | .[0].databaseId // empty")
+          if [ -n "$prior" ]; then
+            gh run download "$prior" -n bastion-run -D "${{ github.workspace }}/.bastion/runs" \
+              || echo "no prior bastion-run artifact to restore (first run or expired)"
+          fi
+
       - name: Run bastion review
         env:
           # Keep run history inside the workspace so it can be uploaded as an

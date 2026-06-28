@@ -30,7 +30,12 @@ Bastion runs as a GitHub Actions workflow triggered on pull request events: `ope
 
 Native reviewers run directly on the Actions runner. A reviewer that declares a container `runner` and `capabilities.network: true` runs its backend inside that container on the Actions runner (the engine is already present on GitHub-hosted runners); see [Containers](./containers.md). None of routing or aggregation is GitHub-specific; only the steps that read the PR and write results go through the adapter.
 
-The adapter is the GitHub *producer* of the review context. It maps GitHub's notions onto the transport-neutral `ReviewContext` and discards the rest at the boundary: the PR body becomes the author's stated intent; each non-Bastion comment becomes an untrusted claim carrying the commenter's `Standing` (mapped from `author_association`, so a reviewer can weight a maintainer above an outsider without ever obeying either); Bastion's own past comments are filtered out by their hidden marker so a reviewer never reads itself. A reply on a finding's thread is routed back to that finding by the `FindingId` Bastion stamps in a hidden marker, so the reply reaches the reviewer that raised it. The core never sees an `author_association` or a comment id.
+The adapter is the GitHub *producer* of the review context. It maps GitHub's notions onto the transport-neutral `ReviewContext` and discards the rest at the boundary: the PR body becomes the author's stated intent; each non-Bastion comment becomes an untrusted claim carrying the commenter's `Standing` (mapped from `author_association`, so a reviewer can weight a maintainer above an outsider without ever obeying either); Bastion's own past comments are filtered out by their hidden marker so a reviewer never reads itself. The core never sees an `author_association` or a comment id.
+
+Two parts of the context need state that a single CI run does not have on its own:
+
+- **Prior-findings memory** is recalled from the local run store (`store::prior_findings`), and a fresh Actions runner starts with an empty store. So for a reviewer to recall what it raised on the last push, the workflow must persist the run store between runs and restore the previous run before `bastion review`. The self-hosted example below does this by uploading the run as an artifact and downloading the prior one; without that step, the GitHub surface still gets the PR's intent and discussion (gathered fresh each run), just not cross-run finding memory.
+- **Reply routing** (a reply attached to the specific finding it answers) is wired through `FindingId`: a review-comment reply whose thread root carries a Bastion finding marker is routed back to that finding. The mechanism is in place, but it only activates once Bastion posts each finding as its own comment thread carrying that marker. Today the reporter posts one sticky comment and check runs, not per-finding threads, so PR comments reach reviewers as general discussion (visible to every reviewer) rather than routed to a single finding. Per-finding comment threads are a planned enhancement that will light this up without any change to the core.
 
 ---
 
@@ -227,6 +232,8 @@ jobs:
             --sha "${{ github.event.pull_request.head.sha }}"
 ```
 
+This example omits one thing for brevity: cross-run prior-findings memory. The reviewers still get the PR's intent and discussion (gathered fresh each run), but for a reviewer to recall the findings it raised on the previous push, the run store has to survive between runs. Persist it by uploading the run as an artifact after the report, and restore the previous one before `bastion review`. Bastion's own [self-review workflow](../../.github/workflows/bastion.yml) shows the pattern (an `actions/upload-artifact` of `.bastion/runs` plus a `gh run download` of the most recent prior run for the branch).
+
 Branch protection on the default branch requires the `bastion` check and review of the owned reviewer-config paths; everything else is standard GitHub.
 
 ## Check-run grouping and the dedicated app
@@ -254,3 +261,5 @@ The workflow mints an installation token from those secrets with [`actions/creat
 GitHub-specific limitations, separate from the core design's list.
 
 - Merge queue. The adapter relies on GitHub auto-merge plus a required check; it does not integrate with GitHub merge queues.
+- Discussion gathering reads one page. The context gatherer requests the first 100 issue comments and the first 100 review comments and does not follow pagination. On a PR with more discussion than that, the older comments past the first page are not gathered (and a routed reply whose thread root sits on a later page would not resolve). Following `Link`-header pagination through the REST seam is a planned enhancement.
+- Finding-reply routing is not yet active. Reply routing by `FindingId` is wired end to end but depends on Bastion posting each finding as its own comment thread carrying the finding marker, which the reporter does not do yet (it posts one sticky comment and check runs). Until per-finding threads land, PR comments reach reviewers as general discussion.

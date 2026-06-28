@@ -146,21 +146,26 @@ pub fn prune(
 /// Recall the findings every reviewer raised on the most recent prior run of
 /// `branch`, so a re-review can be reminded of what it already said.
 ///
-/// Looks back at the latest persisted run on the same branch other than `current`
-/// (the run being assembled now), and returns one [`PriorFinding`] per recorded
-/// finding, keyed by reviewer. The synthetic fail-closed crash finding (an empty path)
-/// is skipped: "the reviewer failed to complete" is not a substantive prior finding to
-/// re-evaluate. Returns an empty vec on the first review of a branch, or when the
-/// history cannot be read, so recall never fails a review.
+/// Looks back at the latest persisted run on the same branch and returns one
+/// [`PriorFinding`] per recorded finding, keyed by reviewer. The synthetic fail-closed
+/// crash finding (an empty path) is skipped: "the reviewer failed to complete" is not a
+/// substantive prior finding to re-evaluate. Returns an empty vec on the first review of
+/// a branch, or when the history cannot be read, so recall never fails a review.
+///
+/// The caller assembles its context *before* the runner persists the current run, so the
+/// current run is not yet in the store at recall time. That is why this does not exclude
+/// any run id: the most recent prior run is exactly what we want, including a previous
+/// invocation at the same `HEAD` (a local rerun on a dirty working tree reuses the same
+/// run id and overwrites it only at the end, so recalling it first is correct).
 #[must_use]
-pub fn prior_findings(layout: &Layout, branch: &str, current: &RunId) -> Vec<PriorFinding> {
+pub fn prior_findings(layout: &Layout, branch: &str) -> Vec<PriorFinding> {
     let Ok(runs) = list_runs(layout) else {
         return Vec::new();
     };
     // `list_runs` is most-recent-first, so the first match is the latest prior run.
     let Some(prior) = runs
         .into_iter()
-        .find(|run| run.run != *current && run.branch.as_deref() == Some(branch))
+        .find(|run| run.branch.as_deref() == Some(branch))
     else {
         return Vec::new();
     };
@@ -420,17 +425,48 @@ mod tests {
         )
         .unwrap();
 
-        let recalled = prior_findings(
-            &layout,
-            "feat/x",
-            &RunId("r-current-not-yet-persisted".into()),
-        );
+        let recalled = prior_findings(&layout, "feat/x");
         assert_eq!(recalled.len(), 1);
         assert_eq!(recalled[0].reviewer, "perf");
         assert_eq!(recalled[0].detail, "O(n^2) append");
         assert_eq!(recalled[0].path, "src/p.rs");
 
         // The first review of a branch (no prior run) recalls nothing.
-        assert!(prior_findings(&layout, "brand-new", &RunId("r-x".into())).is_empty());
+        assert!(prior_findings(&layout, "brand-new").is_empty());
+    }
+
+    #[test]
+    fn prior_findings_recalls_a_same_id_run_from_an_earlier_invocation() {
+        // A local rerun on a dirty working tree reuses the same run id (keyed by HEAD).
+        // Recall happens before the current run is persisted, so the previous
+        // invocation's run (same id) is still on disk and must be recalled, not skipped:
+        // this is what lets the local edit-and-rerun loop see its own prior findings.
+        use crate::verdict::{Finding, FindingKind};
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = Layout::with_root(tmp.path().to_path_buf());
+
+        write_run(
+            &layout,
+            &RunId("r-samehead".into()),
+            &run_with_findings(
+                "r-samehead",
+                "feat/x",
+                "perf",
+                vec![Finding {
+                    kind: FindingKind::Blocking,
+                    path: "src/p.rs".into(),
+                    line_start: 1,
+                    line_end: 1,
+                    detail: "still slow".into(),
+                }],
+            ),
+        )
+        .unwrap();
+
+        // The about-to-be-written run shares the id, yet recall (which runs first) finds
+        // the earlier invocation's findings.
+        let recalled = prior_findings(&layout, "feat/x");
+        assert_eq!(recalled.len(), 1);
+        assert_eq!(recalled[0].detail, "still slow");
     }
 }

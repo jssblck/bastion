@@ -116,7 +116,7 @@ pub async fn review(
     let mut context = ReviewContext {
         intent: git::commit_messages(&repo_root, base),
         comments: Vec::new(),
-        prior_findings: store::prior_findings(layout, &branch, &run),
+        prior_findings: store::prior_findings(layout, &branch),
     };
     if let Some(source) = github.as_ref() {
         match gather_github_context(source).await {
