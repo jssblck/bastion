@@ -19,7 +19,10 @@ exactly one property of a changeset. It is a bundle of *prompt + trigger + mode*
 plus an optional execution profile (backend, timeout, environment, inputs, a
 container `runner`, and `capabilities`, among others). All of it is declared
 statically in `.bastion.yaml`; [Authoring reviewers](./authoring-reviewers.md)
-is the full field reference.
+is the full field reference. The repository's `.bastion.yaml` is the shared, governed
+set; locally you can also keep personal reviewers in a user-level `.bastion.yaml`,
+and `bastion review` runs the merged set (see
+[Authoring reviewers](./authoring-reviewers.md#user-level-reviewers)).
 
 Two properties matter most:
 

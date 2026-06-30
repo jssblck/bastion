@@ -133,7 +133,12 @@ impl Layout {
 /// reserved set plus control characters) with `-`. For an ordinary name this is the
 /// identity, so existing layouts are unchanged; it exists so the `repo:` scope
 /// sentinel a merged registry can introduce does not produce an unwritable path.
-fn path_component(name: &str) -> String {
+///
+/// The mapping is not injective (`a:b` and `a-b` collapse together), so the registry
+/// boundary ([`crate::config`]) rejects two names that reduce to the same component
+/// before any run persists, keeping this the single, consistent place a name becomes
+/// a path while the uniqueness guarantee lives where names are validated.
+pub(crate) fn path_component(name: &str) -> String {
     name.chars()
         .map(|c| match c {
             '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',

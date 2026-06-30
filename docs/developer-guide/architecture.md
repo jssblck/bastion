@@ -21,13 +21,13 @@ through it.
 | [`src/cli.rs`](../../src/cli.rs) | The clap derive command tree and dispatch; maps a `block` aggregate to a non-zero exit. |
 | [`src/commands.rs`](../../src/commands.rs) | One handler per subcommand. |
 | [`src/reviewer.rs`](../../src/reviewer.rs) | The declarative reviewer schema (`Reviewer`, `Mode`, `Backend`, `Capabilities`, `RunnerSpec`). |
-| [`src/config.rs`](../../src/config.rs) | Registry loading and discovery (walk up for `.bastion.yaml` or `.bastion.yml`, with a deprecated `bastion/reviewers.yaml` fallback that warns; validate name uniqueness). |
+| [`src/config.rs`](../../src/config.rs) | Registry loading, discovery, and merge. Walks up for a repository `.bastion.yaml` or `.bastion.yml` (with a deprecated `bastion/reviewers.yaml` fallback that warns) and, via `discover_merged`, layers in a user-level registry from the platform config dir (`user_config_dir`, override `BASTION_CONFIG_DIR`). The merge is a set keyed by name: an identical reviewer in both files is deduplicated, and a same-name-different-config collision keeps both with the repo side scoped to `REPO_SCOPE_PREFIX` (`repo:`). Validates name uniqueness and run-store path-component uniqueness over the merged set. |
 | [`src/routing.rs`](../../src/routing.rs) | Compiling trigger globs and matching them against changed files. |
 | [`src/verdict.rs`](../../src/verdict.rs) | The structured verdict (`Decision`, `Verdict`, `Finding`, `Usage`, and `Money`, which carries cents but serializes as dollars). |
 | [`src/context.rs`](../../src/context.rs) | The transport-neutral review context (`ReviewContext`): the author's stated intent, the surrounding discussion (`ContextComment` with a generic `Standing`), and a reviewer's prior findings (`PriorFinding`, keyed by a content-derived `FindingId`). A producer fills it; the backends consume it through `render_for`. Everything in it is untrusted input. |
 | [`src/event.rs`](../../src/event.rs) | The run-event schema streamed as JSONL and persisted to `run.jsonl`. |
 | [`src/git.rs`](../../src/git.rs) | The git queries the CLI needs (changed files, branch, repo root, and the `base..HEAD` commit messages that serve as local intent when there is no PR body). |
-| [`src/paths.rs`](../../src/paths.rs) | The data-directory layout (`Layout`), resolved by platform convention or `BASTION_DATA_DIR`. |
+| [`src/paths.rs`](../../src/paths.rs) | The data-directory layout (`Layout`), resolved by platform convention or `BASTION_DATA_DIR`. Maps a reviewer name to a portable run-store path component (`path_component`), so the `repo:` merge sentinel cannot produce an unwritable path; `config.rs` enforces that distinct names never collapse to the same component. |
 | [`src/store.rs`](../../src/store.rs) | Run-history persistence: writing/reading `run.jsonl`, listing and pruning runs, and recalling a branch's prior findings (`prior_findings`) from its last run for the review context. |
 | [`src/render.rs`](../../src/render.rs) | Human and JSONL output (`Format`). |
 | [`src/runner.rs`](../../src/runner.rs) | The parallel, timeout-bounded runner: fans matched reviewers out over a `JoinSet`, fails closed on error/timeout, streams events, persists each run. |
@@ -58,10 +58,18 @@ Following one review top to bottom touches most of the crate:
 
 1. **Parse & resolve** (`cli.rs`). clap parses the command. The data directory is
    resolved into a `Layout` (`paths.rs`), from `--data-dir`/`BASTION_DATA_DIR` or
-   the platform default.
-2. **Load policy** (`config.rs`). The registry is discovered by walking up from the
-   cwd for `.bastion.yaml` (or `.bastion.yml`), parsed into `Config`, and validated
-   (unique reviewer names). Malformed input fails here, before any agent runs.
+   the platform default. The user-level config directory is resolved the same way,
+   from `--config-dir`/`BASTION_CONFIG_DIR` or the platform default; it is passed
+   into a purely local review but withheld from a governed one (a review carrying a
+   GitHub source via `--repo`/`--pr`), so CI never merges ungoverned reviewers.
+2. **Load policy** (`config.rs`). `discover_merged` finds the repository registry by
+   walking up from the cwd for `.bastion.yaml` (or `.bastion.yml`) and merges in the
+   user-level registry from the config dir, layering the two reviewer lists into one
+   validated set (identical reviewers deduplicated, a same-name-different-config
+   collision keeping both with the repo side scoped to `repo:`). Either source alone
+   suffices; only the absence of both is an error. The merged set is parsed into
+   `Config` and validated (unique names and unique run-store path components).
+   Malformed input fails here, before any agent runs.
 3. **Compute the changeset** (`git.rs`). Bastion asks git for the files that differ
    from `--base` (tracked edits *and* untracked files, committed or not) plus the
    current branch and repo root.

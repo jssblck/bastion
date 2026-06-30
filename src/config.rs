@@ -204,7 +204,7 @@ impl Config {
     /// The repository registry is loaded as the base, then the user-level reviewers
     /// are merged onto it as a set: an identical reviewer in both files is
     /// deduplicated, and a same-name-different-config collision keeps both with the
-    /// repo side scoped to [`REPO_SCOPE_PREFIX`] (see [`Config::layer_user`]). The
+    /// repo side scoped to [`REPO_SCOPE_PREFIX`] (the merge is `layer_user`). The
     /// merged set is re-validated so a residual duplicate name fails closed.
     ///
     /// # Errors
@@ -216,7 +216,10 @@ impl Config {
         user_dir: Option<&Path>,
     ) -> Result<(Sources, Self)> {
         let repo = locate_kind(start);
-        let user = user_dir.and_then(locate_user);
+        let user = match user_dir {
+            Some(dir) => locate_user(dir)?,
+            None => None,
+        };
 
         if repo.is_none() && user.is_none() {
             bail!(
@@ -331,9 +334,31 @@ impl Config {
 
     fn validate(&self) -> Result<()> {
         let mut seen = std::collections::BTreeSet::new();
+        let mut seen_components = std::collections::BTreeSet::new();
         for reviewer in &self.reviewers {
             if !seen.insert(reviewer.name.as_str()) {
                 bail!("duplicate reviewer name: {}", reviewer.name);
+            }
+            // A reviewer name becomes a directory component in the run store, mapped
+            // to a portable form first (`crate::paths`). Two distinct names that map
+            // to the same component, or a degenerate one that escapes or names the
+            // directory itself, would let one run clobber another's saved transcript
+            // and verdict. Catch both here so a name collision fails closed at load
+            // rather than silently overwriting at persist time.
+            let component = crate::paths::path_component(&reviewer.name);
+            if component.is_empty() || component == "." || component == ".." {
+                bail!(
+                    "reviewer name '{}' is not a usable run-store directory name; \
+                     give it a plain name",
+                    reviewer.name
+                );
+            }
+            if !seen_components.insert(component.clone()) {
+                bail!(
+                    "reviewer '{}' collides with another reviewer once names are \
+                     reduced to the run-store path component '{component}'; rename one",
+                    reviewer.name
+                );
             }
             // A model id means something only to the backend it names, so it only
             // makes sense once the backend is pinned. Reject a model under
@@ -389,12 +414,33 @@ pub fn locate(start: &Path) -> Option<PathBuf> {
 /// `.bastion.yaml` spelling wins over `.bastion.yml`, the same precedence
 /// [`locate_kind`] applies per directory. The deprecated `bastion/reviewers.yaml`
 /// shim is repository-only and not honored here.
-#[must_use]
-pub fn locate_user(dir: &Path) -> Option<PathBuf> {
-    REGISTRY_FILES
-        .iter()
-        .map(|name| dir.join(name))
-        .find(|candidate| candidate.is_file())
+///
+/// # Errors
+///
+/// Returns an error if a candidate path cannot be inspected for a reason other than
+/// not existing (a permission problem, say). Such an error is propagated rather than
+/// read as "no registry", so a user-level gate reviewer is never silently dropped
+/// because its directory could not be stat'ed: discovery fails closed.
+pub fn locate_user(dir: &Path) -> Result<Option<PathBuf>> {
+    for name in REGISTRY_FILES {
+        let candidate = dir.join(name);
+        match std::fs::metadata(&candidate) {
+            Ok(meta) if meta.is_file() => return Ok(Some(candidate)),
+            // Present but not a regular file (a directory named like the registry,
+            // say): not something we can load, so keep looking.
+            Ok(_) => {}
+            // Absent is the ordinary case: this directory has no registry of this
+            // spelling. Any other error means we could not tell, which must not be
+            // mistaken for "absent".
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(err).wrap_err_with(|| {
+                    format!("checking for a user registry at {}", candidate.display())
+                });
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Like [`locate`], but also reports whether the resolved path is the deprecated
@@ -681,13 +727,50 @@ reviewer:
     #[test]
     fn locate_user_finds_a_flat_registry_and_prefers_yaml() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(locate_user(dir.path()).is_none());
+        assert!(locate_user(dir.path()).expect("stat ok").is_none());
         std::fs::write(dir.path().join(REGISTRY_FILES[1]), "reviewers: []\n").unwrap();
         std::fs::write(dir.path().join(REGISTRY_FILES[0]), "reviewers: []\n").unwrap();
         assert!(
             locate_user(dir.path())
-                .unwrap()
+                .expect("stat ok")
+                .expect("located")
                 .ends_with(REGISTRY_FILES[0])
+        );
+    }
+
+    #[test]
+    fn validate_rejects_two_names_that_reduce_to_the_same_path_component() {
+        // Distinct raw names that sanitize to the same run-store directory must not
+        // both persist (one would clobber the other); reject at load. `repo:test` and
+        // `repo-test` both reduce to `repo-test`.
+        let yaml = "\
+reviewers:
+  - name: 'repo:test'
+    trigger: [x]
+    mode: gate
+    prompt: p
+  - name: repo-test
+    trigger: [x]
+    mode: gate
+    prompt: p
+";
+        let err = Config::from_yaml(yaml).unwrap_err();
+        assert!(
+            err.to_string().contains("path component"),
+            "expected a path-component collision error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_a_degenerate_reviewer_name() {
+        // A name that reduces to the directory itself (`..`) would escape the run's
+        // reviewers directory; reject it rather than write artifacts somewhere
+        // surprising.
+        let yaml = "reviewers:\n  - name: '..'\n    trigger: [x]\n    mode: gate\n    prompt: p\n";
+        let err = Config::from_yaml(yaml).unwrap_err();
+        assert!(
+            err.to_string().contains("run-store directory name"),
+            "got: {err}"
         );
     }
 

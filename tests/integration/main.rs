@@ -1413,6 +1413,32 @@ fn a_user_registry_merges_with_the_repository_registry() {
     assert_eq!(runs[0].reviewers, 5);
 }
 
+/// A repository with no registry of its own still runs the user's personal
+/// reviewers locally: discovery finds no repo `.bastion.yaml`, the user-level one
+/// supplies the reviewers, and the whole git-root/routing/execution/persistence path
+/// runs end to end through the real binary.
+#[test]
+fn a_user_only_registry_runs_when_the_repo_has_none() {
+    let Some(fake) = tooling() else { return };
+
+    let repo = TestRepo::without_registry().with_user_registry(&registry(&[Reviewer::new(
+        "my-personal",
+        "claude-code",
+        "gate",
+    )
+    .behavior("pass")]));
+    let run = repo.review(fake);
+
+    assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
+    let (decision, gates, _cost) = run.completed();
+    assert_eq!(decision, Decision::Pass);
+    assert_eq!(gates.total, 1);
+    assert_eq!(run.resolved("my-personal").0, Decision::Pass);
+
+    let runs = store::list_runs(&repo.layout()).unwrap();
+    assert_eq!(runs[0].reviewers, 1);
+}
+
 /// An invalid registry (here, duplicate reviewer names) is a hard error surfaced
 /// to the user, never swallowed into a pass.
 #[test]

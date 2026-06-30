@@ -11,8 +11,11 @@ order: 5
 
 The local CLI is the surface an authoring agent optimizes against before opening a
 PR. It runs the *same* reviewers CI will run, so a green local loop usually means a PR
-that CI confirms. CI can still differ when it feeds reviewers the PR's description and
-discussion that a default local run lacks. This chapter covers the loop in depth.
+that CI confirms. Two things can make a local run differ: CI feeds reviewers the PR's
+description and discussion that a default local run lacks, and a local run also merges
+in any personal reviewers from your user-level registry, which CI never sees (see
+[Authoring reviewers](./authoring-reviewers.md#user-level-reviewers)). This chapter
+covers the loop in depth.
 
 ## The loop
 
@@ -31,6 +34,7 @@ them in parallel with per-reviewer timeouts, and renders progress and verdicts.
 - `--format <human|jsonl>`: output format. Defaults to `human`.
 - `--repo <owner/name>`: the GitHub repository to gather pull request context from. Defaults to `$GITHUB_REPOSITORY`.
 - `--pr <number>`: the pull request whose description and discussion the reviewers read as context. Requires a repository, from `--repo` or `$GITHUB_REPOSITORY`; passing `--pr` with no repository is an error.
+- `--config-dir <path>`: the user-level config directory to merge personal reviewers from (env `BASTION_CONFIG_DIR`). Defaults to your platform config directory (`~/.config/bastion` on Linux, `~/Library/Application Support/bastion` on macOS, `%APPDATA%\bastion` on Windows). The user-level layer is applied only to a purely local review; a review carrying `--repo`/`--pr` uses the repository's reviewers alone.
 
 The CI workflow passes `--repo`/`--pr` so reviewers see the PR's stated intent and discussion. Locally you rarely need them: with no PR, intent comes from your branch's commit messages (`base..HEAD`), and each reviewer's prior findings come from the run store. When you do pass them, Bastion builds its GitHub REST client from `GITHUB_TOKEN` and `GITHUB_API_URL` (the latter defaults to the public API and points at a GitHub Enterprise host when set). Discussion gathering reads the first 100 conversation comments and the first 100 review comments and does not paginate, so later comments on a very long thread are not included. Gathering PR context is read-only and best effort, so an API or token failure never fails the review; it just drops back to the local context.
 

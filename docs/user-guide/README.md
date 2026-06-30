@@ -75,10 +75,13 @@ You declare **reviewers** (focused agent prompts, one concern each) in
 **mode** (`gate` blocks the merge, `advisor` only comments). `bastion review`
 finds the reviewers whose triggers match your working-tree changes, runs them in
 parallel, and aggregates their verdicts into one decision: all gates must pass.
-An authoring agent loops `bastion review` until it is green, then opens a PR where
-CI runs the very same reviewers. CI usually confirms the result, and can differ when
-it adds the PR's description and discussion to the reviewers' context. Humans stay
-in the loop by owning the reviewer registry, not by reading every diff.
+A local run can also merge in personal reviewers from a user-level `.bastion.yaml`,
+so you can run a reviewer locally even where a repo has not adopted Bastion. An
+authoring agent loops `bastion review` until it is green, then opens a PR where CI
+runs the repository's reviewers (the user-level ones are local-only). CI usually
+confirms the result, and can differ when it adds the PR's description and discussion
+to the reviewers' context. Humans stay in the loop by owning the reviewer registry,
+not by reading every diff.
 
 ## Status
 
