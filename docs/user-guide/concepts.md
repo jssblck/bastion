@@ -19,7 +19,10 @@ exactly one property of a changeset. It is a bundle of *prompt + trigger + mode*
 plus an optional execution profile (backend, timeout, environment, inputs, a
 container `runner`, and `capabilities`, among others). All of it is declared
 statically in `.bastion.yaml`; [Authoring reviewers](./authoring-reviewers.md)
-is the full field reference.
+is the full field reference. The repository's `.bastion.yaml` is the shared, governed
+set; locally you can also keep personal reviewers in a user-level `.bastion.yaml`,
+and `bastion review` runs the merged set (see
+[Authoring reviewers](./authoring-reviewers.md#user-level-reviewers)).
 
 Two properties matter most:
 
@@ -112,10 +115,12 @@ verdicts into a single decision:
 
 Locally, that aggregate is the exit code of `bastion review`. In CI it is the result
 of the Bastion review job, and `bastion github report` also posts it as a single
-always-present check named `bastion`. Either way it is the same reviewers and the same
-aggregation rule. The decision matches when both runs see the same context; CI can add
-the PR's description and discussion that a default local run does not, so a reviewer
-that weighs that context can decide differently.
+always-present check named `bastion`. Either way the aggregation rule is the same, and
+CI runs the repository's reviewers. The decision matches when both runs see the same
+reviewers and context; two things can make a local run differ: CI can add the PR's
+description and discussion that a default local run does not, and a purely local run
+can include your personal user-level reviewers, which CI never runs (see
+[Authoring reviewers](./authoring-reviewers.md#user-level-reviewers)).
 
 ## The backend
 

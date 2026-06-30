@@ -28,8 +28,10 @@ verdict returns an error, never a fabricated pass, and gates fail closed on it.
     contract, the merge gate, the threat model. The authoritative design reference.
   - `docs/developer-guide/github-adapter.md`: the GitHub CI adapter and governance.
   - `docs/developer-guide/local-surface.md`: the local CLI surface this crate
-    implements. The local and GitHub surfaces are deliberate mirror images; keep
-    them in sync.
+    implements. For the repository's reviewers the local and GitHub surfaces are
+    deliberate mirror images; keep them in sync. The user-level registry is a
+    local-only exception, so a purely local review can run personal reviewers the
+    GitHub adapter does not.
 - `.bastion.yaml`: the example reviewer registry at the repository root (the
   `.bastion.yml` spelling is also honored); update it when the schema changes.
 - `.agents/skills/readme.md`: repo-local Rust coding skills and their provenance.
@@ -82,7 +84,14 @@ version:
 - `src/cli.rs`: clap derive command tree and dispatch.
 - `src/commands.rs`: one handler per subcommand.
 - `src/reviewer.rs` / `src/config.rs`: the declarative reviewer schema and
-  registry loading/discovery.
+  registry loading/discovery. Discovery walks up for a repository `.bastion.yaml`
+  and merges in a user-level one from the platform config dir (`user_config_dir`,
+  overridable with `BASTION_CONFIG_DIR`), so a personal reviewer runs locally even
+  when a repo has not adopted Bastion. The merge is a set keyed by name: an
+  identical reviewer in both files is deduplicated (compared by effective config
+  after each file's `defaults` are applied), and a same-name-different-config
+  collision keeps both with the repo side scoped to `REPO_SCOPE_PREFIX` (`repo:`);
+  the colon is mapped to a portable run-store path component in `paths.rs`.
 - `src/routing.rs`: compiling trigger globs and matching changed files.
 - `src/verdict.rs` / `src/event.rs`: the structured verdict and run-event
   schemas (the `Money` type carries cents but serializes as dollars).
@@ -211,9 +220,13 @@ version:
   contort a design to avoid self-wedging our CI, and do not add break-glass machinery
   for it. In practice, changes to our GitHub Actions workflows are nearly always safe
   to make boldly; reserve the caution for changes to the binary and its surfaces.
-- Keep the local surface and the GitHub adapter as mirror images: the same
-  reviewers, verdicts, and findings, presented through whatever each transport
-  makes natural. A schema change touches both surfaces and `docs/`.
+- Keep the local surface and the GitHub adapter as mirror images for the
+  repository's reviewers: the same reviewers, verdicts, and findings, presented
+  through whatever each transport makes natural. A schema change touches both
+  surfaces and `docs/`. The user-level registry is the deliberate exception. A purely
+  local `bastion review` also merges in an author's personal reviewers from the
+  platform config dir, which the GitHub adapter and any `--repo`/`--pr` run never see,
+  so a personal reviewer cannot gate someone else's PR.
 - Reviewers are declarative and static. Do not add code paths that generate
   reviewers on the fly; that would break the stable trigger set and the
   governance story.

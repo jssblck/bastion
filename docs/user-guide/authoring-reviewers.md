@@ -15,7 +15,7 @@ fields you will reach for only occasionally.
 
 ## The registry file
 
-All reviewers live in one file at your repository root: `.bastion.yaml` (the
+The repository's reviewers live in one file at its root: `.bastion.yaml` (the
 `.bastion.yml` spelling is also honored). Bastion finds it by walking up from the
 current directory, so the command works anywhere inside the repo. The file is a
 single `reviewers:` list:
@@ -35,14 +35,48 @@ reviewers:
 ```
 
 Reviewer **names must be unique** within the file; a duplicate name is a load
-error. Because this file *is* the review policy, changes to it should require human
-review; see [Governance](./governance.md) and `bastion github codeowners`.
+error. A name also has to work as a directory name in the run store, so a name that
+reduces to an empty, `.`, or `..` component is rejected, as are two names that
+collapse to the same component once non-portable characters are normalized (for
+example `repo:test` and `repo-test`); plain names are unaffected. Because this file
+*is* the review policy, changes to it should require human review; see
+[Governance](./governance.md) and `bastion github codeowners`.
 
 > **Migrating from `bastion/reviewers.yaml`.** Bastion still loads the legacy
 > `bastion/reviewers.yaml` location but prints a deprecation warning; the supported
 > location is `.bastion.yaml` at your repository root. Move the file (the contents
 > are unchanged) and regenerate your CODEOWNERS block with `bastion github
 > codeowners`.
+
+## User-level reviewers
+
+You can also keep personal reviewers in a user-level `.bastion.yaml` (or
+`.bastion.yml`) in your platform config directory, so a reviewer you rely on runs
+locally whether or not a given repository has adopted Bastion:
+
+- Linux: `$XDG_CONFIG_HOME/bastion`, defaulting to `~/.config/bastion`.
+- macOS: `~/Library/Application Support/bastion`.
+- Windows: `%APPDATA%\bastion`.
+
+When both files exist, a local `bastion review` merges the repository's reviewers
+with your user-level ones into one set, by reviewer name:
+
+- A reviewer only one file defines is included as-is.
+- The same reviewer in both files is deduplicated to one. Sameness is compared by the
+  *effective* configuration after each file's registry `defaults` are applied, so a
+  reviewer that inherits a default `model` or `effort` and one that spells out the
+  same value count as identical.
+- A name in both files with a *different* effective configuration is a collision; both
+  are kept, your copy under its plain name and the repository's scoped to
+  `repo:<name>`, so neither silently wins. The two files are governed separately, so
+  the collision is surfaced rather than resolved by precedence.
+
+This layer is local-only. A review carrying a GitHub source (with `--repo`/`--pr`, as
+CI runs) skips the user-level registry, so a pull request is gated by the
+repository's reviewers alone, the `repo:` scope never appears there, and a personal
+reviewer can never gate someone else's change.
+`--config-dir <path>` (or `$BASTION_CONFIG_DIR`) overrides where the user-level file
+is read from.
 
 ## Registry-wide defaults
 
@@ -387,16 +421,20 @@ Run `bastion validate` to parse the registry and report any problem without runn
 a single reviewer or spending a model call:
 
 ```sh
-bastion validate                          # discover .bastion.yaml by walking up from here
-bastion validate path/to/.bastion.yaml    # check a specific file
+bastion validate                          # validate the merged set review would run
+bastion validate path/to/.bastion.yaml    # check a specific file on its own
 ```
 
-It loads the file through the same path `bastion review` uses, so it catches exactly
-the errors a real review would hit at load time: malformed YAML, an unknown field, a
-duplicate name, a reviewer missing a required field, or a model pinned under
-`backend: any`. A valid registry prints a one-line summary and the reviewers it
-parsed, and exits zero; an invalid one prints the error and exits non-zero, so the
-command works as a pre-commit or CI lint as well as a quick local check.
+With no file argument it validates the same merged set a local `bastion review`
+would run, the discovered repository registry plus your user-level one, and names
+each source it merged. An explicit `FILE` is checked on its own, with no merging. It
+loads through the same path `bastion review` uses, so it catches exactly the errors a
+real review would hit at load time: malformed YAML, an unknown field, a duplicate
+name (including one that survives the user/repo merge), a reviewer missing a required
+field, or a model pinned under `backend: any`. A valid registry prints a one-line
+summary and the reviewers it parsed, and exits zero; an invalid one prints the error
+and exits non-zero, so the command works as a pre-commit or CI lint as well as a
+quick local check.
 
 The registry is also validated whenever it loads for a real `bastion review`, so a
 malformed file fails fast there too. `bastion validate` just lets you check it on its

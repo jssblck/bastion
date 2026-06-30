@@ -11,9 +11,10 @@ order: 0
 This guide teaches you how to use Bastion on your own project: what it is, how to
 run it, how to write reviewers, and how to wire it into CI and governance. It is
 written for two audiences at once (the human curating the review policy and the
-agent looping against it), because Bastion runs the same reviewers and merge gate for
-both through whatever surface is natural to each (CI can add the PR's description and
-discussion to the reviewers' context).
+agent looping against it), because Bastion runs the repository's reviewers and merge
+gate for both through whatever surface is natural to each (CI can add the PR's
+description and discussion to the reviewers' context, and a purely local run can add
+an author's personal user-level reviewers, which CI never sees).
 
 This guide is self-contained: everything you need to run Bastion, write reviewers,
 and wire it into CI is here, with nothing essential living elsewhere. If you want to
@@ -41,9 +42,9 @@ The chapters build on each other. If you read them top to bottom you will go fro
 5. **[The local workflow](./local-workflow.md)**: the `bastion review` loop in
    depth: human output vs. the JSONL agent stream, exit codes, and inspecting
    saved runs (`runs`, `show`, `transcript`, `clean`).
-6. **[Continuous integration](./continuous-integration.md)**: promoting the
-   same reviewers into GitHub Actions: checks, the aggregate gate, and per-author
-   billing.
+6. **[Continuous integration](./continuous-integration.md)**: promoting your
+   repository's reviewers into GitHub Actions: checks, the aggregate gate, and
+   per-author billing.
 7. **[Governance](./governance.md)**: keeping humans at the policy layer with
    CODEOWNERS and branch protection, the escape-to-improvement loop, and what
    Bastion deliberately does not guarantee.
@@ -75,10 +76,13 @@ You declare **reviewers** (focused agent prompts, one concern each) in
 **mode** (`gate` blocks the merge, `advisor` only comments). `bastion review`
 finds the reviewers whose triggers match your working-tree changes, runs them in
 parallel, and aggregates their verdicts into one decision: all gates must pass.
-An authoring agent loops `bastion review` until it is green, then opens a PR where
-CI runs the very same reviewers. CI usually confirms the result, and can differ when
-it adds the PR's description and discussion to the reviewers' context. Humans stay
-in the loop by owning the reviewer registry, not by reading every diff.
+A local run can also merge in personal reviewers from a user-level `.bastion.yaml`,
+so you can run a reviewer locally even where a repo has not adopted Bastion. An
+authoring agent loops `bastion review` until it is green, then opens a PR where CI
+runs the repository's reviewers (the user-level ones are local-only). CI usually
+confirms the result, and can differ when it adds the PR's description and discussion
+to the reviewers' context. Humans stay in the loop by owning the reviewer registry,
+not by reading every diff.
 
 ## Status
 

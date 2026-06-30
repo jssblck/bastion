@@ -10,11 +10,14 @@ order: 6
 > billing.
 
 The local loop gets you to green before you open a PR. CI is the authoritative
-confirmation: it runs the *same* reviewers from the *same* `.bastion.yaml`
-and reports one merge gate. Because routing and aggregation are shared, CI rarely
-surprises an author who looped locally, though it can when it adds the PR's
-description and discussion that a default local run lacks. This chapter covers the
-GitHub adapter, the one forge Bastion targets.
+confirmation: it runs the reviewers from the repository's `.bastion.yaml` and reports
+one merge gate. Because routing and aggregation are shared, CI rarely surprises an
+author who looped locally. It can differ in two ways: CI adds the PR's description and
+discussion that a default local run lacks, and CI runs the repository's reviewers
+only, while a local run can also include your personal user-level reviewers (see
+[Authoring reviewers](./authoring-reviewers.md#user-level-reviewers)). The user-level
+layer is local-only by design, so it can never gate someone else's pull request. This
+chapter covers the GitHub adapter, the one forge Bastion targets.
 
 > Bastion does not own CI; it plugs into yours. The workflow, the secrets, the
 > preview environments, and the branch-protection rules are GitHub's. Bastion
@@ -37,9 +40,11 @@ two GitHub surfaces:
   (`bastion / tenant-isolation`). A blocking gate reports `failure`; a passing gate
   reports `success`; an advisor reports `success` with its findings attached.
 
-The local-to-GitHub mapping is one-to-one: the JSONL events you read locally are
-the same decisions GitHub renders as checks and a comment. Each GitHub surface has a
-local twin:
+The local-to-GitHub mapping is one-to-one for the repository's reviewers: the JSONL
+events a CI or `bastion review --repo/--pr` run produces are the same decisions GitHub
+renders as checks and a comment. (A purely local run can also include your personal
+user-level reviewers, whose events are local-only and have no GitHub twin.) Each
+GitHub surface has a local twin:
 
 | GitHub                                                         | Local                               |
 | -------------------------------------------------------------- | ----------------------------------- |

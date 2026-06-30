@@ -43,6 +43,12 @@ use crate::verdict::{Decision, Money};
 /// `cwd` is the directory to resolve the repository and config from: the process
 /// working directory in normal use, but explicit so the handler is testable.
 ///
+/// `user_dir` is the user-level config directory whose reviewers are merged with
+/// the repository's (`None` to skip it). This is how a personal reviewer runs
+/// locally even when the repository does not adopt Bastion in CI; an identical
+/// reviewer in both files is deduplicated and a same-name collision keeps both with
+/// the repo side scoped (see [`Config::discover_merged`]).
+///
 /// `github` carries the `owner/name` slug and PR number when the review runs against a
 /// pull request, so the reviewers get its description and discussion as context. It is
 /// best effort: a failure to reach GitHub is logged and the review proceeds on the
@@ -58,10 +64,11 @@ pub async fn review(
     base: &str,
     format: Format,
     github: Option<GithubSource>,
+    user_dir: Option<&Path>,
 ) -> Result<Decision> {
     let repo_root = git::repo_root(cwd)?;
     let branch = git::current_branch(&repo_root)?;
-    let config = Config::discover(&repo_root)?;
+    let config = Config::discover_merged(&repo_root, user_dir)?;
     let changed = git::changed_files(&repo_root, base)?;
 
     let router = Router::compile(&config.reviewers)?;
@@ -215,32 +222,37 @@ async fn gather_github_context(
 
 /// `bastion validate`: parse the reviewer registry and report any problems.
 ///
-/// Loads the registry (the explicit `file`, or the one discovered by walking up
-/// from `cwd`) through the same [`Config`] path `bastion review` uses, so it
-/// surfaces exactly the errors a real review would hit at load time: malformed
-/// YAML, an unknown field, a duplicate reviewer name, or a model pinned under
-/// `backend: any`. On success it prints a one-line summary and the parsed
-/// reviewers and returns `Ok`; on any problem it returns the error, which
-/// `color_eyre` renders before the process exits non-zero, so the command doubles
-/// as a CI lint and a cheap local check that never spends a model call.
+/// Loads the registry (the explicit `file`, or the merged set discovered by
+/// walking up from `cwd` and layering in the user-level config dir) through the
+/// same [`Config`] path `bastion review` uses, so it surfaces exactly the errors a
+/// real review would hit at load time: malformed YAML, an unknown field, a
+/// duplicate reviewer name, or a model pinned under `backend: any`. On success it
+/// prints a one-line summary and the parsed reviewers and returns `Ok`; on any
+/// problem it returns the error, which `color_eyre` renders before the process
+/// exits non-zero, so the command doubles as a CI lint and a cheap local check that
+/// never spends a model call.
+///
+/// `user_dir` is the user-level config directory layered into discovery (`None` to
+/// skip it). An explicit `file` is validated on its own, with no layering, since it
+/// is a deliberate single-file check.
 ///
 /// # Errors
 ///
 /// Returns an error if no registry is found, the file cannot be read, or it fails
 /// to parse or validate.
-pub fn validate(cwd: &Path, file: Option<&Path>) -> Result<()> {
-    let (path, config) = match file {
-        Some(file) => (file.to_path_buf(), Config::load(file)?),
+pub fn validate(cwd: &Path, file: Option<&Path>, user_dir: Option<&Path>) -> Result<()> {
+    let (label, config) = match file {
+        Some(file) => (file.display().to_string(), Config::load(file)?),
         None => {
             // Resolve from the repo root when we are inside one (so the command
             // works from any subdirectory, like `review`), falling back to `cwd`
             // when git cannot tell us, which keeps a not-yet-initialized repo
-            // working. `discover_located` warns on the deprecated location, gives
-            // the clear "no registry found" error, and hands back the path it
-            // loaded, so the summary reports exactly the file that was parsed.
+            // working. `discover_merged_located` warns on the deprecated location,
+            // gives the clear "no registry found" error, and hands back the sources
+            // it loaded, so the summary reports exactly the files that were merged.
             let root = git::repo_root(cwd).unwrap_or_else(|_| cwd.to_path_buf());
-            let (found, config) = Config::discover_located(&root)?;
-            (found.path, config)
+            let (sources, config) = Config::discover_merged_located(&root, user_dir)?;
+            (describe_sources(&sources), config)
         }
     };
 
@@ -255,8 +267,7 @@ pub fn validate(cwd: &Path, file: Option<&Path>) -> Result<()> {
     let mut out = stdout.lock();
     writeln!(
         out,
-        "{} is valid: {} reviewer(s), {gates} gate(s), {advisors} advisor(s).",
-        path.display(),
+        "{label} is valid: {} reviewer(s), {gates} gate(s), {advisors} advisor(s).",
         config.reviewers.len(),
     )?;
     for reviewer in &config.reviewers {
@@ -270,6 +281,23 @@ pub fn validate(cwd: &Path, file: Option<&Path>) -> Result<()> {
         )?;
     }
     Ok(())
+}
+
+/// Describe the registry [`Sources`] that fed a merged config, for the `validate`
+/// summary line. A single source reads as its own path (so the common case matches
+/// the pre-merge wording); both sources name each file so it is clear what was
+/// merged. At least one is always present, since discovery errors otherwise.
+fn describe_sources(sources: &crate::config::Sources) -> String {
+    match (&sources.repo, &sources.user) {
+        (Some(repo), Some(user)) => format!(
+            "the merged registry (repo: {}, user: {})",
+            repo.path.display(),
+            user.display()
+        ),
+        (Some(repo), None) => repo.path.display().to_string(),
+        (None, Some(user)) => user.display().to_string(),
+        (None, None) => unreachable!("discover_merged_located errors when both sources are absent"),
+    }
 }
 
 /// `bastion transcript [<run>] <reviewer>`: print a saved session transcript.
@@ -616,7 +644,7 @@ mod tests {
             "reviewers:\n  - name: a\n    trigger: [src/**]\n    mode: gate\n    prompt: p\n",
         )
         .unwrap();
-        validate(tmp.path(), Some(&path)).expect("a well-formed file validates");
+        validate(tmp.path(), Some(&path), None).expect("a well-formed file validates");
     }
 
     #[test]
@@ -628,7 +656,7 @@ mod tests {
             "reviewers:\n  - name: dup\n    trigger: [a]\n    mode: gate\n    prompt: p\n  - name: dup\n    trigger: [b]\n    mode: gate\n    prompt: p\n",
         )
         .unwrap();
-        let err = validate(tmp.path(), Some(&path)).unwrap_err();
+        let err = validate(tmp.path(), Some(&path), None).unwrap_err();
         assert!(
             format!("{err:#}").contains("duplicate reviewer name"),
             "error should name the duplicate, got: {err:#}"
@@ -644,7 +672,7 @@ mod tests {
             "reviewers:\n  - name: typo\n    trigger: [src/**]\n    mode: gate\n    bakend: codex\n    prompt: p\n",
         )
         .unwrap();
-        let err = validate(tmp.path(), Some(&path)).unwrap_err();
+        let err = validate(tmp.path(), Some(&path), None).unwrap_err();
         assert!(
             format!("{err:#}").contains("unknown field `bakend`"),
             "validate should reject an unknown field, got: {err:#}"
@@ -660,7 +688,7 @@ mod tests {
             "reviewers:\n  - name: stray\n    trigger: [src/**]\n    mode: gate\n    model: gpt-5\n    prompt: p\n",
         )
         .unwrap();
-        let err = validate(tmp.path(), Some(&path)).unwrap_err();
+        let err = validate(tmp.path(), Some(&path), None).unwrap_err();
         assert!(format!("{err:#}").contains("backend: any"), "got: {err:#}");
     }
 
@@ -672,13 +700,13 @@ mod tests {
             "reviewers:\n  - name: a\n    trigger: [x]\n    mode: advisor\n    prompt: p\n",
         )
         .unwrap();
-        validate(tmp.path(), None).expect("discovered registry validates");
+        validate(tmp.path(), None, None).expect("discovered registry validates");
     }
 
     #[test]
     fn validate_errors_clearly_when_no_registry_is_found() {
         let tmp = tempfile::tempdir().unwrap();
-        let err = validate(tmp.path(), None).unwrap_err();
+        let err = validate(tmp.path(), None, None).unwrap_err();
         assert!(
             format!("{err:#}").contains("no reviewer registry found"),
             "got: {err:#}"
@@ -706,7 +734,7 @@ mod tests {
         std::fs::write(dir.join("main.rs"), "fn main() {}\n").unwrap();
 
         let layout = Layout::with_root(data.path().to_path_buf());
-        let decision = review(&layout, dir, "main", Format::Jsonl, None)
+        let decision = review(&layout, dir, "main", Format::Jsonl, None, None)
             .await
             .expect("zero-match review passes");
         assert_eq!(decision, Decision::Pass);

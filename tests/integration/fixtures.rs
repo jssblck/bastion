@@ -229,6 +229,10 @@ fn bastion_bin() -> &'static str {
 pub(crate) struct TestRepo {
     repo: tempfile::TempDir,
     data: tempfile::TempDir,
+    /// A private user-level config directory, isolated from the developer's real
+    /// `~/.config/bastion` so a personal registry cannot leak into a scenario.
+    /// Empty unless a test writes a user-level registry into it.
+    config: tempfile::TempDir,
 }
 
 /// Where (and whether) to write a scenario repo's reviewer registry.
@@ -287,7 +291,17 @@ impl TestRepo {
         Self::dirty(dir);
 
         let data = tempfile::tempdir().expect("data tempdir");
-        Self { repo, data }
+        let config = tempfile::tempdir().expect("config tempdir");
+        Self { repo, data, config }
+    }
+
+    /// Write a user-level `.bastion.yaml` into this repo's isolated config dir, so a
+    /// `review`/`validate` run layers its reviewers beneath the repository's. This is
+    /// the local-only path: a reviewer a user keeps in their config dir runs even when
+    /// the repository does not adopt Bastion in CI.
+    pub(crate) fn with_user_registry(self, yaml: &str) -> Self {
+        std::fs::write(self.config.path().join(".bastion.yaml"), yaml).unwrap();
+        self
     }
 
     /// Re-dirty the working tree (used between runs to keep a changeset present).
@@ -319,6 +333,10 @@ impl TestRepo {
             .args(args)
             .current_dir(self.repo.path())
             .env("BASTION_DATA_DIR", self.data.path())
+            // Point the user-level config dir at this repo's isolated (empty by
+            // default) directory, so the developer's real `~/.config/bastion` never
+            // leaks reviewers into a scenario.
+            .env("BASTION_CONFIG_DIR", self.config.path())
             .env("BASTION_CLAUDE_BIN", fake)
             .env("BASTION_CODEX_BIN", fake)
             .env("BASTION_PI_BIN", fake)

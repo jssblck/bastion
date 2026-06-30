@@ -121,10 +121,11 @@ running over the PR.
 ## Text and prose
 
 Use plain ASCII quotes in docs, comments, and generated text. Keep the user guide
-and the design references in sync when behavior changes: the local and GitHub
-surfaces are mirror images, so a schema or command change touches both surfaces,
-the [user guide](../user-guide/README.md), and the design references in this
-directory.
+and the design references in sync when behavior changes: for the repository's
+reviewers the local and GitHub surfaces are mirror images (the user-level registry
+is a deliberate local-only exception), so a schema or command change touches both
+surfaces, the [user guide](../user-guide/README.md), and the design references in
+this directory.
 
 ---
 

@@ -28,6 +28,12 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "PATH", env = crate::paths::DATA_DIR_ENV)]
     pub data_dir: Option<PathBuf>,
 
+    /// Override the user-level config directory searched for a personal
+    /// `.bastion.yaml`, whose reviewers are merged with the repository's. Defaults
+    /// to the platform config dir (e.g. `~/.config/bastion`).
+    #[arg(long, global = true, value_name = "PATH", env = crate::config::CONFIG_DIR_ENV)]
+    pub config_dir: Option<PathBuf>,
+
     /// The command to run.
     #[command(subcommand)]
     pub command: Command,
@@ -181,6 +187,10 @@ pub async fn run() -> Result<ExitCode> {
         Some(root) => Layout::with_root(root),
         None => Layout::resolve()?,
     };
+    // Resolve the user-level config directory once: the explicit `--config-dir`
+    // (or its env) when given, otherwise the platform default. `None` only when no
+    // home directory can be determined, which simply means no user-level layer.
+    let user_config_dir = cli.config_dir.or_else(crate::config::user_config_dir);
 
     match cli.command {
         Command::Review {
@@ -202,7 +212,20 @@ pub async fn run() -> Result<ExitCode> {
                 ),
                 (Some(_), None) | (None, None) => None,
             };
-            let decision = crate::commands::review(&layout, &cwd, &base, format, github).await?;
+            // User-level reviewers are a local-only convenience. A review carrying a
+            // GitHub source (`--repo`/`--pr`, set under Actions) is the governed CI
+            // path, so it runs the repository's reviewers alone: a self-hosted runner
+            // that happens to have a personal config dir must not merge ungoverned
+            // reviewers into a PR's gate, and the `repo:` scope must never reach a
+            // check run. Only a purely local review layers in the user registry.
+            let review_user_dir = if github.is_some() {
+                None
+            } else {
+                user_config_dir.as_deref()
+            };
+            let decision =
+                crate::commands::review(&layout, &cwd, &base, format, github, review_user_dir)
+                    .await?;
             // A blocked review is an expected, non-error outcome that must still
             // signal failure to the caller: map `block` to a non-zero exit.
             Ok(match decision {
@@ -212,7 +235,8 @@ pub async fn run() -> Result<ExitCode> {
         }
         Command::Validate { file } => {
             let cwd = std::env::current_dir().wrap_err("determining the current directory")?;
-            crate::commands::validate(&cwd, file.as_deref()).map(|()| ExitCode::SUCCESS)
+            crate::commands::validate(&cwd, file.as_deref(), user_config_dir.as_deref())
+                .map(|()| ExitCode::SUCCESS)
         }
         Command::Transcript { first, second } => {
             let (run, reviewer) = match second {
@@ -308,6 +332,16 @@ mod tests {
         // A PR number is positive; `--pr 0` is rejected at parse time by `NonZeroU64`.
         let err = Cli::try_parse_from(["bastion", "review", "--pr", "0"]).unwrap_err();
         assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+    }
+
+    #[test]
+    fn config_dir_is_a_global_flag() {
+        // `--config-dir` is global, like `--data-dir`, so it parses on any subcommand
+        // and feeds the user-level registry merge.
+        let cli = Cli::parse_from(["bastion", "--config-dir", "/etc/bastion", "validate"]);
+        assert_eq!(cli.config_dir, Some(PathBuf::from("/etc/bastion")));
+        let after = Cli::parse_from(["bastion", "review", "--config-dir", "/etc/bastion"]);
+        assert_eq!(after.config_dir, Some(PathBuf::from("/etc/bastion")));
     }
 
     #[test]
