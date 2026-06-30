@@ -35,8 +35,12 @@ reviewers:
 ```
 
 Reviewer **names must be unique** within the file; a duplicate name is a load
-error. Because this file *is* the review policy, changes to it should require human
-review; see [Governance](./governance.md) and `bastion github codeowners`.
+error. A name also has to work as a directory name in the run store, so a name that
+reduces to an empty, `.`, or `..` component is rejected, as are two names that
+collapse to the same component once non-portable characters are normalized (for
+example `repo:test` and `repo-test`); plain names are unaffected. Because this file
+*is* the review policy, changes to it should require human review; see
+[Governance](./governance.md) and `bastion github codeowners`.
 
 > **Migrating from `bastion/reviewers.yaml`.** Bastion still loads the legacy
 > `bastion/reviewers.yaml` location but prints a deprecation warning; the supported

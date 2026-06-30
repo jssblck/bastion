@@ -25,8 +25,10 @@ There are no external services to stand up: the test suite is hermetic and uses
   changing schemas, renaming concepts, or rewriting call sites, do it and mention
   the breakage plainly.
 - Keep the reviewer schema, the verdict/event schema, and the docs under `docs/`
-  in sync when behavior changes: the local and GitHub surfaces are meant to be
-  mirror images and must not drift.
+  in sync when behavior changes: for the repository's reviewers the local and GitHub
+  surfaces are meant to be mirror images and must not drift. The user-level registry
+  is a deliberate local-only exception, so a purely local review can run an author's
+  personal reviewers that CI never does.
 - Update the example `.bastion.yaml` when the schema changes.
 - Run `just check` before opening a PR.
 - Use plain ASCII quotes in docs, comments, and generated text.

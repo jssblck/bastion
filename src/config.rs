@@ -162,7 +162,7 @@ impl Config {
     /// Returns an error if no registry is found in any ancestor directory, or if
     /// the discovered file fails to load.
     pub fn discover_located(start: &Path) -> Result<(Found, Self)> {
-        let found = locate_kind(start).ok_or_else(|| {
+        let found = locate_kind(start)?.ok_or_else(|| {
             eyre!(
                 "no reviewer registry found; expected {} (or {}) in this repo or an ancestor",
                 REGISTRY_FILES[0],
@@ -192,7 +192,8 @@ impl Config {
     /// # Errors
     ///
     /// Returns an error if neither a repository nor a user-level registry is found,
-    /// or if a discovered file fails to load.
+    /// if a candidate path cannot be inspected (a stat error other than not-found),
+    /// if a discovered file fails to load, or if the merged set fails validation.
     pub fn discover_merged(start: &Path, user_dir: Option<&Path>) -> Result<Self> {
         Self::discover_merged_located(start, user_dir).map(|(_, config)| config)
     }
@@ -210,12 +211,14 @@ impl Config {
     /// # Errors
     ///
     /// Returns an error if neither a repository nor a user-level registry is found,
-    /// if a discovered file fails to load, or if the merged set fails validation.
+    /// if a candidate path cannot be inspected (a stat error other than not-found,
+    /// from [`locate_kind`] or [`locate_user`]), if a discovered file fails to load,
+    /// or if the merged set fails validation.
     pub fn discover_merged_located(
         start: &Path,
         user_dir: Option<&Path>,
     ) -> Result<(Sources, Self)> {
-        let repo = locate_kind(start);
+        let repo = locate_kind(start)?;
         let user = match user_dir {
             Some(dir) => locate_user(dir)?,
             None => None,
@@ -404,9 +407,26 @@ pub struct Sources {
 /// `None` if none exists up to the filesystem root. Within a single directory the
 /// `.bastion.yaml` spelling wins over `.bastion.yml`, and both win over the
 /// deprecated `bastion/reviewers.yaml`; a closer ancestor wins over a farther one.
-#[must_use]
-pub fn locate(start: &Path) -> Option<PathBuf> {
-    locate_kind(start).map(|found| found.path)
+///
+/// # Errors
+///
+/// Propagates a non-`NotFound` stat error, as [`locate_kind`] does.
+pub fn locate(start: &Path) -> Result<Option<PathBuf>> {
+    Ok(locate_kind(start)?.map(|found| found.path))
+}
+
+/// Whether a registry candidate is present at `path`.
+///
+/// Only a `NotFound` result means "absent"; any other stat error (a permission
+/// problem, say) is propagated with path context rather than read as absence, so a
+/// registry whose presence cannot be determined fails discovery closed instead of
+/// vanishing. A path that exists but is not a loadable file (a directory of that
+/// name, say) still counts as present here, so discovery returns it and the
+/// subsequent [`Config::load`] fails closed with a clear read error rather than the
+/// candidate being silently skipped.
+fn registry_present(path: &Path) -> Result<bool> {
+    path.try_exists()
+        .wrap_err_with(|| format!("checking for a reviewer registry at {}", path.display()))
 }
 
 /// Locate a user-level registry inside `dir`, a single directory with no ancestor
@@ -418,26 +438,15 @@ pub fn locate(start: &Path) -> Option<PathBuf> {
 /// # Errors
 ///
 /// Returns an error if a candidate path cannot be inspected for a reason other than
-/// not existing (a permission problem, say). Such an error is propagated rather than
-/// read as "no registry", so a user-level gate reviewer is never silently dropped
-/// because its directory could not be stat'ed: discovery fails closed.
+/// not existing (a stat error such as a permission problem). Such an error is
+/// propagated rather than read as "no registry", so a user-level gate reviewer is
+/// never silently dropped because its registry could not be stat'ed or could not be
+/// loaded: discovery fails closed.
 pub fn locate_user(dir: &Path) -> Result<Option<PathBuf>> {
     for name in REGISTRY_FILES {
         let candidate = dir.join(name);
-        match std::fs::metadata(&candidate) {
-            Ok(meta) if meta.is_file() => return Ok(Some(candidate)),
-            // Present but not a regular file (a directory named like the registry,
-            // say): not something we can load, so keep looking.
-            Ok(_) => {}
-            // Absent is the ordinary case: this directory has no registry of this
-            // spelling. Any other error means we could not tell, which must not be
-            // mistaken for "absent".
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            Err(err) => {
-                return Err(err).wrap_err_with(|| {
-                    format!("checking for a user registry at {}", candidate.display())
-                });
-            }
+        if registry_present(&candidate)? {
+            return Ok(Some(candidate));
         }
     }
     Ok(None)
@@ -445,27 +454,33 @@ pub fn locate_user(dir: &Path) -> Result<Option<PathBuf>> {
 
 /// Like [`locate`], but also reports whether the resolved path is the deprecated
 /// location, so callers can warn.
-#[must_use]
-pub fn locate_kind(start: &Path) -> Option<Found> {
+///
+/// # Errors
+///
+/// Returns an error if a candidate path cannot be inspected for a reason other than
+/// not existing (a stat error such as a permission problem); it is propagated rather
+/// than read as "no registry", so a governed repository gate is never silently
+/// skipped because its registry could not be inspected.
+pub fn locate_kind(start: &Path) -> Result<Option<Found>> {
     for dir in start.ancestors() {
         for name in REGISTRY_FILES {
             let candidate = dir.join(name);
-            if candidate.is_file() {
-                return Some(Found {
+            if registry_present(&candidate)? {
+                return Ok(Some(Found {
                     path: candidate,
                     deprecated: false,
-                });
+                }));
             }
         }
         let legacy = dir.join(LEGACY_REGISTRY_RELPATH);
-        if legacy.is_file() {
-            return Some(Found {
+        if registry_present(&legacy)? {
+            return Ok(Some(Found {
                 path: legacy,
                 deprecated: true,
-            });
+            }));
         }
     }
-    None
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -672,7 +687,9 @@ reviewer:
         assert_eq!(config.reviewers[0].name, "legacy");
 
         // ...and it is flagged as deprecated so the caller can warn.
-        let found = locate_kind(tmp.path()).expect("legacy located");
+        let found = locate_kind(tmp.path())
+            .expect("stat ok")
+            .expect("legacy located");
         assert!(found.deprecated, "legacy path must be flagged deprecated");
         assert!(found.path.ends_with("reviewers.yaml"));
     }
@@ -692,7 +709,7 @@ reviewer:
         )
         .unwrap();
 
-        let found = locate_kind(tmp.path()).expect("located");
+        let found = locate_kind(tmp.path()).expect("stat ok").expect("located");
         assert!(
             !found.deprecated,
             "the root .bastion.yaml must win over the legacy path"
@@ -853,6 +870,35 @@ reviewers:
         let repo = registry_dir(REPO_YAML);
         let config = Config::discover_merged(repo.path(), None).expect("repo only");
         assert_eq!(config.reviewers.len(), 1);
+    }
+
+    #[test]
+    fn locate_user_falls_back_to_the_yml_spelling() {
+        // Only `.bastion.yml` present: the flat user-config locator still finds it.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(REGISTRY_FILES[1]), "reviewers: []\n").unwrap();
+        assert!(
+            locate_user(dir.path())
+                .expect("stat ok")
+                .expect("located")
+                .ends_with(REGISTRY_FILES[1])
+        );
+    }
+
+    #[test]
+    fn a_present_but_unloadable_user_registry_fails_closed() {
+        // `.bastion.yaml` exists in the user config dir but as a directory, not a
+        // loadable file. Discovery must not read that as "no user registry" and
+        // silently drop the user's gate reviewers; it returns the path and the load
+        // fails closed with a clear error.
+        let user = tempfile::tempdir().unwrap();
+        std::fs::create_dir(user.path().join(REGISTRY_FILE)).unwrap();
+        let repo = registry_dir(REPO_YAML);
+        let err = Config::discover_merged(repo.path(), Some(user.path())).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("reviewer registry"),
+            "a present-but-unloadable user registry must error, got: {err:#}"
+        );
     }
 
     #[test]

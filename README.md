@@ -24,10 +24,11 @@ at 100 it is useless.
 Bastion runs code review as a set of **single-concern reviewers**: focused agent
 prompts, each responsible for exactly one property, run over a changeset. Because
 each reviewer owns one concern, it stays at high recall; you cover more ground by
-adding narrow reviewers, never by broadening one. The same reviewers run locally
-(fast, pre-PR) and in CI (authoritative), and their verdicts aggregate into one
-merge gate. The human moves from reviewing diffs to authoring, curating, and
-governing the reviewers.
+adding narrow reviewers, never by broadening one. The repository's reviewers run
+locally (fast, pre-PR) and in CI (authoritative), and their verdicts aggregate into
+one merge gate; locally you can also add personal user-level reviewers that CI does
+not run. The human moves from reviewing diffs to authoring, curating, and governing
+the reviewers.
 
 The `bastion` CLI is the local surface: an authoring agent loops `bastion review`
 until green, then opens a PR that CI largely just confirms.

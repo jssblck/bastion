@@ -2,7 +2,7 @@
 
 > The local surface: the same review data as GitHub, streamed out of the CLI for an agent, with the noisy parts kept on disk and read on demand.
 
-The core design ([`design.md`](./design.md)) describes `bastion review` in a single section; this doc is the detail of the local surface, the way the GitHub adapter ([`github-adapter.md`](./github-adapter.md)) is the detail of the CI surface. The two are mirror images: the same reviewers, verdicts, and findings, presented through whatever the surface makes natural. On GitHub that is check runs and PR comments; locally it is a stream on stdout and a few files on disk.
+The core design ([`design.md`](./design.md)) describes `bastion review` in a single section; this doc is the detail of the local surface, the way the GitHub adapter ([`github-adapter.md`](./github-adapter.md)) is the detail of the CI surface. For the repository's reviewers the two are mirror images: the same reviewers, verdicts, and findings, presented through whatever the surface makes natural. On GitHub that is check runs and PR comments; locally it is a stream on stdout and a few files on disk. The one deliberate asymmetry is the user-level registry: a purely local run can include an author's personal reviewers, which the GitHub surface never sees (see [User-level reviewers](#user-level-reviewers) below).
 
 The guiding rule carries over: Bastion does not own your environment, it plugs into it. Locally that means the agent's loop drives Bastion, the local shell provides whatever the reviewers consume, and Bastion streams results back in a shape an agent can read without help.
 
@@ -10,7 +10,7 @@ The guiding rule carries over: Bastion does not own your environment, it plugs i
 
 ## How it runs
 
-`bastion review` runs the reviewers whose `trigger` globs match the working tree's changes against the base branch, exactly as CI would; routing, the runner, and aggregation are the shared core, not local-specific. The one thing that differs from CI is where the inputs come from: there is no preview-deploy job, so anything a reviewer's `env` or `inputs` reference is expected to be in the local environment already. A `precommit` script might boot the service on `http://localhost:3000` and export that as the preview URL. A native reviewer inherits that local environment directly. A containerized reviewer (one with a `runner` and `capabilities.network: true`) inherits none of it; only its literal `env` pairs and the fixed provider-credential set cross into the container, so a local value reaches it only when written into the reviewer's `env` (see [Containers](./containers.md)).
+`bastion review` runs the reviewers whose `trigger` globs match the working tree's changes against the base branch, as CI would for the repository's reviewers; routing, the runner, and aggregation are the shared core, not local-specific. Two things differ from CI. The first is reviewer discovery: a purely local run merges the user-level registry on top of the repository's, while a GitHub-source run (`--repo`/`--pr`) uses the repository's reviewers alone (see [User-level reviewers](#user-level-reviewers)). The second is where inputs come from: there is no preview-deploy job, so anything a reviewer's `env` or `inputs` reference is expected to be in the local environment already. A `precommit` script might boot the service on `http://localhost:3000` and export that as the preview URL. A native reviewer inherits that local environment directly. A containerized reviewer (one with a `runner` and `capabilities.network: true`) inherits none of it; only its literal `env` pairs and the fixed provider-credential set cross into the container, so a local value reaches it only when written into the reviewer's `env` (see [Containers](./containers.md)).
 
 The intended use is the loop from the core design: an agent runs `bastion review`, reads the stream, fixes what blocks, runs it again, and repeats until it is green, before ever opening a PR.
 
@@ -122,7 +122,7 @@ The local and GitHub surfaces carry the same data; only the transport differs. H
 
 `bastion github report` runs after `bastion review` finishes, so the per-reviewer checks are created already completed, and the aggregate check and the sticky comment are written once. The local stream additionally carries `run.started` and `reviewer.started` for an agent reacting as the run goes; those have no separate GitHub surface. The data each surface carries is the same; only the local stream is finer-grained than the post-hoc GitHub rendering.
 
-Anyone who understands one surface understands the other; this is deliberate, so that an agent's local loop and the CI gate never disagree about what a review means.
+Anyone who understands one surface understands the other; this is deliberate, so that an agent's local loop and the CI gate never disagree about what a review means. This parity is scoped to the repository's reviewers: an author's personal user-level reviewers run only locally, so a local run can carry reviewer events and findings that the GitHub surface will never report.
 
 ---
 

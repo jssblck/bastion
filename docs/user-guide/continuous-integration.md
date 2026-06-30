@@ -40,9 +40,11 @@ two GitHub surfaces:
   (`bastion / tenant-isolation`). A blocking gate reports `failure`; a passing gate
   reports `success`; an advisor reports `success` with its findings attached.
 
-The local-to-GitHub mapping is one-to-one: the JSONL events you read locally are
-the same decisions GitHub renders as checks and a comment. Each GitHub surface has a
-local twin:
+The local-to-GitHub mapping is one-to-one for the repository's reviewers: the JSONL
+events a CI or `bastion review --repo/--pr` run produces are the same decisions GitHub
+renders as checks and a comment. (A purely local run can also include your personal
+user-level reviewers, whose events are local-only and have no GitHub twin.) Each
+GitHub surface has a local twin:
 
 | GitHub                                                         | Local                               |
 | -------------------------------------------------------------- | ----------------------------------- |
