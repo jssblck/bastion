@@ -225,10 +225,10 @@ GitHub twin (a check run, a comment, an annotation), laid out side by side in th
 chapter. A green local loop predicts a green PR when both runs see the same reviewers
 and context. The two surfaces run the repository's reviewers and aggregation, and CI
 adds the PR's description and discussion that a default local run does not, so a
-reviewer that weighs that context can decide differently. One thing has no GitHub
-twin: a purely local run can also include your personal user-level reviewers, whose
-`run.started` and `reviewer.resolved` events are local-only and never become checks
-or comments (see [Authoring reviewers](./authoring-reviewers.md#user-level-reviewers)).
+reviewer that weighs that context can decide differently. A purely local run can also
+include your personal user-level reviewers; their `run.started` and
+`reviewer.resolved` events are local-only and never become checks or comments (see
+[Authoring reviewers](./authoring-reviewers.md#user-level-reviewers)).
 
 ---
 

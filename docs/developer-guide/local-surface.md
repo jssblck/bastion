@@ -1,8 +1,8 @@
 # Bastion locally
 
-> The local surface: the same review data as GitHub, streamed out of the CLI for an agent, with the noisy parts kept on disk and read on demand.
+> The local surface: the same review data GitHub shows for the repository's reviewers, streamed out of the CLI for an agent, with the noisy parts kept on disk and read on demand. Personal user-level reviewers are local-only and add to that set.
 
-The core design ([`design.md`](./design.md)) describes `bastion review` in a single section; this doc is the detail of the local surface, the way the GitHub adapter ([`github-adapter.md`](./github-adapter.md)) is the detail of the CI surface. For the repository's reviewers the two are mirror images: the same reviewers, verdicts, and findings, presented through whatever the surface makes natural. On GitHub that is check runs and PR comments; locally it is a stream on stdout and a few files on disk. The one deliberate asymmetry is the user-level registry: a purely local run can include an author's personal reviewers, which the GitHub surface never sees (see [User-level reviewers](#user-level-reviewers) below).
+The core design ([`design.md`](./design.md)) describes `bastion review` in a single section; this doc is the detail of the local surface, the way the GitHub adapter ([`github-adapter.md`](./github-adapter.md)) is the detail of the CI surface. For the repository's reviewers the two are mirror images: the same reviewers, verdicts, and findings, presented through whatever the surface makes natural. On GitHub that is check runs and PR comments; locally it is a stream on stdout and a few files on disk. The user-level registry is the only deliberate asymmetry. A purely local run can include an author's personal reviewers, which the GitHub surface never sees (see [User-level reviewers](#user-level-reviewers) below).
 
 The guiding rule carries over: Bastion does not own your environment, it plugs into it. Locally that means the agent's loop drives Bastion, the local shell provides whatever the reviewers consume, and Bastion streams results back in a shape an agent can read without help.
 
@@ -122,7 +122,7 @@ The local and GitHub surfaces carry the same data; only the transport differs. H
 
 `bastion github report` runs after `bastion review` finishes, so the per-reviewer checks are created already completed, and the aggregate check and the sticky comment are written once. The local stream additionally carries `run.started` and `reviewer.started` for an agent reacting as the run goes; those have no separate GitHub surface. The data each surface carries is the same; only the local stream is finer-grained than the post-hoc GitHub rendering.
 
-Anyone who understands one surface understands the other; this is deliberate, so that an agent's local loop and the CI gate never disagree about what a review means. This parity is scoped to the repository's reviewers: an author's personal user-level reviewers run only locally, so a local run can carry reviewer events and findings that the GitHub surface will never report.
+Anyone who understands one surface understands the other; this is deliberate, so that an agent's local loop and the CI gate never disagree about what a review means. An author's personal user-level reviewers run only locally, so a local run can carry reviewer events and findings that the GitHub surface will never report.
 
 ---
 

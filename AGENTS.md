@@ -28,8 +28,10 @@ verdict returns an error, never a fabricated pass, and gates fail closed on it.
     contract, the merge gate, the threat model. The authoritative design reference.
   - `docs/developer-guide/github-adapter.md`: the GitHub CI adapter and governance.
   - `docs/developer-guide/local-surface.md`: the local CLI surface this crate
-    implements. The local and GitHub surfaces are deliberate mirror images; keep
-    them in sync.
+    implements. For the repository's reviewers the local and GitHub surfaces are
+    deliberate mirror images; keep them in sync. The user-level registry is a
+    local-only exception, so a purely local review can run personal reviewers the
+    GitHub adapter does not.
 - `.bastion.yaml`: the example reviewer registry at the repository root (the
   `.bastion.yml` spelling is also honored); update it when the schema changes.
 - `.agents/skills/readme.md`: repo-local Rust coding skills and their provenance.
@@ -220,10 +222,10 @@ version:
 - Keep the local surface and the GitHub adapter as mirror images for the
   repository's reviewers: the same reviewers, verdicts, and findings, presented
   through whatever each transport makes natural. A schema change touches both
-  surfaces and `docs/`. The one deliberate exception is the user-level registry: a
-  purely local `bastion review` also merges in an author's personal reviewers from
-  the platform config dir, which the GitHub adapter (and any `--repo`/`--pr` run)
-  never sees, so a personal reviewer cannot gate someone else's PR.
+  surfaces and `docs/`. The user-level registry is the deliberate exception. A purely
+  local `bastion review` also merges in an author's personal reviewers from the
+  platform config dir, which the GitHub adapter and any `--repo`/`--pr` run never see,
+  so a personal reviewer cannot gate someone else's PR.
 - Reviewers are declarative and static. Do not add code paths that generate
   reviewers on the fly; that would break the stable trigger set and the
   governance story.
