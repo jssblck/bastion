@@ -25,8 +25,8 @@ Reviewers can also come from a personal `.bastion.yaml` (or `.bastion.yml`) in y
 When both exist, `bastion review` and `bastion validate` merge the repository's reviewers with your user-level ones into a single set, by reviewer name:
 
 - A reviewer only one file defines is included as-is.
-- The same reviewer in both files (identical config) is deduplicated to one.
-- A genuine collision (the same name with a different config in each file) keeps both: the user copy stays under its plain name, and the repository copy is scoped to `repo:<name>` so neither silently wins. The two files are governed separately, so the collision is surfaced rather than resolved by precedence.
+- The same reviewer in both files is deduplicated to one, compared by effective config after each file's registry `defaults` are applied (so inheriting a default and spelling out the same value count as identical).
+- A genuine collision (the same name with a different effective config in each file) keeps both: the user copy stays under its plain name, and the repository copy is scoped to `repo:<name>` so neither silently wins. The two files are governed separately, so the collision is surfaced rather than resolved by precedence.
 
 This is a local-only layer. CI has no user config directory, so the GitHub adapter sees the repository's reviewers alone, and the `repo:` scope never appears there. `--config-dir` (or `$BASTION_CONFIG_DIR`) overrides where the user-level file is read from, mirroring `--data-dir` for run history.
 

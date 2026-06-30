@@ -62,11 +62,14 @@ When both files exist, a local `bastion review` merges the repository's reviewer
 with your user-level ones into one set, by reviewer name:
 
 - A reviewer only one file defines is included as-is.
-- The same reviewer in both files (identical definition) is deduplicated to one.
-- A name that appears in both with a *different* definition is a collision: both are
-  kept, your copy under its plain name and the repository's scoped to `repo:<name>`,
-  so neither silently wins. The two files are governed separately, so the collision
-  is surfaced rather than resolved by precedence.
+- The same reviewer in both files is deduplicated to one. Sameness is compared by the
+  *effective* configuration after each file's registry `defaults` are applied, so a
+  reviewer that inherits a default `model` or `effort` and one that spells out the
+  same value count as identical.
+- A name in both files with a *different* effective configuration is a collision; both
+  are kept, your copy under its plain name and the repository's scoped to
+  `repo:<name>`, so neither silently wins. The two files are governed separately, so
+  the collision is surfaced rather than resolved by precedence.
 
 This layer is local-only. CI has no user config directory, so a pull request is
 gated by the repository's reviewers alone and the `repo:` scope never appears there;

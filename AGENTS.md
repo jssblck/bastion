@@ -88,7 +88,8 @@ version:
   and merges in a user-level one from the platform config dir (`user_config_dir`,
   overridable with `BASTION_CONFIG_DIR`), so a personal reviewer runs locally even
   when a repo has not adopted Bastion. The merge is a set keyed by name: an
-  identical reviewer in both files is deduplicated, and a same-name-different-config
+  identical reviewer in both files is deduplicated (compared by effective config
+  after each file's `defaults` are applied), and a same-name-different-config
   collision keeps both with the repo side scoped to `REPO_SCOPE_PREFIX` (`repo:`);
   the colon is mapped to a portable run-store path component in `paths.rs`.
 - `src/routing.rs`: compiling trigger globs and matching changed files.
