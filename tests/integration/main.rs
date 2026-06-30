@@ -1364,6 +1364,55 @@ fn the_legacy_registry_location_still_works_with_a_deprecation_warning() {
     );
 }
 
+/// A user-level registry merges with the repository's through the real binary: a
+/// reviewer the user keeps in their config dir runs locally even when the repo
+/// never defined it, an identical reviewer present in both files is deduplicated,
+/// and a same-name reviewer whose config differs survives under the `repo:` scope
+/// alongside the user's. This is the local-only path; CI, with no user config dir,
+/// sees the repo set alone.
+#[test]
+fn a_user_registry_merges_with_the_repository_registry() {
+    let Some(fake) = tooling() else { return };
+
+    let repo = TestRepo::new(&registry(&[
+        Reviewer::new("repo-only", "codex", "gate").behavior("pass"),
+        Reviewer::new("shared-same", "codex", "gate").behavior("pass"),
+        Reviewer::new("shared-diff", "claude-code", "gate")
+            .behavior("pass")
+            .prompt("repo prompt"),
+    ]))
+    .with_user_registry(&registry(&[
+        Reviewer::new("user-only", "claude-code", "gate").behavior("pass"),
+        // Byte-for-byte the repo's `shared-same`: deduplicated to one reviewer.
+        Reviewer::new("shared-same", "codex", "gate").behavior("pass"),
+        // Same name, different prompt: a real collision, so both survive.
+        Reviewer::new("shared-diff", "claude-code", "gate")
+            .behavior("pass")
+            .prompt("user prompt"),
+    ]));
+
+    let run = repo.review(fake);
+
+    assert!(run.exited_zero(), "stderr:\n{}", run.stderr);
+    let (decision, gates, _cost) = run.completed();
+    assert_eq!(decision, Decision::Pass);
+    // repo-only, user-only, shared-same (deduped to one), and the collision kept as
+    // shared-diff (user) plus repo:shared-diff (repo): five reviewers, not six.
+    assert_eq!(gates.total, 5);
+    assert_eq!(gates.passed, 5);
+    assert_eq!(run.resolved_count(), 5);
+
+    // The user's own reviewer ran, though the repo registry never mentions it.
+    let (user_only, _, _, _) = run.resolved("user-only");
+    assert_eq!(user_only, Decision::Pass);
+    // The genuine collision kept both copies, with the repo side scoped.
+    run.resolved("shared-diff"); // the user's, under the plain name
+    run.resolved("repo:shared-diff"); // the repo's, scoped
+
+    let runs = store::list_runs(&repo.layout()).unwrap();
+    assert_eq!(runs[0].reviewers, 5);
+}
+
 /// An invalid registry (here, duplicate reviewer names) is a hard error surfaced
 /// to the user, never swallowed into a pass.
 #[test]

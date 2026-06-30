@@ -82,7 +82,13 @@ version:
 - `src/cli.rs`: clap derive command tree and dispatch.
 - `src/commands.rs`: one handler per subcommand.
 - `src/reviewer.rs` / `src/config.rs`: the declarative reviewer schema and
-  registry loading/discovery.
+  registry loading/discovery. Discovery walks up for a repository `.bastion.yaml`
+  and merges in a user-level one from the platform config dir (`user_config_dir`,
+  overridable with `BASTION_CONFIG_DIR`), so a personal reviewer runs locally even
+  when a repo has not adopted Bastion. The merge is a set keyed by name: an
+  identical reviewer in both files is deduplicated, and a same-name-different-config
+  collision keeps both with the repo side scoped to `REPO_SCOPE_PREFIX` (`repo:`);
+  the colon is mapped to a portable run-store path component in `paths.rs`.
 - `src/routing.rs`: compiling trigger globs and matching changed files.
 - `src/verdict.rs` / `src/event.rs`: the structured verdict and run-event
   schemas (the `Money` type carries cents but serializes as dollars).

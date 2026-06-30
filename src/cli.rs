@@ -28,6 +28,12 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "PATH", env = crate::paths::DATA_DIR_ENV)]
     pub data_dir: Option<PathBuf>,
 
+    /// Override the user-level config directory searched for a personal
+    /// `.bastion.yaml`, whose reviewers are merged with the repository's. Defaults
+    /// to the platform config dir (e.g. `~/.config/bastion`).
+    #[arg(long, global = true, value_name = "PATH", env = crate::config::CONFIG_DIR_ENV)]
+    pub config_dir: Option<PathBuf>,
+
     /// The command to run.
     #[command(subcommand)]
     pub command: Command,
@@ -181,6 +187,10 @@ pub async fn run() -> Result<ExitCode> {
         Some(root) => Layout::with_root(root),
         None => Layout::resolve()?,
     };
+    // Resolve the user-level config directory once: the explicit `--config-dir`
+    // (or its env) when given, otherwise the platform default. `None` only when no
+    // home directory can be determined, which simply means no user-level layer.
+    let user_config_dir = cli.config_dir.or_else(crate::config::user_config_dir);
 
     match cli.command {
         Command::Review {
@@ -202,7 +212,15 @@ pub async fn run() -> Result<ExitCode> {
                 ),
                 (Some(_), None) | (None, None) => None,
             };
-            let decision = crate::commands::review(&layout, &cwd, &base, format, github).await?;
+            let decision = crate::commands::review(
+                &layout,
+                &cwd,
+                &base,
+                format,
+                github,
+                user_config_dir.as_deref(),
+            )
+            .await?;
             // A blocked review is an expected, non-error outcome that must still
             // signal failure to the caller: map `block` to a non-zero exit.
             Ok(match decision {
@@ -212,7 +230,8 @@ pub async fn run() -> Result<ExitCode> {
         }
         Command::Validate { file } => {
             let cwd = std::env::current_dir().wrap_err("determining the current directory")?;
-            crate::commands::validate(&cwd, file.as_deref()).map(|()| ExitCode::SUCCESS)
+            crate::commands::validate(&cwd, file.as_deref(), user_config_dir.as_deref())
+                .map(|()| ExitCode::SUCCESS)
         }
         Command::Transcript { first, second } => {
             let (run, reviewer) = match second {

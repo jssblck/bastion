@@ -84,9 +84,18 @@ impl Layout {
     }
 
     /// A single reviewer's directory within a run.
+    ///
+    /// The reviewer name is mapped to a portable path component first: names are
+    /// author-controlled and usually plain, but a merged user/repo registry scopes a
+    /// colliding name with the `repo:` sentinel (see [`crate::config`]), and `:` is
+    /// invalid in a Windows path component. This is the single place a reviewer name
+    /// becomes a path, so the write side and every read side ([`Self::transcript`],
+    /// [`Self::verdict`], [`Self::meta`]) sanitize identically and stay in agreement.
     #[must_use]
     pub fn reviewer_dir(&self, id: &RunId, reviewer: &str) -> PathBuf {
-        self.run_dir(id).join("reviewers").join(reviewer)
+        self.run_dir(id)
+            .join("reviewers")
+            .join(path_component(reviewer))
     }
 
     /// A reviewer's saved session transcript.
@@ -118,6 +127,22 @@ impl Layout {
     }
 }
 
+/// Map a reviewer name to a single path component safe on every platform.
+///
+/// Replaces any character not permitted in a portable file name (the Windows
+/// reserved set plus control characters) with `-`. For an ordinary name this is the
+/// identity, so existing layouts are unchanged; it exists so the `repo:` scope
+/// sentinel a merged registry can introduce does not produce an unwritable path.
+fn path_component(name: &str) -> String {
+    name.chars()
+        .map(|c| match c {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',
+            c if c.is_control() => '-',
+            c => c,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,5 +168,32 @@ mod tests {
                 .ends_with("runs/r-0f3a/reviewers/tenant-isolation/transcript.jsonl")
         );
         assert!(layout.latest_pointer().ends_with("runs/latest"));
+    }
+
+    #[test]
+    fn a_scoped_reviewer_name_maps_to_a_portable_path_component() {
+        // The `repo:` collision sentinel carries a colon, which is invalid in a
+        // Windows path component; the reviewer dir sanitizes it so the run store
+        // stays writable, and every accessor agrees on the same sanitized form.
+        let layout = Layout::with_root(PathBuf::from("/data"));
+        let id = RunId("r-0f3a".into());
+        let dir = layout.reviewer_dir(&id, "repo:test-coverage");
+        assert!(
+            dir.ends_with("runs/r-0f3a/reviewers/repo-test-coverage"),
+            "colon should be replaced, got {}",
+            dir.display()
+        );
+        assert!(
+            layout
+                .verdict(&id, "repo:test-coverage")
+                .ends_with("runs/r-0f3a/reviewers/repo-test-coverage/verdict.json")
+        );
+    }
+
+    #[test]
+    fn an_ordinary_reviewer_name_is_left_untouched() {
+        // The sanitizer is the identity for a plain name, so existing layouts and
+        // their tests are unaffected.
+        assert_eq!(path_component("tenant-isolation"), "tenant-isolation");
     }
 }

@@ -14,6 +14,22 @@ The guiding rule carries over: Bastion does not own your environment, it plugs i
 
 The intended use is the loop from the core design: an agent runs `bastion review`, reads the stream, fixes what blocks, runs it again, and repeats until it is green, before ever opening a PR.
 
+### User-level reviewers
+
+Reviewers can also come from a personal `.bastion.yaml` (or `.bastion.yml`) in your platform config directory, so you can run a reviewer locally whether or not a repository adopts Bastion in CI:
+
+- Linux: `$XDG_CONFIG_HOME/bastion`, defaulting to `~/.config/bastion`.
+- macOS: `~/Library/Application Support/bastion`.
+- Windows: `%APPDATA%\bastion`.
+
+When both exist, `bastion review` and `bastion validate` merge the repository's reviewers with your user-level ones into a single set, by reviewer name:
+
+- A reviewer only one file defines is included as-is.
+- The same reviewer in both files (identical config) is deduplicated to one.
+- A genuine collision (the same name with a different config in each file) keeps both: the user copy stays under its plain name, and the repository copy is scoped to `repo:<name>` so neither silently wins. The two files are governed separately, so the collision is surfaced rather than resolved by precedence.
+
+This is a local-only layer. CI has no user config directory, so the GitHub adapter sees the repository's reviewers alone, and the `repo:` scope never appears there. `--config-dir` (or `$BASTION_CONFIG_DIR`) overrides where the user-level file is read from, mirroring `--data-dir` for run history.
+
 The [review context](./design.md#review-context) uses local inputs. There is no PR, so intent comes from the branch's commit messages (`base..HEAD`), and there is no discussion thread to gather. Prior-findings memory works because every local run is persisted: a second `bastion review` on the same branch shows each reviewer what it raised last time, recalled from the run store. GitHub adds the PR description and discussion on top.
 
 ---
@@ -88,7 +104,7 @@ The commands that read saved data back are the local equivalent of clicking "Det
 
 `show` and `runs` accept `--format human|jsonl`; `transcript` is raw text by default, since a transcript is already a document.
 
-Separate from these run-inspection commands, `bastion validate [FILE]` parses the reviewer registry (the discovered `.bastion.yaml`, or an explicit `FILE`) through the same `Config` load path `review` uses, and reports any load-time error (malformed YAML, an unknown field, a duplicate name, a model under `backend: any`) without running a reviewer or spending a model call. A valid registry prints a summary and exits zero; an invalid one prints the error and exits non-zero, so it serves as a cheap pre-commit or CI lint. It has no GitHub mirror: in CI the same validation happens implicitly when `review` loads the registry.
+Separate from these run-inspection commands, `bastion validate [FILE]` parses the reviewer registry through the same `Config` load path `review` uses, and reports any load-time error (malformed YAML, an unknown field, a duplicate name, a model under `backend: any`) without running a reviewer or spending a model call. With no `FILE` it validates the merged set `review` would run (the discovered repository registry plus the user-level one), naming each source it merged; an explicit `FILE` is validated on its own. A valid registry prints a summary and exits zero; an invalid one prints the error and exits non-zero, so it serves as a cheap pre-commit or CI lint. It has no GitHub mirror: in CI the same validation happens implicitly when `review` loads the registry.
 
 ---
 
