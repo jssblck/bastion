@@ -28,7 +28,7 @@ When both exist, `bastion review` and `bastion validate` merge the repository's 
 - The same reviewer in both files is deduplicated to one, compared by effective config after each file's registry `defaults` are applied (so inheriting a default and spelling out the same value count as identical).
 - A genuine collision (the same name with a different effective config in each file) keeps both: the user copy stays under its plain name, and the repository copy is scoped to `repo:<name>` so neither silently wins. The two files are governed separately, so the collision is surfaced rather than resolved by precedence.
 
-This is a local-only layer. CI has no user config directory, so the GitHub adapter sees the repository's reviewers alone, and the `repo:` scope never appears there. `--config-dir` (or `$BASTION_CONFIG_DIR`) overrides where the user-level file is read from, mirroring `--data-dir` for run history.
+This is a local-only layer. A review carrying a GitHub source (`--repo`/`--pr`, as CI runs) skips the user-level registry, so the GitHub adapter sees the repository's reviewers alone and the `repo:` scope never appears there, even on a self-hosted runner that has a config dir. `--config-dir` (or `$BASTION_CONFIG_DIR`) overrides where the user-level file is read from, mirroring `--data-dir` for run history.
 
 The [review context](./design.md#review-context) uses local inputs. There is no PR, so intent comes from the branch's commit messages (`base..HEAD`), and there is no discussion thread to gather. Prior-findings memory works because every local run is persisted: a second `bastion review` on the same branch shows each reviewer what it raised last time, recalled from the run store. GitHub adds the PR description and discussion on top.
 
@@ -110,7 +110,7 @@ Separate from these run-inspection commands, `bastion validate [FILE]` parses th
 
 ## Parity with GitHub
 
-The local and GitHub surfaces carry the same data; only the transport differs. How the events map to the GitHub surfaces:
+For the repository's reviewers, the local and GitHub surfaces carry the same data; only the transport differs. How the events map to the GitHub surfaces:
 
 | GitHub                                                          | Local                                 |
 | --------------------------------------------------------------- | ------------------------------------- |
@@ -120,7 +120,7 @@ The local and GitHub surfaces carry the same data; only the transport differs. H
 | The aggregate `bastion` check and the sticky PR comment         | `run.completed` event                 |
 | Transcript in the uploaded run artifact                         | saved on disk, `bastion transcript`   |
 
-`bastion github report` runs after `bastion review` finishes, so the per-reviewer checks are created already completed, and the aggregate check and the sticky comment are written once. The local stream additionally carries `run.started` and `reviewer.started` for an agent reacting as the run goes; those have no separate GitHub surface. The data each surface carries is the same; only the local stream is finer-grained than the post-hoc GitHub rendering.
+`bastion github report` runs after `bastion review` finishes, so the per-reviewer checks are created already completed, and the aggregate check and the sticky comment are written once. The local stream additionally carries `run.started` and `reviewer.started` for an agent reacting as the run goes; those have no separate GitHub surface. For the repository's reviewers the data each surface carries is the same; only the local stream is finer-grained than the post-hoc GitHub rendering.
 
 Anyone who understands one surface understands the other; this is deliberate, so that an agent's local loop and the CI gate never disagree about what a review means. An author's personal user-level reviewers run only locally, so a local run can carry reviewer events and findings that the GitHub surface will never report.
 

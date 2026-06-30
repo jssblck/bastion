@@ -71,10 +71,10 @@ with your user-level ones into one set, by reviewer name:
   `repo:<name>`, so neither silently wins. The two files are governed separately, so
   the collision is surfaced rather than resolved by precedence.
 
-This layer is local-only. CI has no user config directory, so a pull request is
-gated by the repository's reviewers alone and the `repo:` scope never appears there;
-a review run against a pull request (with `--repo`/`--pr`) likewise uses the
-repository set only, so a personal reviewer can never gate someone else's change.
+This layer is local-only. A review carrying a GitHub source (with `--repo`/`--pr`, as
+CI runs) skips the user-level registry, so a pull request is gated by the
+repository's reviewers alone, the `repo:` scope never appears there, and a personal
+reviewer can never gate someone else's change.
 `--config-dir <path>` (or `$BASTION_CONFIG_DIR`) overrides where the user-level file
 is read from.
 
