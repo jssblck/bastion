@@ -66,6 +66,37 @@ bastion transcript <reviewer>      # the full agent session for one reviewer (la
 
 Pass a run id to target an older run (for example `bastion show r-0f3a`).
 
+## When you think a finding is wrong
+
+Sometimes a reviewer fires on a deliberate decision: an accepted tradeoff, a
+breaking change you meant to make, code that looks wrong out of context but is right
+here. The instinct is to argue back in a PR comment. Do not. A reviewer weights a
+comment but never obeys it, so "this is fine, pass" moves nothing, and a
+comment-thread argument is not a channel it acts on.
+
+What reaches a reviewer is your intent. On every run it re-reads your stated intent,
+the surrounding discussion, and its own prior findings, and it is told to drop a
+finding when your reasoning genuinely shows it was wrong (and to hold one the code
+does not support). So push back by explaining the rationale where the reviewer reads
+it, then re-run:
+
+- **Put the "why" in the code.** A comment on the flagged lines saying why the code
+  is written this way travels with the diff the reviewer reads, lands on the exact
+  spot it flagged, and helps the next human too. Reach for this first.
+- **State the decision in your intent.** Locally a reviewer's intent is your
+  `base..HEAD` commit messages; on a PR it is the description, and the discussion is
+  read as well. Spell out the deliberate call there: the tradeoff you accepted, or
+  why the obvious fix is wrong in this case.
+
+Then re-run. If the finding still stands after a rationale the code backs up, treat
+it as real: the reviewer is telling you the code does not actually support your
+explanation.
+
+This is not the same as a reviewer being wrong as policy. If its whole concern or
+trigger is misconceived, not just missing context on this one change, that is a
+question for the human who governs `.bastion.yaml` (the next section), not something
+to explain away per change.
+
 ## Rules that keep the gate meaningful
 
 - **Reviewers are governed policy, not yours to weaken.** They live in
