@@ -3,8 +3,8 @@ name: Release
 # Build and publish Bastion releases to GitHub Releases.
 #
 # Triggered on version tags (v*). Builds binaries for the supported platform
-# matrix in parallel -- native where the runner matches the target, cross-compiled
-# otherwise -- then creates a GitHub Release whose notes are generated from the pull
+# matrix in parallel (native where the runner matches the target, cross-compiled
+# otherwise), then creates a GitHub Release whose notes are generated from the pull
 # requests merged since the previous tag (`--generate-notes`, the "releases as
 # changelog" pattern). The release is first created as a draft (so its notes are
 # generated and every asset is attached to a fully-formed release), then published
@@ -236,11 +236,16 @@ jobs:
       # never sees a release with missing notes or half its assets.
       - name: Publish GitHub release
         if: ${{ !inputs.dry_run }}
-        run: gh release edit "${{ needs.prepare.outputs.tag }}" --draft=false
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "${{ needs.prepare.outputs.tag }}" --draft=false
 
       - name: Write release summary
         if: ${{ !inputs.dry_run }}
+        shell: bash
         run: |
+          set -euo pipefail
           TAG="${{ needs.prepare.outputs.tag }}"
           {
             echo "## Release published: $TAG"
