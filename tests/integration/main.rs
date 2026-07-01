@@ -1858,6 +1858,33 @@ fn github_report_posts_a_comment_and_checks_for_a_blocked_run() {
             && c.body.contains(r#""conclusion":"failure""#)),
         "the aggregate bastion check is missing: {checks:?}"
     );
+
+    // Once the skills are installed, re-reporting the same run through the command
+    // handler no longer folds in the advisory: the handler assesses the working tree
+    // itself, so an up-to-date repo produces a clean comment.
+    assert!(repo.run(fake, &["skills", "install"], &[]).status.success());
+    let github2 = FakeGitHub::start();
+    let output2 = repo.run(
+        fake,
+        &[
+            "github", "report", "--repo", "acme/app", "--pr", "7", "--sha", "deadcafe",
+        ],
+        &[
+            ("GITHUB_API_URL", github2.url.as_str()),
+            ("GITHUB_TOKEN", "ghs-fake-token"),
+        ],
+    );
+    assert!(output2.status.success());
+    let requests2 = github2.finish();
+    let comment2 = requests2
+        .iter()
+        .find(|r| r.method == "POST" && r.path == "/repos/acme/app/issues/7/comments")
+        .expect("a POST creating the sticky comment");
+    assert!(
+        !comment2.body.contains("[!WARNING]") && !comment2.body.contains("bundled agent skills"),
+        "an up-to-date repo should not carry the skills advisory: {}",
+        comment2.body
+    );
 }
 
 #[test]

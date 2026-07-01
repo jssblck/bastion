@@ -321,8 +321,8 @@ impl DriftWarning {
     }
 
     /// A Markdown alert block for the GitHub sticky comment, listing each affected
-    /// file. Uses GitHub's `> [!WARNING]` callout so it stands out from the reviewer
-    /// findings without masquerading as one.
+    /// file. Uses GitHub's `> [!WARNING]` callout so it is visually separate from the
+    /// reviewer findings.
     #[must_use]
     pub fn markdown(&self) -> String {
         let mut out = String::from("> [!WARNING]\n> ");
@@ -493,6 +493,23 @@ mod tests {
         assert!(md.contains("run `bastion skills install --force`"));
         // No Unicode dashes slip into the generated prose.
         assert!(!md.contains('\u{2014}') && !md.contains('\u{2013}'));
+    }
+
+    #[test]
+    fn assess_surfaces_an_unreadable_skill_as_an_error() {
+        // `assess` runs `check`, which reads each installed file. When a skill path is
+        // not a readable file (here a directory sitting where SKILL.md should be),
+        // reading it errors rather than mapping to missing. The review and report
+        // callers turn that error into no-warning (fail open), which this documents at
+        // the source: the error is real, and callers choose to swallow it.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let as_dir = root.join(".claude/skills/using-bastion/SKILL.md");
+        fs::create_dir_all(&as_dir).unwrap();
+        assert!(
+            assess(root, &default_dirs()).is_err(),
+            "an unreadable skill file should surface as an error"
+        );
     }
 
     #[test]

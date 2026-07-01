@@ -431,12 +431,12 @@ pub async fn github_report(
 
     // Fold a skills-freshness advisory into the comment when the checked-out repo's
     // bundled skills are missing or stale, mirroring the stderr notice the local
-    // review prints. Best effort: a check error must never fail the report step.
-    let skills_warning = stale_skills_warning(cwd).map(|w| w.markdown());
+    // review prints. Best effort, so a check error never fails the report step.
+    let skills_warning = stale_skills_warning(cwd);
 
     let client = crate::github::client::RestClient::from_env()?;
     let summary =
-        crate::github::report::report(&client, &ctx, &events, skills_warning.as_deref()).await?;
+        crate::github::report::report(&client, &ctx, &events, skills_warning.as_ref()).await?;
 
     writeln!(
         io::stdout(),
@@ -577,10 +577,10 @@ fn skills_root(cwd: &Path) -> PathBuf {
 /// when every bundled skill is present and current.
 ///
 /// Both review surfaces call this to warn when an agent may be working against
-/// stale guidance. It is deliberately best effort: a check error (an unreadable
-/// skill file) maps to `None` rather than surfacing, since a skills advisory must
-/// never fail a review or a report. The default skills directories are checked, the
-/// same ones `bastion skills install` writes.
+/// stale guidance. It is deliberately best effort, so a check error (an unreadable
+/// skill file) maps to `None` rather than surfacing; a skills advisory must never
+/// fail a review or a report. The default skills directories are checked, the same
+/// ones `bastion skills install` writes.
 fn stale_skills_warning(cwd: &Path) -> Option<skills::DriftWarning> {
     skills::assess(&skills_root(cwd), &skills::default_dirs())
         .ok()
@@ -626,6 +626,20 @@ fn local_run_id(repo_root: &Path) -> RunId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stale_skills_warning_fails_open_on_an_unreadable_skill() {
+        // A skills-freshness check must never fail a review or a report. When the
+        // assessment errors (here a directory where a SKILL.md should be, so reading
+        // it fails), the warning maps to `None` rather than propagating the error.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".claude/skills/using-bastion/SKILL.md")).unwrap();
+        assert!(
+            stale_skills_warning(root).is_none(),
+            "an assessment error should swallow to no warning, not surface"
+        );
+    }
 
     #[test]
     fn github_source_parses_a_slug_and_rejects_malformed_ones() {
