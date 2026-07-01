@@ -1721,6 +1721,40 @@ fn skills_install_and_check_round_trip() {
     );
 }
 
+/// `bastion review` warns on stderr when the bundled skills are missing or stale,
+/// so the driving agent is told to refresh them, and the notice clears once they are
+/// installed. The advisory is stderr-only: it never pollutes the JSONL event stream
+/// on stdout, and it never changes the review's exit status.
+#[test]
+fn review_warns_on_stderr_when_skills_are_stale() {
+    let Some(fake) = tooling() else { return };
+    let repo = TestRepo::new(&registry(&[
+        Reviewer::new("style", "codex", "advisor").behavior("pass")
+    ]));
+
+    // Nothing installed yet: the review still runs, but stderr carries the advisory
+    // pointing at `skills install`, and stdout stays pure JSONL (parse_events would
+    // panic otherwise).
+    let before = repo.review(fake);
+    assert!(
+        before
+            .stderr
+            .contains("bundled agent skills are missing or out of date")
+            && before.stderr.contains("bastion skills install"),
+        "expected a skills advisory on stderr; got:\n{}",
+        before.stderr
+    );
+
+    // Installing the skills clears the advisory on the next review.
+    assert!(repo.run(fake, &["skills", "install"], &[]).status.success());
+    let after = repo.review(fake);
+    assert!(
+        !after.stderr.contains("bundled agent skills"),
+        "the advisory should be gone once skills are installed; got:\n{}",
+        after.stderr
+    );
+}
+
 // ---------------------------------------------------------------------------
 // `bastion github report`: drive the real binary against a fake GitHub.
 // ---------------------------------------------------------------------------
@@ -1783,6 +1817,17 @@ fn github_report_posts_a_comment_and_checks_for_a_blocked_run() {
     );
     assert!(comment.body.contains("Bastion review"));
     assert!(comment.body.contains("simulated blocking finding"));
+    // This repo never installed the bundled skills, so the report folds in the
+    // freshness advisory (a GitHub `[!WARNING]` callout) pointing at `skills install`.
+    assert!(
+        comment.body.contains("[!WARNING]")
+            && comment
+                .body
+                .contains("bundled agent skills are missing or out of date")
+            && comment.body.contains("bastion skills install"),
+        "the skills advisory is missing from the comment: {}",
+        comment.body
+    );
     // The fake stamps check runs with the shared `github-actions` app (as the
     // default GITHUB_TOKEN does), so the report detects the missing dedicated app
     // from the check-run response on its own and closes the comment with the nudge.

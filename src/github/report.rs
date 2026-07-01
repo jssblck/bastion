@@ -255,13 +255,28 @@ fn aggregate_conclusion(digest: &RunDigest) -> Conclusion {
 ///
 /// `suggest_dedicated_app` adds a one-line footer nudge; the caller computes it from
 /// the posting identity (see [`report`]).
-fn comment_body(digest: &RunDigest, suggest_dedicated_app: bool) -> String {
+///
+/// `skills_warning` is a pre-rendered Markdown alert (from
+/// [`crate::skills::DriftWarning::markdown`]) surfaced just under the headline when
+/// the checked-out repo's bundled skills are missing or stale. It is advisory and
+/// never gates: it rides the comment so a maintainer sees that agents may be working
+/// from stale guidance, but it does not touch any check-run conclusion.
+fn comment_body(
+    digest: &RunDigest,
+    suggest_dedicated_app: bool,
+    skills_warning: Option<&str>,
+) -> String {
     let mut out = String::new();
     out.push_str(MARKER);
     out.push('\n');
     out.push_str("## Bastion review\n\n");
     out.push_str(&status_line(digest));
     out.push_str("\n\n");
+
+    if let Some(warning) = skills_warning {
+        out.push_str(warning);
+        out.push('\n');
+    }
 
     if digest.rows.is_empty() {
         out.push_str("No reviewers were triggered by this change.\n");
@@ -743,6 +758,11 @@ impl fmt::Display for ReportSummary {
 /// decided here from GitHub's own response, independent of how the workflow is
 /// written.
 ///
+/// `skills_warning` is an optional pre-rendered Markdown advisory folded into the
+/// comment when the repo's bundled skills are missing or stale (see
+/// [`comment_body`]). It is advisory only and leaves every check-run conclusion
+/// untouched.
+///
 /// # Errors
 ///
 /// Returns an error if a GitHub request fails to send or returns a non-2xx status.
@@ -750,6 +770,7 @@ pub async fn report<A: GitHubApi + ?Sized>(
     api: &A,
     ctx: &PrContext,
     events: &[RunEvent],
+    skills_warning: Option<&str>,
 ) -> Result<ReportSummary> {
     let digest = digest(events);
 
@@ -763,7 +784,11 @@ pub async fn report<A: GitHubApi + ?Sized>(
         }
     }
 
-    let body = comment_body(&digest, posting_app.should_suggest_dedicated_app());
+    let body = comment_body(
+        &digest,
+        posting_app.should_suggest_dedicated_app(),
+        skills_warning,
+    );
     let comment = upsert_comment(api, ctx, &body).await?;
 
     Ok(ReportSummary {
@@ -999,7 +1024,7 @@ mod tests {
 
     #[test]
     fn comment_surfaces_every_finding_including_optional() {
-        let body = comment_body(&digest(&sample_events()), false);
+        let body = comment_body(&digest(&sample_events()), false, None);
         // Marker for in-place upsert, and the headline.
         assert!(body.starts_with(MARKER));
         assert!(body.contains("**Blocked.** 1 of 2 gate(s) passed."));
@@ -1082,7 +1107,7 @@ mod tests {
                 cost_usd: Money::from_cents(0),
             },
         ];
-        let body = comment_body(&digest(&events), false);
+        let body = comment_body(&digest(&events), false, None);
         assert!(body.contains("No gates were triggered."));
         assert!(body.contains("No reviewers were triggered"));
         // With the nudge off, the footer carries no dedicated-app note.
@@ -1093,7 +1118,7 @@ mod tests {
     fn comment_footer_nudges_to_a_dedicated_app_when_asked() {
         // The nudge rides the footer in both the populated and the zero-reviewer
         // shapes, so a passing trivial run still surfaces it.
-        let populated = comment_body(&digest(&sample_events()), true);
+        let populated = comment_body(&digest(&sample_events()), true, None);
         assert!(populated.contains(SETUP_URL));
         assert!(populated.contains("shared GitHub Actions app"));
 
@@ -1120,9 +1145,29 @@ mod tests {
                 cost_usd: Money::from_cents(0),
             },
         ];
-        assert!(comment_body(&digest(&empty_events), true).contains(SETUP_URL));
+        assert!(comment_body(&digest(&empty_events), true, None).contains(SETUP_URL));
         // No Unicode dashes slipped into the nudge prose.
         assert!(!populated.contains('\u{2014}') && !populated.contains('\u{2013}'));
+    }
+
+    #[test]
+    fn comment_folds_in_a_skills_warning_when_given_one() {
+        // The advisory rides just under the headline, above the reviewer table, and
+        // only when supplied: a `None` warning leaves the comment untouched.
+        let digest = digest(&sample_events());
+        let warning = "> [!WARNING]\n> skills are stale; run `bastion skills install`.\n";
+
+        let with = comment_body(&digest, false, Some(warning));
+        assert!(with.contains("> [!WARNING]"));
+        assert!(with.contains("skills are stale"));
+        // It sits after the status headline but before the reviewer table.
+        let warn_at = with.find("[!WARNING]").unwrap();
+        let table_at = with.find("| Reviewer |").unwrap();
+        let headline_at = with.find("reviewer(s) ran").unwrap();
+        assert!(headline_at < warn_at && warn_at < table_at);
+
+        let without = comment_body(&digest, false, None);
+        assert!(!without.contains("[!WARNING]"));
     }
 
     #[test]
@@ -1306,7 +1351,7 @@ mod tests {
             Conclusion::Failure
         );
         // The comment headline reflects the recorded block.
-        assert!(comment_body(&digest, false).contains("**Blocked.** 0 of 1 gate(s) passed."));
+        assert!(comment_body(&digest, false, None).contains("**Blocked.** 0 of 1 gate(s) passed."));
     }
 
     #[test]
@@ -1345,7 +1390,7 @@ mod tests {
         assert_eq!(aggregate.conclusion, Conclusion::Failure);
         assert!(aggregate.title.contains("internally inconsistent"));
         // The comment headline fails closed rather than claiming a pass.
-        assert!(comment_body(&digest, false).contains("internally inconsistent"));
+        assert!(comment_body(&digest, false, None).contains("internally inconsistent"));
     }
 
     #[test]
@@ -1646,7 +1691,7 @@ mod tests {
                 }
             }
         });
-        let summary = report(&api, &ctx(), &sample_events())
+        let summary = report(&api, &ctx(), &sample_events(), None)
             .await
             .expect("reports");
         assert_eq!(summary.comment, CommentAction::Created);
@@ -1708,7 +1753,7 @@ mod tests {
                 }
             }
         });
-        report(&api, &ctx(), &sample_events())
+        report(&api, &ctx(), &sample_events(), None)
             .await
             .expect("reports");
 
@@ -1775,7 +1820,7 @@ mod tests {
                 body: serde_json::Value::Null,
             },
         });
-        let summary = report(&api, &ctx(), &sample_events())
+        let summary = report(&api, &ctx(), &sample_events(), None)
             .await
             .expect("reports");
         assert_eq!(summary.comment, CommentAction::Updated(909));
@@ -1803,7 +1848,9 @@ mod tests {
             status: 403,
             body: serde_json::json!({"message": "Resource not accessible by integration"}),
         });
-        let err = report(&api, &ctx(), &sample_events()).await.unwrap_err();
+        let err = report(&api, &ctx(), &sample_events(), None)
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("returned 403"));
         assert!(err.to_string().contains("Resource not accessible"));
     }

@@ -260,7 +260,8 @@ pub async fn run() -> Result<ExitCode> {
                 crate::commands::codeowners(&owners).map(|()| ExitCode::SUCCESS)
             }
             GithubCommand::Report { repo, pr, sha, run } => {
-                crate::commands::github_report(&layout, &repo, pr, &sha, run.as_deref())
+                let cwd = std::env::current_dir().wrap_err("determining the current directory")?;
+                crate::commands::github_report(&layout, &cwd, &repo, pr, &sha, run.as_deref())
                     .await
                     .map(|()| ExitCode::SUCCESS)
             }

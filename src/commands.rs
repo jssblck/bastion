@@ -67,6 +67,7 @@ pub async fn review(
     user_dir: Option<&Path>,
 ) -> Result<Decision> {
     let repo_root = git::repo_root(cwd)?;
+    warn_on_stale_skills(&repo_root);
     let branch = git::current_branch(&repo_root)?;
     let config = Config::discover_merged(&repo_root, user_dir)?;
     let changed = git::changed_files(&repo_root, base)?;
@@ -409,6 +410,7 @@ pub fn codeowners(owners: &[String]) -> Result<()> {
 /// not pile a second, confusing error on top of the real one).
 pub async fn github_report(
     layout: &Layout,
+    cwd: &Path,
     slug: &str,
     pr: u64,
     sha: &str,
@@ -427,8 +429,14 @@ pub async fn github_report(
     };
     let events = store::read_run(layout, &run)?;
 
+    // Fold a skills-freshness advisory into the comment when the checked-out repo's
+    // bundled skills are missing or stale, mirroring the stderr notice the local
+    // review prints. Best effort: a check error must never fail the report step.
+    let skills_warning = stale_skills_warning(cwd).map(|w| w.markdown());
+
     let client = crate::github::client::RestClient::from_env()?;
-    let summary = crate::github::report::report(&client, &ctx, &events).await?;
+    let summary =
+        crate::github::report::report(&client, &ctx, &events, skills_warning.as_deref()).await?;
 
     writeln!(
         io::stdout(),
@@ -467,7 +475,11 @@ pub fn skills_install(cwd: &Path, dirs: &[PathBuf], force: bool) -> Result<()> {
                 "skipped (exists)"
             }
         };
-        writeln!(out, "  {label}: {}", relative_to(&root, &outcome.path))?;
+        writeln!(
+            out,
+            "  {label}: {}",
+            skills::display_relative(&root, &outcome.path)
+        )?;
     }
     if skipped > 0 {
         writeln!(
@@ -516,7 +528,11 @@ pub fn skills_check(cwd: &Path, dirs: &[PathBuf]) -> Result<bool> {
                 "missing"
             }
         };
-        writeln!(out, "  {label}: {}", relative_to(&root, &outcome.path))?;
+        writeln!(
+            out,
+            "  {label}: {}",
+            skills::display_relative(&root, &outcome.path)
+        )?;
     }
     if !current {
         writeln!(
@@ -557,6 +573,32 @@ fn skills_root(cwd: &Path) -> PathBuf {
     git::repo_root(cwd).unwrap_or_else(|_| cwd.to_path_buf())
 }
 
+/// The skills-freshness advisory for the repository containing `cwd`, or `None`
+/// when every bundled skill is present and current.
+///
+/// Both review surfaces call this to warn when an agent may be working against
+/// stale guidance. It is deliberately best effort: a check error (an unreadable
+/// skill file) maps to `None` rather than surfacing, since a skills advisory must
+/// never fail a review or a report. The default skills directories are checked, the
+/// same ones `bastion skills install` writes.
+fn stale_skills_warning(cwd: &Path) -> Option<skills::DriftWarning> {
+    skills::assess(&skills_root(cwd), &skills::default_dirs())
+        .ok()
+        .flatten()
+}
+
+/// Print the skills-freshness advisory to stderr, where the agent driving
+/// `bastion review` sees it alongside the run. Silent when the skills are current.
+///
+/// stderr keeps it out of the `--format jsonl` event stream on stdout (so a parsing
+/// agent's input stays clean) while still landing somewhere both a human and an
+/// agent read, matching how the GitHub-context notice is surfaced.
+fn warn_on_stale_skills(repo_root: &Path) {
+    if let Some(warning) = stale_skills_warning(repo_root) {
+        eprintln!("bastion review: {}", warning.plain());
+    }
+}
+
 /// The requested skill directories, falling back to the documented defaults when
 /// none were passed.
 fn resolve_skill_dirs(dirs: &[PathBuf]) -> Vec<PathBuf> {
@@ -565,17 +607,6 @@ fn resolve_skill_dirs(dirs: &[PathBuf]) -> Vec<PathBuf> {
     } else {
         dirs.to_vec()
     }
-}
-
-/// Display `path` relative to `root` for tidy output, falling back to the full
-/// path when it lies outside `root`. Separators are normalized to `/` so the
-/// output is consistent across platforms and matches the docs, rather than mixing
-/// the `/` in a default like `.claude/skills` with Windows' `\`.
-fn relative_to(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
 }
 
 /// How many runs to keep when `bastion clean` is given no arguments.
