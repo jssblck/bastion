@@ -151,7 +151,11 @@ version:
   comment and check-run payloads (all pure and unit-tested) and posts them. `bastion
   github report` reads a persisted run and posts it: the sticky comment (with every
   finding, optional ones included), a check run per reviewer, and the always-present
-  aggregate `bastion` check. Check runs need a GitHub App installation token, so this
+  aggregate `bastion` check. It also folds a skills-freshness advisory into the comment
+  (a `[!WARNING]` callout) when the checked-out repo's bundled skills are missing or
+  drifted from the reporting binary, computed via `skills::assess`; it is advisory only
+  and never touches a check-run conclusion. The local `bastion review` mirrors it to
+  stderr. Check runs need a GitHub App installation token, so this
   runs under one (the default Actions `GITHUB_TOKEN` qualifies; a classic PAT does
   not). API-created check runs carry no check-suite id, so under the shared
   `github-actions` identity GitHub buckets them into a sibling workflow's suite (they
@@ -174,6 +178,10 @@ version:
   `bastion skills check` fails closed when a checked-in copy has drifted from the
   embedded source (a deterministic, version-independent lint wired into
   `.github/workflows/ci.yml`), and `bastion skills list` shows what is bundled.
+  `skills::assess` reuses that same check to build an advisory `DriftWarning` (missing
+  and drifted files, with `plain`/`markdown` renderings) that both review surfaces emit
+  when a repo's skills are stale: `bastion review` to stderr, `bastion github report`
+  into the sticky comment. It is advisory and never gates.
   This repo dogfoods the `using-bastion` skill: its agents work *on* Bastion and
   *with* it. Distinct from it are the repo-local skills that guide agents working
   on Bastion: the Rust skills and the `stop-slop` prose skill, which are not

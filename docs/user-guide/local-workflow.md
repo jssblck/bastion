@@ -112,6 +112,21 @@ This contract is exactly what `bastion skills install` checks into your repo as 
 `using-bastion` agent skill, so your agents follow it without being told each time.
 See [Teach your agents to use Bastion](./getting-started.md#7-teach-your-agents-to-use-bastion).
 
+### The skills-freshness notice on stderr
+
+Before it runs, `bastion review` compares the `using-bastion` skill checked into your
+repo (under `.claude/skills` and `.agents/skills`) against the copy bundled in the
+running binary, the same comparison `bastion skills check` makes. When the checked-in
+copy is missing or has drifted, it prints a one-line notice to **stderr** naming the
+affected files and pointing at `bastion skills install`. This is the case where your
+agents may be following stale guidance, so the driving agent sees the notice inline
+with the run.
+
+It goes to stderr on purpose, keeping stdout as pure JSONL for a parser; the notice is
+advisory, so it never adds an event to the stream and never changes the exit status. A
+`block` still comes only from a reviewer. Run `bastion skills install` (add `--force`
+to overwrite a file you edited) and commit the result to clear it.
+
 ### Money is dollars
 
 Cost fields (`cost_usd`) serialize as dollars (`0.21`) even though Bastion tracks

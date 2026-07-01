@@ -40,6 +40,15 @@ two GitHub surfaces:
   (`bastion / tenant-isolation`). A blocking gate reports `failure`; a passing gate
   reports `success`; an advisor reports `success` with its findings attached.
 
+`bastion github report` also folds a skills-freshness advisory into the sticky comment
+when the checked-out repo's bundled skills (`.claude/skills` and `.agents/skills`) are
+missing or have drifted from the reporting binary, the same comparison
+`bastion skills check` makes. It renders as a `> [!WARNING]` callout just under the
+headline, naming each affected file and pointing at `bastion skills install`. It is
+advisory only, so it never changes a check-run conclusion or the `bastion` gate; it
+tells you to refresh stale skills without failing the build. The local `bastion review`
+prints the same notice to stderr.
+
 The local-to-GitHub mapping is one-to-one for the repository's reviewers: the JSONL
 events a CI or `bastion review --repo/--pr` run produces are the same decisions GitHub
 renders as checks and a comment. (A purely local run can also include your personal

@@ -209,6 +209,134 @@ pub fn check(root: &Path, dirs: &[PathBuf]) -> Result<Vec<CheckOutcome>> {
     Ok(outcomes)
 }
 
+/// Display `path` relative to `root`, falling back to the full path when it lies
+/// outside `root`, with separators normalized to `/` so the output matches the docs
+/// and stays stable across platforms rather than mixing a `/`-spelled default like
+/// `.claude/skills` with Windows' `\`.
+#[must_use]
+pub fn display_relative(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// The bundled skills a repository has not installed, or has let drift from this
+/// binary's embedded source.
+///
+/// Both review surfaces render this as an *advisory* warning so an agent working
+/// against stale guidance is told to refresh it: `bastion review` prints
+/// [`DriftWarning::plain`] to stderr (where the driving agent sees it), and the
+/// GitHub report folds [`DriftWarning::markdown`] into the sticky PR comment. It
+/// never gates. An out-of-date skill is a documentation-freshness problem, not a
+/// merge risk, so it must not turn a green review red (advisories fail open).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DriftWarning {
+    /// Repo-relative paths of skills that are not installed at all.
+    missing: Vec<String>,
+    /// Repo-relative paths of skills whose content has drifted from the embedded
+    /// source (a hand edit, or a stale install left behind when the source changed).
+    drifted: Vec<String>,
+}
+
+/// Assess the installed skills under `root` and summarize anything missing or
+/// drifted into a [`DriftWarning`], or `None` when every bundled skill is present
+/// and current.
+///
+/// This is the read-only basis for the advisory both review surfaces emit; it runs
+/// [`check`] and partitions the outcomes. Callers treat any error as "could not
+/// check" and proceed, since the warning must never fail a review.
+///
+/// # Errors
+///
+/// Returns an error if a skill file exists but cannot be read.
+pub fn assess(root: &Path, dirs: &[PathBuf]) -> Result<Option<DriftWarning>> {
+    let outcomes = check(root, dirs)?;
+    Ok(DriftWarning::from_outcomes(root, &outcomes))
+}
+
+impl DriftWarning {
+    /// Partition a [`check`] result into the missing and drifted files, or `None`
+    /// when nothing is out of date. Paths are rendered relative to `root` for a
+    /// tidy, portable display.
+    #[must_use]
+    fn from_outcomes(root: &Path, outcomes: &[CheckOutcome]) -> Option<Self> {
+        let collect = |want: Checked| {
+            outcomes
+                .iter()
+                .filter(|o| o.status == want)
+                .map(|o| display_relative(root, &o.path))
+                .collect::<Vec<_>>()
+        };
+        let missing = collect(Checked::Missing);
+        let drifted = collect(Checked::Drifted);
+        if missing.is_empty() && drifted.is_empty() {
+            None
+        } else {
+            Some(Self { missing, drifted })
+        }
+    }
+
+    /// The lead sentence, shared by both renderings.
+    fn lead(&self) -> &'static str {
+        "Bastion's bundled agent skills are missing or out of date in this repository, \
+         so agents may be working from stale guidance on how to use Bastion."
+    }
+
+    /// The remedy clause. A drifted file already exists on disk, so refreshing it
+    /// needs `--force` (a plain install leaves an existing file untouched); a purely
+    /// missing set installs cleanly without it.
+    fn remedy(&self) -> &'static str {
+        if self.drifted.is_empty() {
+            "run `bastion skills install` to install them, then commit the result"
+        } else {
+            "run `bastion skills install --force` to refresh them, then commit the result"
+        }
+    }
+
+    /// The affected files as `(path, reason)` pairs, missing before drifted, so the
+    /// rendering is deterministic.
+    fn items(&self) -> Vec<(&str, &'static str)> {
+        let mut items: Vec<(&str, &'static str)> = Vec::new();
+        items.extend(self.missing.iter().map(|p| (p.as_str(), "missing")));
+        items.extend(self.drifted.iter().map(|p| (p.as_str(), "drifted")));
+        items
+    }
+
+    /// A one-line rendering for a terminal or log, which `bastion review` prints to
+    /// stderr so the driving agent sees it inline with the run.
+    #[must_use]
+    pub fn plain(&self) -> String {
+        let files = self
+            .items()
+            .into_iter()
+            .map(|(path, reason)| format!("{path} ({reason})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "{} To fix, {}. Affected: {files}.",
+            self.lead(),
+            self.remedy()
+        )
+    }
+
+    /// A Markdown alert block for the GitHub sticky comment, listing each affected
+    /// file. Uses GitHub's `> [!WARNING]` callout so it is visually separate from the
+    /// reviewer findings.
+    #[must_use]
+    pub fn markdown(&self) -> String {
+        let mut out = String::from("> [!WARNING]\n> ");
+        out.push_str(self.lead());
+        out.push_str(" To fix, ");
+        out.push_str(self.remedy());
+        out.push_str(".\n>\n");
+        for (path, reason) in self.items() {
+            out.push_str(&format!("> - `{path}` ({reason})\n"));
+        }
+        out
+    }
+}
+
 /// Read a file to a string, mapping a missing file to `None` rather than an error.
 fn read_if_exists(path: &Path) -> Result<Option<String>> {
     match fs::read_to_string(path) {
@@ -332,6 +460,55 @@ mod tests {
             after
                 .iter()
                 .any(|o| o.path != edited && o.status == Checked::UpToDate)
+        );
+    }
+
+    #[test]
+    fn assess_is_none_when_every_skill_is_current_and_a_warning_otherwise() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // Nothing installed: every skill reads as missing, so a warning names the
+        // missing files and points at a plain install (no drift, so no --force).
+        let warning = assess(root, &default_dirs()).unwrap().expect("a warning");
+        let plain = warning.plain();
+        assert!(plain.contains("missing or out of date"));
+        assert!(plain.contains(".claude/skills/using-bastion/SKILL.md (missing)"));
+        assert!(plain.contains("run `bastion skills install` to install them"));
+        assert!(!plain.contains("--force"), "no drift, so no force: {plain}");
+
+        // A clean install clears the warning entirely.
+        install(root, &default_dirs(), false).unwrap();
+        assert_eq!(assess(root, &default_dirs()).unwrap(), None);
+
+        // A hand edit drifts one file: the warning switches to the --force remedy and
+        // tags the file as drifted, while the untouched sibling is not listed.
+        let edited = root.join(".claude/skills/using-bastion/SKILL.md");
+        fs::write(&edited, "tampered\n").unwrap();
+        let after = assess(root, &default_dirs()).unwrap().expect("a warning");
+        let md = after.markdown();
+        assert!(md.starts_with("> [!WARNING]"));
+        assert!(md.contains("`.claude/skills/using-bastion/SKILL.md` (drifted)"));
+        assert!(!md.contains(".agents/skills/using-bastion/SKILL.md"));
+        assert!(md.contains("run `bastion skills install --force`"));
+        // No Unicode dashes slip into the generated prose.
+        assert!(!md.contains('\u{2014}') && !md.contains('\u{2013}'));
+    }
+
+    #[test]
+    fn assess_surfaces_an_unreadable_skill_as_an_error() {
+        // `assess` runs `check`, which reads each installed file. When a skill path is
+        // not a readable file (here a directory sitting where SKILL.md should be),
+        // reading it errors rather than mapping to missing. The review and report
+        // callers turn that error into no-warning (fail open), which this documents at
+        // the source: the error is real, and callers choose to swallow it.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let as_dir = root.join(".claude/skills/using-bastion/SKILL.md");
+        fs::create_dir_all(&as_dir).unwrap();
+        assert!(
+            assess(root, &default_dirs()).is_err(),
+            "an unreadable skill file should surface as an error"
         );
     }
 
