@@ -72,10 +72,11 @@ To cut a release:
    every supported target -- Linux x86_64/aarch64 (glibc and musl), macOS
    x86_64/aarch64, and Windows x86_64 -- packages each as a `.tar.gz` alongside
    `README.md`, `LICENSE`, and `NOTICE`, generates SHA-256 `checksums.txt`, and
-   opens a **draft** GitHub Release whose notes are generated from the pull
-   requests merged since the previous tag (`--generate-notes`).
-4. Review the draft and its generated notes, edit if needed, and publish.
-5. Bastion's own review gate adopts the new engine automatically; there is no version
+   publishes a GitHub Release whose notes are generated from the pull requests
+   merged since the previous tag (`--generate-notes`). The release is created as a
+   draft (so its notes and assets are complete before it is visible), then flipped
+   to published in a final step.
+4. Bastion's own review gate adopts the new engine automatically; there is no version
    pin to bump. The [`bastion.yml`](.github/workflows/bastion.yml) workflow downloads
    the *latest* published release rather than building from each PR's sources, so the
    engine that judges a PR is never the engine the PR edits, yet it tracks releases

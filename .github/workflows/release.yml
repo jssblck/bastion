@@ -3,10 +3,12 @@ name: Release
 # Build and publish Bastion releases to GitHub Releases.
 #
 # Triggered on version tags (v*). Builds binaries for the supported platform
-# matrix in parallel -- native where the runner matches the target, cross-compiled
-# otherwise -- then creates a DRAFT GitHub Release whose notes are generated from
-# the pull requests merged since the previous tag (`--generate-notes`, the
-# "releases as changelog" pattern). The draft is reviewed and published by hand.
+# matrix in parallel (native where the runner matches the target, cross-compiled
+# otherwise), then creates a GitHub Release whose notes are generated from the pull
+# requests merged since the previous tag (`--generate-notes`, the "releases as
+# changelog" pattern). The release is first created as a draft (so its notes are
+# generated and every asset is attached to a fully-formed release), then published
+# in a final step, so a consumer never sees a partial release.
 #
 # macOS binaries are shipped unsigned for now. Code signing and notarization need
 # an Apple Developer account; wire them in once that exists.
@@ -217,6 +219,8 @@ jobs:
           echo "Generated checksums:"
           cat checksums.txt
 
+      # Create the release as a draft first so GitHub generates its notes and
+      # attaches every asset to a fully-formed release before it is visible.
       - name: Create draft GitHub release
         if: ${{ !inputs.dry_run }}
         run: |
@@ -228,20 +232,27 @@ jobs:
             artifacts/*.tar.gz \
             artifacts/checksums.txt
 
+      # Flip the fully-built draft to published in one final step, so a consumer
+      # never sees a release with missing notes or half its assets.
+      - name: Publish GitHub release
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "${{ needs.prepare.outputs.tag }}" --draft=false
+
       - name: Write release summary
         if: ${{ !inputs.dry_run }}
+        shell: bash
         run: |
+          set -euo pipefail
           TAG="${{ needs.prepare.outputs.tag }}"
           {
-            echo "## Draft release created: $TAG"
+            echo "## Release published: $TAG"
             echo ""
-            echo "A draft release was created with auto-generated notes (the merged PRs since the previous tag)."
+            echo "The release was published with auto-generated notes (the merged PRs since the previous tag)."
             echo ""
-            echo "### Next steps"
-            echo ""
-            echo "1. [Review the draft release](https://github.com/${{ github.repository }}/releases)"
-            echo "2. Edit the generated notes if needed"
-            echo "3. **Publish when ready**"
+            echo "[View the release](https://github.com/${{ github.repository }}/releases/tag/$TAG)"
             echo ""
             echo "### Checksums"
             echo ""
