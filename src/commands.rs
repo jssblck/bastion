@@ -595,7 +595,10 @@ fn stale_skills_warning(cwd: &Path) -> Option<skills::DriftWarning> {
 /// agent read, matching how the GitHub-context notice is surfaced.
 fn warn_on_stale_skills(repo_root: &Path) {
     if let Some(warning) = stale_skills_warning(repo_root) {
-        eprintln!("bastion review: {}", warning.plain());
+        // Fail open on the write itself. This advisory runs before any reviewer, so a
+        // failed stderr write (a broken pipe, say) must not abort an otherwise-passing
+        // review the way `eprintln!` would by panicking; swallow the result instead.
+        let _ = writeln!(io::stderr(), "bastion review: {}", warning.plain());
     }
 }
 
